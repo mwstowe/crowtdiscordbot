@@ -703,13 +703,20 @@ impl EventHandler for Bot {
     async fn message(&self, ctx: Context, msg: Message) {
         // Check if the message is from a bot
         if msg.author.bot {
-            // If it's a bot, check if it's in our gateway bot list
+            // Add detailed logging for bot messages
             let bot_id = msg.author.id.get();
+            info!("📝 Received message from bot ID: {} ({})", bot_id, msg.author.name);
+            info!("📝 Gateway bot IDs configured: {:?}", self.gateway_bot_ids);
+            info!("📝 Is this bot in our gateway list? {}", self.gateway_bot_ids.contains(&bot_id));
+            info!("📝 Message content: {}", msg.content);
+            
             if !self.gateway_bot_ids.contains(&bot_id) {
                 // Not in our gateway bot list, ignore the message
+                info!("❌ Ignoring message from bot {} as it's not in our gateway bot list", bot_id);
                 return;
             }
             // If it's in our gateway bot list, continue processing
+            info!("✅ Processing message from gateway bot {}", bot_id);
         }
         
         // Only process messages in the followed channel
