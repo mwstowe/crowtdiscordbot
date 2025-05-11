@@ -377,7 +377,7 @@ impl Bot {
             bot_name,
             message_db,
             message_history_limit,
-            gemini_prompt_wrapper: "You are {bot_name}, a helpful and friendly Discord bot. Respond to: {message}".to_string(),
+            gemini_prompt_wrapper: "You are {bot_name}, a helpful and friendly Discord bot. Respond to {user}: {message}".to_string(),
             commands,
             keyword_triggers,
         }
@@ -812,6 +812,58 @@ impl Bot {
             return Ok(());
         }
         
+        // Check if message starts with the bot's name
+        let content_lower = msg.content.to_lowercase();
+        let bot_name_lower = self.bot_name.to_lowercase();
+        
+        if content_lower.starts_with(&bot_name_lower) {
+            // Extract the message content without the bot's name
+            let content = msg.content[self.bot_name.len()..].trim().to_string();
+            
+            if !content.is_empty() {
+                if let Some(_api_key) = &self.gemini_api_key {
+                    // Send a "thinking" message
+                    let mut thinking_msg = match msg.channel_id.say(&ctx.http, "*thinking...*").await {
+                        Ok(msg) => msg,
+                        Err(e) => {
+                            error!("Error sending thinking message: {:?}", e);
+                            return Ok(());
+                        }
+                    };
+                    
+                    // Call the Gemini API with user's display name
+                    let user_name = &msg.author.name;
+                    match self.call_gemini_api_with_user(&content, user_name).await {
+                        Ok(response) => {
+                            // Edit the thinking message with the actual response
+                            if let Err(e) = thinking_msg.edit(&ctx.http, EditMessage::new().content(response.clone())).await {
+                                error!("Error editing thinking message: {:?}", e);
+                                // Try sending a new message if editing fails
+                                if let Err(e) = msg.channel_id.say(&ctx.http, "Sorry, I couldn't edit my message. Here's my response:").await {
+                                    error!("Error sending fallback message: {:?}", e);
+                                }
+                                if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
+                                    error!("Error sending Gemini response: {:?}", e);
+                                }
+                            }
+                        },
+                        Err(e) => {
+                            error!("Error calling Gemini API: {:?}", e);
+                            if let Err(e) = thinking_msg.edit(&ctx.http, EditMessage::new().content(format!("Sorry, I encountered an error: {}", e))).await {
+                                error!("Error editing thinking message: {:?}", e);
+                            }
+                        }
+                    }
+                } else {
+                    // Fallback if Gemini API is not configured
+                    if let Err(e) = msg.channel_id.say(&ctx.http, format!("Hello {}, you called my name! I'm {}! (Gemini API is not configured)", msg.author.name, self.bot_name)).await {
+                        error!("Error sending name response: {:?}", e);
+                    }
+                }
+                return Ok(());
+            }
+        }
+        
         // Check for keyword triggers
         let content_lower = msg.content.to_lowercase();
         
@@ -858,8 +910,9 @@ impl Bot {
                         }
                     };
                     
-                    // Call the Gemini API
-                    match self.call_gemini_api(&content).await {
+                    // Call the Gemini API with user's display name
+                    let user_name = &msg.author.name;
+                    match self.call_gemini_api_with_user(&content, user_name).await {
                         Ok(response) => {
                             // Edit the thinking message with the actual response
                             let response_clone = response.clone();
@@ -896,6 +949,11 @@ impl Bot {
 
 impl Bot {
     async fn call_gemini_api(&self, prompt: &str) -> Result<String> {
+        // For backward compatibility, call the version with user name
+        self.call_gemini_api_with_user(prompt, "User").await
+    }
+    
+    async fn call_gemini_api_with_user(&self, prompt: &str, user_name: &str) -> Result<String> {
         // Check if we have an API key
         let api_key = match &self.gemini_api_key {
             Some(key) => key,
@@ -907,10 +965,11 @@ impl Bot {
         // Determine which endpoint to use
         let endpoint = self.gemini_api_endpoint.as_deref().unwrap_or("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent");
         
-        // Format the prompt using the wrapper
+        // Format the prompt using the wrapper, including the user's name
         let formatted_prompt = self.gemini_prompt_wrapper
             .replace("{message}", prompt)
-            .replace("{bot_name}", &self.bot_name);
+            .replace("{bot_name}", &self.bot_name)
+            .replace("{user}", user_name);
         
         info!("Calling Gemini API with prompt: {}", formatted_prompt);
         
