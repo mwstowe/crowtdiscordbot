@@ -52,6 +52,7 @@ struct Bot {
     commands: HashMap<String, String>,
     keyword_triggers: Vec<(Vec<String>, String)>,
     crime_generator: CrimeFightingGenerator,
+    gateway_bot_ids: Vec<u64>,
 }
 
 impl Bot {
@@ -70,21 +71,16 @@ impl Bot {
         message_db: Option<Arc<tokio::sync::Mutex<Connection>>>,
         message_history_limit: usize,
         thinking_message: Option<String>,
+        gateway_bot_ids: Vec<u64>,
     ) -> Self {
         // Define the commands the bot will respond to
         let mut commands = HashMap::new();
         commands.insert("hello".to_string(), "world!".to_string());
         commands.insert("help".to_string(), "Available commands:\n!hello - Say hello\n!help - Show this help message\n!fightcrime - Generate a crime fighting duo\n!quote [search_term] - Get a random quote\n!quote -show [show_name] - Get a random quote from a specific show\n!quote -dud [username] - Get a random message from a user\n!slogan [search_term] - Get a random advertising slogan".to_string());
         
-        // Define keyword triggers
-        let mut keyword_triggers = Vec::new();
-        // Removed "magic voice" trigger as requested
-        keyword_triggers.push((vec!["discord".to_string(), "bot".to_string()], 
-                              format!("Yes, I'm a Discord bot! My name is {}!", bot_name)));
-        keyword_triggers.push((vec!["who".to_string(), "fights".to_string(), "crime".to_string()], 
-                              "CRIME_FIGHTING_DUO".to_string()));
-        keyword_triggers.push((vec!["lisa".to_string(), "needs".to_string(), "braces".to_string()], 
-                              "DENTAL PLAN!".to_string()));
+        // Define keyword triggers - empty but we keep the structure for future additions
+        let keyword_triggers = Vec::new();
+        // We handle exact phrase matches separately in the message processing logic
         
         // Create database manager
         let db_manager = DatabaseManager::new(mysql_host.clone(), mysql_db.clone(), mysql_user.clone(), mysql_password.clone());
@@ -134,6 +130,7 @@ impl Bot {
             commands,
             keyword_triggers,
             crime_generator,
+            gateway_bot_ids,
         }
     }
     
@@ -577,27 +574,43 @@ impl Bot {
         // Check for keyword triggers
         let content_lower = msg.content.to_lowercase();
         
+        // First check for exact phrase matches (case insensitive)
+        if content_lower.contains("who fights crime") {
+            match self.generate_crime_fighting_duo(&ctx).await {
+                Ok(duo) => {
+                    if let Err(e) = msg.channel_id.say(&ctx.http, duo).await {
+                        error!("Error sending crime fighting duo: {:?}", e);
+                    }
+                },
+                Err(e) => {
+                    error!("Error generating crime fighting duo: {:?}", e);
+                    if let Err(e) = msg.channel_id.say(&ctx.http, "Error generating crime fighting duo").await {
+                        error!("Error sending error message: {:?}", e);
+                    }
+                }
+            }
+            return Ok(());
+        }
+        
+        if content_lower.contains("lisa needs braces") {
+            if let Err(e) = msg.channel_id.say(&ctx.http, "DENTAL PLAN!").await {
+                error!("Error sending response: {:?}", e);
+            }
+            return Ok(());
+        }
+        
+        if content_lower.contains("my spoon is too big") {
+            if let Err(e) = msg.channel_id.say(&ctx.http, "I am a banana!").await {
+                error!("Error sending response: {:?}", e);
+            }
+            return Ok(());
+        }
+        
+        // Then check for keyword-based triggers (words can be anywhere in message)
         for (keywords, response) in &self.keyword_triggers {
             if keywords.iter().all(|keyword| content_lower.contains(&keyword.to_lowercase())) {
-                // Special handling for "who fights crime"
-                if response == "CRIME_FIGHTING_DUO" {
-                    match self.generate_crime_fighting_duo(&ctx).await {
-                        Ok(duo) => {
-                            if let Err(e) = msg.channel_id.say(&ctx.http, duo).await {
-                                error!("Error sending crime fighting duo: {:?}", e);
-                            }
-                        },
-                        Err(e) => {
-                            error!("Error generating crime fighting duo: {:?}", e);
-                            if let Err(e) = msg.channel_id.say(&ctx.http, "Error generating crime fighting duo").await {
-                                error!("Error sending error message: {:?}", e);
-                            }
-                        }
-                    }
-                } else {
-                    if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
-                        error!("Error sending keyword response: {:?}", e);
-                    }
+                if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
+                    error!("Error sending keyword response: {:?}", e);
                 }
                 return Ok(());
             }
@@ -688,9 +701,15 @@ impl Bot {
 #[async_trait]
 impl EventHandler for Bot {
     async fn message(&self, ctx: Context, msg: Message) {
-        // Ignore messages from bots (including ourselves)
+        // Check if the message is from a bot
         if msg.author.bot {
-            return;
+            // If it's a bot, check if it's in our gateway bot list
+            let bot_id = msg.author.id.get();
+            if !self.gateway_bot_ids.contains(&bot_id) {
+                // Not in our gateway bot list, ignore the message
+                return;
+            }
+            // If it's in our gateway bot list, continue processing
         }
         
         // Only process messages in the followed channel
@@ -780,7 +799,7 @@ async fn main() -> Result<()> {
     let token = &config.discord_token;
     
     // Parse config values
-    let (bot_name, message_history_limit, db_trim_interval, gemini_rate_limit_minute, gemini_rate_limit_day) = 
+    let (bot_name, message_history_limit, db_trim_interval, gemini_rate_limit_minute, gemini_rate_limit_day, gateway_bot_ids) = 
         parse_config(&config);
     
     // Get Gemini API key
@@ -949,7 +968,8 @@ async fn main() -> Result<()> {
         bot_name.clone(),
         message_db.clone(),
         message_history_limit,
-        thinking_message
+        thinking_message,
+        gateway_bot_ids.clone()
     );
     
     // Check database connection
@@ -990,6 +1010,9 @@ async fn main() -> Result<()> {
     info!("✅ Bot initialization complete! Starting bot...");
     info!("Bot name: {}", bot_name);
     info!("Following channel ID: {}", channel_id);
+    if !gateway_bot_ids.is_empty() {
+        info!("Will respond to gateway bots with IDs: {:?}", gateway_bot_ids);
+    }
     info!("Press Ctrl+C to stop the bot");
     client.start().await?;
 

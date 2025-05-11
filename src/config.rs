@@ -25,6 +25,7 @@ pub struct Config {
     pub db_name: Option<String>,
     pub db_user: Option<String>,
     pub db_password: Option<String>,
+    pub gateway_bot_ids: Option<String>,
 }
 
 pub fn load_config() -> Result<Config> {
@@ -48,7 +49,8 @@ pub fn parse_config(config: &Config) -> (
     usize,                  // message_history_limit
     u64,                    // db_trim_interval
     u32,                    // gemini_rate_limit_minute
-    u32                     // gemini_rate_limit_day
+    u32,                    // gemini_rate_limit_day
+    Vec<u64>                // gateway_bot_ids
 ) {
     // Get the bot name
     let bot_name = config.bot_name.clone().unwrap_or_else(|| "Crow".to_string());
@@ -82,12 +84,38 @@ pub fn parse_config(config: &Config) -> (
     
     info!("Gemini API rate limits set to {} calls per minute and {} calls per day", 
           gemini_rate_limit_minute, gemini_rate_limit_day);
+    
+    // Parse gateway bot IDs
+    let gateway_bot_ids = config.gateway_bot_ids
+        .as_ref()
+        .map(|ids_str| {
+            ids_str.split(',')
+                .filter_map(|id_str| {
+                    let trimmed = id_str.trim();
+                    match trimmed.parse::<u64>() {
+                        Ok(id) => Some(id),
+                        Err(_) => {
+                            info!("Invalid gateway bot ID: {}", trimmed);
+                            None
+                        }
+                    }
+                })
+                .collect::<Vec<u64>>()
+        })
+        .unwrap_or_else(Vec::new);
+    
+    if !gateway_bot_ids.is_empty() {
+        info!("Will respond to {} gateway bots: {:?}", gateway_bot_ids.len(), gateway_bot_ids);
+    } else {
+        info!("No gateway bots configured, will ignore all bot messages");
+    }
           
     (
         bot_name,
         message_history_limit,
         db_trim_interval,
         gemini_rate_limit_minute,
-        gemini_rate_limit_day
+        gemini_rate_limit_day,
+        gateway_bot_ids
     )
 }
