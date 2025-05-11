@@ -1,9 +1,7 @@
 use std::collections::{HashMap, VecDeque};
-use std::fs;
-use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use anyhow::{Context as AnyhowContext, Result};
+use anyhow::{Result, Context as AnyhowContext};
 use serenity::all::*;
 use serenity::async_trait;
 use serenity::model::channel::Message;
@@ -13,16 +11,24 @@ use serenity::prelude::*;
 use tokio::sync::RwLock;
 use tracing::{error, info};
 use tokio_rusqlite::Connection;
-use serde::Deserialize;
-use rand::Rng;
 use rand::seq::SliceRandom;
-use mysql::{Pool, OptsBuilder, prelude::*};
-use reqwest;
-use regex::Regex;
-use serde_json;
+use rand::Rng;
 
-// Import database utility functions
+// Import modules
 mod db_utils;
+mod config;
+mod database;
+mod google_search;
+mod gemini_api;
+mod crime_fighting;
+
+// Use our modules
+use config::{load_config, parse_config};
+use database::DatabaseManager;
+use google_search::GoogleSearchClient;
+use gemini_api::GeminiClient;
+use crime_fighting::CrimeFightingGenerator;
+
 // Define keys for the client data
 struct RecentSpeakersKey;
 impl TypeMapKey for RecentSpeakersKey {
@@ -34,305 +40,18 @@ impl TypeMapKey for MessageHistoryKey {
     type Value = Arc<RwLock<VecDeque<Message>>>;
 }
 
-#[derive(Debug, Deserialize, Clone)]
-struct Config {
-    discord_token: String,
-    followed_channel_name: Option<String>,
-    followed_channel_id: Option<String>,
-    followed_server_name: Option<String>,
-    bot_name: Option<String>,
-    message_history_limit: Option<String>,
-    db_trim_interval_secs: Option<String>,
-    gemini_rate_limit_minute: Option<String>,
-    gemini_rate_limit_day: Option<String>,
-    gemini_api_key: Option<String>,
-    gemini_api_endpoint: Option<String>,
-    gemini_prompt_wrapper: Option<String>,
-    thinking_message: Option<String>,
-    google_api_key: Option<String>,
-    google_search_engine_id: Option<String>,
-    db_host: Option<String>,
-    db_name: Option<String>,
-    db_user: Option<String>,
-    db_password: Option<String>,
-}
-
-// Create a DatabaseManager struct
-struct DatabaseManager {
-    pool: Option<Pool>,
-}
-
-impl DatabaseManager {
-    fn new(host: Option<String>, db: Option<String>, user: Option<String>, password: Option<String>) -> Self {
-        info!("Creating DatabaseManager with host={:?}, db={:?}, user={:?}, password={}",
-              host, db, user, if password.is_some() { "provided" } else { "not provided" });
-        
-        let pool = if let (Some(host), Some(db), Some(user), Some(password)) = 
-            (&host, &db, &user, &password) {
-            info!("All database credentials provided, attempting to connect to MySQL");
-            let opts = OptsBuilder::new()
-                .ip_or_hostname(Some(host.clone()))
-                .db_name(Some(db.clone()))
-                .user(Some(user.clone()))
-                .pass(Some(password.clone()));
-                
-            match Pool::new(opts) {
-                Ok(pool) => {
-                    info!("✅ Successfully created MySQL connection pool");
-                    // Test the connection with a simple query
-                    match pool.get_conn() {
-                        Ok(mut conn) => {
-                            match conn.query_first::<String, _>("SELECT 'Connection test'") {
-                                Ok(_) => info!("✅ MySQL connection test successful"),
-                                Err(e) => error!("❌ MySQL connection test failed: {:?}", e),
-                            }
-                        },
-                        Err(e) => error!("❌ Could not get MySQL connection: {:?}", e),
-                    }
-                    Some(pool)
-                },
-                Err(e) => {
-                    error!("❌ Failed to create MySQL connection pool: {:?}", e);
-                    None
-                }
-            }
-        } else {
-            let missing = vec![
-                if host.is_none() { "host" } else { "" },
-                if db.is_none() { "database" } else { "" },
-                if user.is_none() { "user" } else { "" },
-                if password.is_none() { "password" } else { "" },
-            ].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(", ");
-            
-            error!("❌ MySQL database connection not configured - missing: {}", missing);
-            None
-        };
-        
-        Self { pool }
-    }
-    
-    // Add this method to check if the database is configured
-    fn is_configured(&self) -> bool {
-        self.pool.is_some()
-    }
-    
-    // Add this method to test the connection
-    fn test_connection(&self) -> Result<bool> {
-        if let Some(pool) = &self.pool {
-            match pool.get_conn() {
-                Ok(mut conn) => {
-                    match conn.query_first::<String, _>("SELECT 'Connection test'") {
-                        Ok(_) => {
-                            info!("✅ MySQL connection test successful");
-                            Ok(true)
-                        },
-                        Err(e) => {
-                            error!("❌ MySQL connection test failed: {:?}", e);
-                            Ok(false)
-                        }
-                    }
-                },
-                Err(e) => {
-                    error!("❌ Could not get MySQL connection: {:?}", e);
-                    Ok(false)
-                }
-            }
-        } else {
-            error!("❌ Cannot test connection - MySQL pool is None");
-            Ok(false)
-        }
-    }
-    
-    async fn query_random_entry(&self, http: &Http, msg: &Message, search_term: Option<String>, show_name: Option<String>, entry_type: &str) -> Result<()> {
-        // Check if we have MySQL connection info
-        if self.pool.is_none() {
-            error!("❌ MySQL pool is None when handling {} command", entry_type);
-            msg.channel_id.say(http, "MySQL database is not configured.").await?;
-            return Ok(());
-        }
-        
-        info!("MySQL pool exists, attempting to get connection for {} command", entry_type);
-        
-        // Get a connection from the pool
-        let pool = self.pool.as_ref().unwrap();
-        let mut conn = match pool.get_conn() {
-            Ok(conn) => {
-                info!("✅ Successfully got MySQL connection for {} command", entry_type);
-                conn
-            },
-            Err(e) => {
-                error!("❌ Failed to get MySQL connection for {} command: {:?}", entry_type, e);
-                msg.channel_id.say(http, format!("Failed to connect to the {} database.", entry_type)).await?;
-                return Ok(());
-            }
-        };
-        
-        // Build the WHERE clause based on search term
-        let where_clause = if let Some(terms) = &search_term {
-            // Split the search terms and join with % for LIKE query
-            let terms: Vec<&str> = terms.split_whitespace().collect();
-            if !terms.is_empty() {
-                let search_pattern = format!("%{}%", terms.join("%"));
-                search_pattern
-            } else {
-                "%".to_string()
-            }
-        } else {
-            "%".to_string()
-        };
-        
-        // Build the show clause based on show name
-        let show_clause = if let Some(show) = &show_name {
-            // Split the show name and join with % for LIKE query
-            let show_terms: Vec<&str> = show.split_whitespace().collect();
-            if !show_terms.is_empty() {
-                let show_pattern = format!("%{}%", show_terms.join("%"));
-                show_pattern
-            } else {
-                "%".to_string()
-            }
-        } else {
-            "%".to_string()
-        };
-        
-        // Determine which table and column to use based on entry_type
-        match entry_type {
-            "quote" => {
-                // For quotes, we need to join with masterlist_shows to filter by show name
-                info!("Executing quote query with where_clause: {} and show_clause: {}", where_clause, show_clause);
-                
-                // Count total matching quotes
-                let count_query = "SELECT COUNT(*) FROM masterlist_quotes, masterlist_episodes, masterlist_shows \
-                                  WHERE masterlist_episodes.show_id = masterlist_shows.show_id \
-                                  AND masterlist_quotes.show_id = masterlist_shows.show_id \
-                                  AND masterlist_quotes.show_ep = masterlist_episodes.show_ep \
-                                  AND quote LIKE ? AND show_title LIKE ?";
-                
-                let total_entries = match conn.exec_first::<i64, _, _>(
-                    count_query,
-                    (where_clause.clone(), show_clause.clone())
-                ) {
-                    Ok(Some(count)) => {
-                        info!("Found {} matching quotes with show filter", count);
-                        count
-                    },
-                    Ok(None) => {
-                        info!("No matching quotes found with show filter");
-                        0
-                    },
-                    Err(e) => {
-                        error!("Failed to count quotes: {:?}", e);
-                        msg.channel_id.say(http, "Failed to query the quote database.").await?;
-                        return Ok(());
-                    }
-                };
-                
-                if total_entries == 0 {
-                    let mut message = "No quotes found".to_string();
-                    if let Some(terms) = &search_term {
-                        message.push_str(&format!(" matching '{}'", terms));
-                    }
-                    if let Some(show) = &show_name {
-                        message.push_str(&format!(" in show '{}'", show));
-                    }
-                    msg.channel_id.say(http, message).await?;
-                    return Ok(());
-                }
-                
-                // Get a random quote
-                let random_index = rand::thread_rng().gen_range(0..total_entries);
-                info!("Selected random index {} of {} for quotes", random_index, total_entries);
-                
-                let select_query = "SELECT quote, show_title, masterlist_episodes.show_ep, title \
-                                   FROM masterlist_quotes, masterlist_episodes, masterlist_shows \
-                                   WHERE masterlist_episodes.show_id = masterlist_shows.show_id \
-                                   AND masterlist_quotes.show_id = masterlist_shows.show_id \
-                                   AND masterlist_quotes.show_ep = masterlist_episodes.show_ep \
-                                   AND quote LIKE ? AND show_title LIKE ? \
-                                   LIMIT ?, 1";
-                
-                let quote_result = conn.exec_first::<(String, String, String, String), _, _>(
-                    select_query,
-                    (where_clause, show_clause, random_index)
-                );
-                
-                // Format and send the quote
-                match quote_result {
-                    Ok(Some((quote_text, show_title, episode_num, episode_title))) => {
-                        // Clean up HTML entities
-                        let clean_quote = html_escape::decode_html_entities(&quote_text);
-                        
-                        msg.channel_id.say(http, format!("(Quote {} of {}) {} -- {} {}: {}", 
-                            random_index + 1, total_entries, clean_quote, show_title, episode_num, episode_title)).await?;
-                    },
-                    Ok(None) => {
-                        error!("Query returned no results despite count being {}", total_entries);
-                        msg.channel_id.say(http, "No quotes found.").await?;
-                    },
-                    Err(e) => {
-                        error!("Failed to query quote: {:?}", e);
-                        msg.channel_id.say(http, "Failed to retrieve a quote from the database.").await?;
-                    }
-                }
-            },
-            "slogan" => {
-                // For slogans, we use the simple query as before
-                info!("Executing slogan query with where_clause: {}", where_clause);
-                
-                // Count total matching slogans
-                let total_entries = match conn.exec_first::<i64, _, _>(
-                    "SELECT COUNT(*) FROM nuke_quotes WHERE pn_quote LIKE ?",
-                    (where_clause.clone(),)
-                ) {
-                    Ok(Some(count)) => {
-                        info!("Found {} matching slogans", count);
-                        count
-                    },
-                    Ok(None) => {
-                        info!("No matching slogans found");
-                        0
-                    },
-                    Err(e) => {
-                        error!("Failed to count slogans: {:?}", e);
-                        msg.channel_id.say(http, "Failed to query the slogan database.").await?;
-                        return Ok(());
-                    }
-                };
-                
-                if total_entries == 0 {
-                    if let Some(terms) = &search_term {
-                        msg.channel_id.say(http, format!("No slogans match '{}'", terms)).await?;
-                    } else {
-                        msg.channel_id.say(http, "No slogans found.").await?;
-                    }
-                    return Ok(());
-                }
-            },
-            _ => {
-                error!("Unknown entry type: {}", entry_type);
-                msg.channel_id.say(http, "Unknown database query type.").await?;
-                return Ok(());
-            }
-        }
-        
-        Ok(())
-    }
-}
-
 struct Bot {
     followed_channel: ChannelId,
     db_manager: DatabaseManager,
-    google_api_key: Option<String>,
-    google_search_engine_id: Option<String>,
-    gemini_api_key: Option<String>,
-    gemini_api_endpoint: Option<String>,
+    google_client: Option<GoogleSearchClient>,
+    gemini_client: Option<GeminiClient>,
     bot_name: String,
     message_db: Option<Arc<tokio::sync::Mutex<Connection>>>,
     message_history_limit: usize,
-    gemini_prompt_wrapper: String,
     thinking_message: Option<String>,
     commands: HashMap<String, String>,
     keyword_triggers: Vec<(Vec<String>, String)>,
+    crime_generator: CrimeFightingGenerator,
 }
 
 impl Bot {
@@ -346,6 +65,7 @@ impl Bot {
         google_search_engine_id: Option<String>,
         gemini_api_key: Option<String>,
         gemini_api_endpoint: Option<String>,
+        gemini_prompt_wrapper: Option<String>,
         bot_name: String,
         message_db: Option<Arc<tokio::sync::Mutex<Connection>>>,
         message_history_limit: usize,
@@ -370,20 +90,50 @@ impl Bot {
         let db_manager = DatabaseManager::new(mysql_host.clone(), mysql_db.clone(), mysql_user.clone(), mysql_password.clone());
         info!("Database manager created, is configured: {}", db_manager.is_configured());
         
+        // Create Google search client if credentials are provided
+        let google_client = match (google_api_key.clone(), google_search_engine_id.clone()) {
+            (Some(api_key), Some(search_engine_id)) => {
+                info!("Creating Google search client with provided credentials");
+                Some(GoogleSearchClient::new(api_key, search_engine_id))
+            },
+            _ => {
+                info!("Google search client not created - missing credentials");
+                None
+            }
+        };
+        
+        // Create Gemini client if API key is provided
+        let gemini_client = match gemini_api_key {
+            Some(api_key) => {
+                info!("Creating Gemini client with provided API key");
+                Some(GeminiClient::new(
+                    api_key,
+                    gemini_api_endpoint,
+                    gemini_prompt_wrapper,
+                    bot_name.clone()
+                ))
+            },
+            None => {
+                info!("Gemini client not created - missing API key");
+                None
+            }
+        };
+        
+        // Create crime fighting generator
+        let crime_generator = CrimeFightingGenerator::new();
+        
         Self {
             followed_channel,
             db_manager,
-            google_api_key,
-            google_search_engine_id,
-            gemini_api_key,
-            gemini_api_endpoint,
+            google_client,
+            gemini_client,
             bot_name,
             message_db,
             message_history_limit,
-            gemini_prompt_wrapper: "You are {bot_name}, a helpful and friendly Discord bot. Respond to {user}: {message}".to_string(),
             thinking_message,
             commands,
             keyword_triggers,
+            crime_generator,
         }
     }
     
@@ -447,106 +197,12 @@ impl Bot {
             }
         };
         
-        // Generate random descriptions
-        let mut rng = rand::thread_rng();
-        
-        let descriptions1 = [
-            "a superhumanly strong",
-            "a brilliant but troubled",
-            "a time-traveling",
-            "a genetically enhanced",
-            "a cybernetically augmented",
-            "a telepathic",
-            "a shape-shifting",
-            "a dimension-hopping",
-            "a technologically advanced",
-            "a magically empowered",
-        ];
-        
-        let occupations1 = [
-            "former detective",
-            "ex-spy",
-            "disgraced scientist",
-            "retired superhero",
-            "rogue AI researcher",
-            "reformed villain",
-            "exiled royal",
-            "amnesiac assassin",
-            "interdimensional refugee",
-            "time-displaced warrior",
-        ];
-        
-        let traits1 = [
-            "with a mysterious past",
-            "with a score to settle",
-            "with nothing left to lose",
-            "with a secret identity",
-            "with supernatural abilities",
-            "with advanced martial arts training",
-            "with a tragic backstory",
-            "with a vendetta against crime",
-            "with a photographic memory",
-            "with unfinished business",
-        ];
-        
-        let descriptions2 = [
-            "a sarcastic",
-            "a no-nonsense",
-            "a radical",
-            "a by-the-book",
-            "a rebellious",
-            "a tech-savvy",
-            "a streetwise",
-            "a wealthy",
-            "a mysterious",
-            "an eccentric",
-        ];
-        
-        let occupations2 = [
-            "hacker",
-            "martial artist",
-            "forensic scientist",
-            "archaeologist",
-            "journalist",
-            "medical examiner",
-            "weapons expert",
-            "psychologist",
-            "conspiracy theorist",
-            "paranormal investigator",
-        ];
-        
-        let traits2 = [
-            "with a secret technique",
-            "with a passion for justice",
-            "with unconventional methods",
-            "with a troubled past",
-            "with powerful connections",
-            "with a unique perspective",
-            "with specialized equipment",
-            "with a hidden agenda",
-            "with incredible luck",
-            "with unwavering determination",
-        ];
-        
-        // Select random descriptions
-        let desc1 = descriptions1.choose(&mut rng).unwrap();
-        let occ1 = occupations1.choose(&mut rng).unwrap();
-        let trait1 = traits1.choose(&mut rng).unwrap();
-        
-        let desc2 = descriptions2.choose(&mut rng).unwrap();
-        let occ2 = occupations2.choose(&mut rng).unwrap();
-        let trait2 = traits2.choose(&mut rng).unwrap();
-        
-        // Format the crime fighting duo description
-        let duo_description = format!(
-            "{} is {} {} {}. {} is {} {} {}. They fight crime!",
-            speaker1, desc1, occ1, trait1,
-            speaker2, desc2, occ2, trait2
-        );
-        
-        Ok(duo_description)
+        // Use our crime fighting generator
+        self.crime_generator.generate_duo(&speaker1, &speaker2)
     }
-    
+}
+
+impl Bot {
     // Handle the !slogan command
     async fn handle_slogan_command(&self, http: &Http, msg: &Message, search_term: Option<String>) -> Result<()> {
         // Log the slogan request
@@ -677,7 +333,8 @@ impl Bot {
         
         Ok(())
     }
-    
+}
+impl Bot {
     // Process a message
     async fn process_message(&self, ctx: &Context, msg: &Message) -> Result<()> {
         // Store the message in the database if available
@@ -802,12 +459,32 @@ impl Bot {
         if msg.content.to_lowercase().starts_with("google ") && msg.content.len() > 7 {
             let query = &msg.content[7..];
             
-            if let (Some(_api_key), Some(_search_engine_id)) = (&self.google_api_key, &self.google_search_engine_id) {
+            if let Some(google_client) = &self.google_client {
                 if let Err(e) = msg.channel_id.say(&ctx.http, format!("Searching for: {}", query)).await {
                     error!("Error sending search confirmation: {:?}", e);
                 }
                 
-                // TODO: Implement Google search functionality
+                // Perform the search
+                match google_client.search(query).await {
+                    Ok(Some(result)) => {
+                        // Format and send the result
+                        let response = format!("**{}**\n{}\n{}", result.title, result.url, result.snippet);
+                        if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
+                            error!("Error sending search result: {:?}", e);
+                        }
+                    },
+                    Ok(None) => {
+                        if let Err(e) = msg.channel_id.say(&ctx.http, "No search results found.").await {
+                            error!("Error sending no results message: {:?}", e);
+                        }
+                    },
+                    Err(e) => {
+                        error!("Error performing Google search: {:?}", e);
+                        if let Err(e) = msg.channel_id.say(&ctx.http, "Error performing search.").await {
+                            error!("Error sending error message: {:?}", e);
+                        }
+                    }
+                }
             } else {
                 if let Err(e) = msg.channel_id.say(&ctx.http, "Google search is not configured.").await {
                     error!("Error sending search error: {:?}", e);
@@ -825,10 +502,10 @@ impl Bot {
             let content = msg.content.trim().to_string();
             
             if !content.is_empty() {
-                if let Some(_api_key) = &self.gemini_api_key {
+                if let Some(gemini_client) = &self.gemini_client {
                     // Get the display name
                     let display_name = msg.author.global_name.clone().unwrap_or_else(|| msg.author.name.clone());
-                    let clean_display_name = self.strip_pronouns(&display_name);
+                    let clean_display_name = gemini_client.strip_pronouns(&display_name);
                     
                     // Check if we should use a thinking message
                     let should_use_thinking = match &self.thinking_message {
@@ -849,7 +526,7 @@ impl Bot {
                         };
                         
                         // Call the Gemini API
-                        match self.call_gemini_api_with_user(&content, &clean_display_name).await {
+                        match gemini_client.generate_response(&content, &clean_display_name).await {
                             Ok(response) => {
                                 // Edit the thinking message with the actual response
                                 if let Err(e) = thinking_msg.edit(&ctx.http, EditMessage::new().content(response.clone())).await {
@@ -872,7 +549,7 @@ impl Bot {
                         }
                     } else {
                         // Direct response without thinking message
-                        match self.call_gemini_api_with_user(&content, &clean_display_name).await {
+                        match gemini_client.generate_response(&content, &clean_display_name).await {
                             Ok(response) => {
                                 if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
                                     error!("Error sending Gemini response: {:?}", e);
@@ -933,10 +610,10 @@ impl Bot {
             let content = msg.content.replace(&format!("<@{}>", current_user_id), "").trim().to_string();
             
             if !content.is_empty() {
-                if let Some(_api_key) = &self.gemini_api_key {
+                if let Some(gemini_client) = &self.gemini_client {
                     // Get the display name
                     let display_name = msg.author.global_name.clone().unwrap_or_else(|| msg.author.name.clone());
-                    let clean_display_name = self.strip_pronouns(&display_name);
+                    let clean_display_name = gemini_client.strip_pronouns(&display_name);
                     
                     // Check if we should use a thinking message
                     let should_use_thinking = match &self.thinking_message {
@@ -957,7 +634,7 @@ impl Bot {
                         };
                         
                         // Call the Gemini API with user's display name
-                        match self.call_gemini_api_with_user(&content, &clean_display_name).await {
+                        match gemini_client.generate_response(&content, &clean_display_name).await {
                             Ok(response) => {
                                 // Edit the thinking message with the actual response
                                 let response_clone = response.clone();
@@ -981,7 +658,7 @@ impl Bot {
                     }
                     } else {
                         // Direct response without thinking message
-                        match self.call_gemini_api_with_user(&content, &clean_display_name).await {
+                        match gemini_client.generate_response(&content, &clean_display_name).await {
                             Ok(response) => {
                                 if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
                                     error!("Error sending Gemini response: {:?}", e);
@@ -1008,98 +685,6 @@ impl Bot {
         Ok(())
     }
 }
-
-impl Bot {
-    // Function to strip pronouns from display names
-    fn strip_pronouns(&self, display_name: &str) -> String {
-        // Remove content in parentheses (they/them)
-        let without_parentheses = Regex::new(r"\s*\([^)]*\)").unwrap_or_else(|_| Regex::new(r"").unwrap())
-            .replace_all(display_name, "").to_string();
-        
-        // Remove content in brackets [she/her]
-        let without_brackets = Regex::new(r"\s*\[[^\]]*\]").unwrap_or_else(|_| Regex::new(r"").unwrap())
-            .replace_all(&without_parentheses, "").to_string();
-        
-        // Remove content after | or pipe character (common separator for pronouns)
-        let without_pipe = without_brackets.split('|').next().unwrap_or("").trim().to_string();
-        
-        // Return cleaned name, or original if empty
-        if without_pipe.is_empty() {
-            display_name.to_string()
-        } else {
-            without_pipe
-        }
-    }
-
-    async fn call_gemini_api(&self, prompt: &str) -> Result<String> {
-        // For backward compatibility, call the version with user name
-        self.call_gemini_api_with_user(prompt, "User").await
-    }
-    
-    async fn call_gemini_api_with_user(&self, prompt: &str, user_name: &str) -> Result<String> {
-        // Check if we have an API key
-        let api_key = match &self.gemini_api_key {
-            Some(key) => key,
-            None => {
-                return Err(anyhow::anyhow!("Gemini API key not configured"));
-            }
-        };
-        
-        // Determine which endpoint to use
-        let endpoint = self.gemini_api_endpoint.as_deref().unwrap_or("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent");
-        
-        // Format the prompt using the wrapper, including the user's name
-        let formatted_prompt = self.gemini_prompt_wrapper
-            .replace("{message}", prompt)
-            .replace("{bot_name}", &self.bot_name)
-            .replace("{user}", user_name);
-        
-        info!("Calling Gemini API with prompt: {}", formatted_prompt);
-        
-        // Create the request body
-        let request_body = serde_json::json!({
-            "contents": [{
-                "parts": [{
-                    "text": formatted_prompt
-                }]
-            }],
-            "generationConfig": {
-                "temperature": 0.7,
-                "topK": 40,
-                "topP": 0.95,
-                "maxOutputTokens": 1024
-            }
-        });
-        
-        // Create the client
-        let client = reqwest::Client::new();
-        
-        // Make the request
-        let response = client.post(format!("{}?key={}", endpoint, api_key))
-            .header("Content-Type", "application/json")
-            .body(request_body.to_string())
-            .send()
-            .await?;
-        
-        // Check if the request was successful
-        if !response.status().is_success() {
-            let error_text = response.text().await?;
-            return Err(anyhow::anyhow!("Gemini API request failed: {}", error_text));
-        }
-        
-        // Parse the response
-        let response_json: serde_json::Value = response.json().await?;
-        
-        // Extract the generated text
-        let generated_text = response_json["candidates"][0]["content"]["parts"][0]["text"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("Failed to extract text from Gemini API response"))?
-            .to_string();
-        
-        Ok(generated_text)
-    }
-}
-
 #[async_trait]
 impl EventHandler for Bot {
     async fn message(&self, ctx: Context, msg: Message) {
@@ -1183,23 +768,6 @@ async fn find_channel_by_name(http: &Http, name: &str, server_name: Option<&str>
     info!("❌ Channel '{}' not found in any server", name);
     None
 }
-
-fn load_config() -> Result<Config> {
-    let config_path = Path::new("CrowConfig.toml");
-    
-    if config_path.exists() {
-        let config_content = fs::read_to_string(config_path)
-            .context("Failed to read CrowConfig.toml")?;
-        
-        let config: Config = toml::from_str(&config_content)
-            .context("Failed to parse CrowConfig.toml")?;
-        
-        return Ok(config);
-    }
-    
-    Err(anyhow::anyhow!("Configuration file CrowConfig.toml not found"))
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
     // Initialize logging
@@ -1211,37 +779,12 @@ async fn main() -> Result<()> {
     // Get the discord token
     let token = &config.discord_token;
     
-    // Get the bot name
-    let bot_name = config.bot_name.unwrap_or_else(|| "Crow".to_string());
-    
-    // Get the message history limit
-    let message_history_limit = config.message_history_limit
-        .and_then(|limit| limit.parse::<usize>().ok())
-        .unwrap_or(10000);
-    
-    info!("Message history limit set to {}", message_history_limit);
-    
-    // Get database trim interval (default: 1 hour)
-    let db_trim_interval = config.db_trim_interval_secs
-        .and_then(|interval| interval.parse::<u64>().ok())
-        .unwrap_or(3600); // Default: 1 hour
-    
-    info!("Database trim interval set to {} seconds", db_trim_interval);
-    
-    // Get Gemini API rate limits
-    let gemini_rate_limit_minute = config.gemini_rate_limit_minute
-        .and_then(|limit| limit.parse::<u32>().ok())
-        .unwrap_or(15); // Default: 15 calls per minute
-    
-    let gemini_rate_limit_day = config.gemini_rate_limit_day
-        .and_then(|limit| limit.parse::<u32>().ok())
-        .unwrap_or(1500); // Default: 1500 calls per day
-    
-    info!("Gemini API rate limits set to {} calls per minute and {} calls per day", 
-          gemini_rate_limit_minute, gemini_rate_limit_day);
+    // Parse config values
+    let (bot_name, message_history_limit, db_trim_interval, gemini_rate_limit_minute, gemini_rate_limit_day) = 
+        parse_config(&config);
     
     // Get Gemini API key
-    let gemini_api_key = config.gemini_api_key;
+    let gemini_api_key = config.gemini_api_key.clone();
     if gemini_api_key.is_none() {
         error!("Gemini API key not found in config");
     } else {
@@ -1249,16 +792,16 @@ async fn main() -> Result<()> {
     }
     
     // Get custom prompt wrapper if available
-    let gemini_prompt_wrapper = config.gemini_prompt_wrapper;
+    let gemini_prompt_wrapper = config.gemini_prompt_wrapper.clone();
     
     // Get thinking message if available
-    let thinking_message = config.thinking_message;
+    let thinking_message = config.thinking_message.clone();
     if let Some(message) = &thinking_message {
         info!("Using custom thinking message: {}", message);
     }
     
     // Get custom Gemini API endpoint if available
-    let gemini_api_endpoint = config.gemini_api_endpoint;
+    let gemini_api_endpoint = config.gemini_api_endpoint.clone();
     if let Some(endpoint) = &gemini_api_endpoint {
         info!("Using custom Gemini API endpoint: {}", endpoint);
     }
@@ -1392,16 +935,17 @@ async fn main() -> Result<()> {
     };
     
     // Create a new bot instance with the valid channel ID
-    let mut bot = Bot::new(
+    let bot = Bot::new(
         channel_id,
         config.db_host.clone(),
         config.db_name.clone(),
         config.db_user.clone(),
         config.db_password.clone(),
-        config.google_api_key,
-        config.google_search_engine_id,
+        config.google_api_key.clone(),
+        config.google_search_engine_id.clone(),
         gemini_api_key,
         gemini_api_endpoint,
+        gemini_prompt_wrapper,
         bot_name.clone(),
         message_db.clone(),
         message_history_limit,
@@ -1411,12 +955,6 @@ async fn main() -> Result<()> {
     // Check database connection
     if let Err(e) = bot.check_database_connection().await {
         error!("Error checking database connection: {:?}", e);
-    }
-    
-    // Set custom prompt wrapper if available
-    if let Some(prompt_wrapper) = gemini_prompt_wrapper {
-        bot.gemini_prompt_wrapper = prompt_wrapper;
-        info!("Using custom Gemini prompt wrapper");
     }
     
     // Start the database trimming task
@@ -1457,5 +995,3 @@ async fn main() -> Result<()> {
 
     Ok(())
 }
-
-// Remove the placeholder database functions since we're now using db_utils

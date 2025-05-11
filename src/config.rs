@@ -1,0 +1,93 @@
+use anyhow::{Context as AnyhowContext, Result};
+use serde::Deserialize;
+use std::fs;
+use std::path::Path;
+use tracing::info;
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct Config {
+    pub discord_token: String,
+    pub followed_channel_name: Option<String>,
+    pub followed_channel_id: Option<String>,
+    pub followed_server_name: Option<String>,
+    pub bot_name: Option<String>,
+    pub message_history_limit: Option<String>,
+    pub db_trim_interval_secs: Option<String>,
+    pub gemini_rate_limit_minute: Option<String>,
+    pub gemini_rate_limit_day: Option<String>,
+    pub gemini_api_key: Option<String>,
+    pub gemini_api_endpoint: Option<String>,
+    pub gemini_prompt_wrapper: Option<String>,
+    pub thinking_message: Option<String>,
+    pub google_api_key: Option<String>,
+    pub google_search_engine_id: Option<String>,
+    pub db_host: Option<String>,
+    pub db_name: Option<String>,
+    pub db_user: Option<String>,
+    pub db_password: Option<String>,
+}
+
+pub fn load_config() -> Result<Config> {
+    let config_path = Path::new("CrowConfig.toml");
+    
+    if config_path.exists() {
+        let config_content = fs::read_to_string(config_path)
+            .context("Failed to read CrowConfig.toml")?;
+        
+        let config: Config = toml::from_str(&config_content)
+            .context("Failed to parse CrowConfig.toml")?;
+        
+        return Ok(config);
+    }
+    
+    Err(anyhow::anyhow!("Configuration file CrowConfig.toml not found"))
+}
+
+pub fn parse_config(config: &Config) -> (
+    String,                 // bot_name
+    usize,                  // message_history_limit
+    u64,                    // db_trim_interval
+    u32,                    // gemini_rate_limit_minute
+    u32                     // gemini_rate_limit_day
+) {
+    // Get the bot name
+    let bot_name = config.bot_name.clone().unwrap_or_else(|| "Crow".to_string());
+    
+    // Get the message history limit
+    let message_history_limit = config.message_history_limit
+        .as_ref()
+        .and_then(|limit| limit.parse::<usize>().ok())
+        .unwrap_or(10000);
+    
+    info!("Message history limit set to {}", message_history_limit);
+    
+    // Get database trim interval (default: 1 hour)
+    let db_trim_interval = config.db_trim_interval_secs
+        .as_ref()
+        .and_then(|interval| interval.parse::<u64>().ok())
+        .unwrap_or(3600); // Default: 1 hour
+    
+    info!("Database trim interval set to {} seconds", db_trim_interval);
+    
+    // Get Gemini API rate limits
+    let gemini_rate_limit_minute = config.gemini_rate_limit_minute
+        .as_ref()
+        .and_then(|limit| limit.parse::<u32>().ok())
+        .unwrap_or(15); // Default: 15 calls per minute
+    
+    let gemini_rate_limit_day = config.gemini_rate_limit_day
+        .as_ref()
+        .and_then(|limit| limit.parse::<u32>().ok())
+        .unwrap_or(1500); // Default: 1500 calls per day
+    
+    info!("Gemini API rate limits set to {} calls per minute and {} calls per day", 
+          gemini_rate_limit_minute, gemini_rate_limit_day);
+          
+    (
+        bot_name,
+        message_history_limit,
+        db_trim_interval,
+        gemini_rate_limit_minute,
+        gemini_rate_limit_day
+    )
+}
