@@ -48,6 +48,7 @@ struct Config {
     gemini_api_key: Option<String>,
     gemini_api_endpoint: Option<String>,
     gemini_prompt_wrapper: Option<String>,
+    thinking_message: Option<String>,
     google_api_key: Option<String>,
     google_search_engine_id: Option<String>,
     db_host: Option<String>,
@@ -329,6 +330,7 @@ struct Bot {
     message_db: Option<Arc<tokio::sync::Mutex<Connection>>>,
     message_history_limit: usize,
     gemini_prompt_wrapper: String,
+    thinking_message: Option<String>,
     commands: HashMap<String, String>,
     keyword_triggers: Vec<(Vec<String>, String)>,
 }
@@ -347,6 +349,7 @@ impl Bot {
         bot_name: String,
         message_db: Option<Arc<tokio::sync::Mutex<Connection>>>,
         message_history_limit: usize,
+        thinking_message: Option<String>,
     ) -> Self {
         // Define the commands the bot will respond to
         let mut commands = HashMap::new();
@@ -378,6 +381,7 @@ impl Bot {
             message_db,
             message_history_limit,
             gemini_prompt_wrapper: "You are {bot_name}, a helpful and friendly Discord bot. Respond to {user}: {message}".to_string(),
+            thinking_message,
             commands,
             keyword_triggers,
         }
@@ -822,36 +826,63 @@ impl Bot {
             
             if !content.is_empty() {
                 if let Some(_api_key) = &self.gemini_api_key {
-                    // Send a "thinking" message
-                    let mut thinking_msg = match msg.channel_id.say(&ctx.http, "*thinking...*").await {
-                        Ok(msg) => msg,
-                        Err(e) => {
-                            error!("Error sending thinking message: {:?}", e);
-                            return Ok(());
-                        }
-                    };
-                    
-                    // Call the Gemini API with user's display name (without pronouns)
+                    // Get the display name
                     let display_name = msg.author.global_name.clone().unwrap_or_else(|| msg.author.name.clone());
                     let clean_display_name = self.strip_pronouns(&display_name);
-                    match self.call_gemini_api_with_user(&content, &clean_display_name).await {
-                        Ok(response) => {
-                            // Edit the thinking message with the actual response
-                            if let Err(e) = thinking_msg.edit(&ctx.http, EditMessage::new().content(response.clone())).await {
-                                error!("Error editing thinking message: {:?}", e);
-                                // Try sending a new message if editing fails
-                                if let Err(e) = msg.channel_id.say(&ctx.http, "Sorry, I couldn't edit my message. Here's my response:").await {
-                                    error!("Error sending fallback message: {:?}", e);
+                    
+                    // Check if we should use a thinking message
+                    let should_use_thinking = match &self.thinking_message {
+                        Some(message) if message.is_empty() || message == "[none]" => false,
+                        Some(_) => true,
+                        None => true // Default to using thinking message if not specified
+                    };
+                    
+                    if should_use_thinking {
+                        // Send a "thinking" message
+                        let thinking_text = self.thinking_message.as_ref().unwrap_or(&"*thinking...*".to_string()).clone();
+                        let mut thinking_msg = match msg.channel_id.say(&ctx.http, thinking_text).await {
+                            Ok(msg) => msg,
+                            Err(e) => {
+                                error!("Error sending thinking message: {:?}", e);
+                                return Ok(());
+                            }
+                        };
+                        
+                        // Call the Gemini API
+                        match self.call_gemini_api_with_user(&content, &clean_display_name).await {
+                            Ok(response) => {
+                                // Edit the thinking message with the actual response
+                                if let Err(e) = thinking_msg.edit(&ctx.http, EditMessage::new().content(response.clone())).await {
+                                    error!("Error editing thinking message: {:?}", e);
+                                    // Try sending a new message if editing fails
+                                    if let Err(e) = msg.channel_id.say(&ctx.http, "Sorry, I couldn't edit my message. Here's my response:").await {
+                                        error!("Error sending fallback message: {:?}", e);
+                                    }
+                                    if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
+                                        error!("Error sending Gemini response: {:?}", e);
+                                    }
                                 }
+                            },
+                            Err(e) => {
+                                error!("Error calling Gemini API: {:?}", e);
+                                if let Err(e) = thinking_msg.edit(&ctx.http, EditMessage::new().content(format!("Sorry, I encountered an error: {}", e))).await {
+                                    error!("Error editing thinking message: {:?}", e);
+                                }
+                            }
+                        }
+                    } else {
+                        // Direct response without thinking message
+                        match self.call_gemini_api_with_user(&content, &clean_display_name).await {
+                            Ok(response) => {
                                 if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
                                     error!("Error sending Gemini response: {:?}", e);
                                 }
-                            }
-                        },
-                        Err(e) => {
-                            error!("Error calling Gemini API: {:?}", e);
-                            if let Err(e) = thinking_msg.edit(&ctx.http, EditMessage::new().content(format!("Sorry, I encountered an error: {}", e))).await {
-                                error!("Error editing thinking message: {:?}", e);
+                            },
+                            Err(e) => {
+                                error!("Error calling Gemini API: {:?}", e);
+                                if let Err(e) = msg.channel_id.say(&ctx.http, format!("Sorry, I encountered an error: {}", e)).await {
+                                    error!("Error sending error message: {:?}", e);
+                                }
                             }
                         }
                     }
@@ -903,23 +934,34 @@ impl Bot {
             
             if !content.is_empty() {
                 if let Some(_api_key) = &self.gemini_api_key {
-                    // Send a "thinking" message
-                    let mut thinking_msg = match msg.channel_id.say(&ctx.http, "*thinking...*").await {
-                        Ok(msg) => msg,
-                        Err(e) => {
-                            error!("Error sending thinking message: {:?}", e);
-                            return Ok(());
-                        }
-                    };
-                    
-                    // Call the Gemini API with user's display name (without pronouns)
+                    // Get the display name
                     let display_name = msg.author.global_name.clone().unwrap_or_else(|| msg.author.name.clone());
                     let clean_display_name = self.strip_pronouns(&display_name);
-                    match self.call_gemini_api_with_user(&content, &clean_display_name).await {
-                        Ok(response) => {
-                            // Edit the thinking message with the actual response
-                            let response_clone = response.clone();
-                            if let Err(e) = thinking_msg.edit(&ctx.http, EditMessage::new().content(response_clone)).await {
+                    
+                    // Check if we should use a thinking message
+                    let should_use_thinking = match &self.thinking_message {
+                        Some(message) if message.is_empty() || message == "[none]" => false,
+                        Some(_) => true,
+                        None => true // Default to using thinking message if not specified
+                    };
+                    
+                    if should_use_thinking {
+                        // Send a "thinking" message
+                        let thinking_text = self.thinking_message.as_ref().unwrap_or(&"*thinking...*".to_string()).clone();
+                        let mut thinking_msg = match msg.channel_id.say(&ctx.http, thinking_text).await {
+                            Ok(msg) => msg,
+                            Err(e) => {
+                                error!("Error sending thinking message: {:?}", e);
+                                return Ok(());
+                            }
+                        };
+                        
+                        // Call the Gemini API with user's display name
+                        match self.call_gemini_api_with_user(&content, &clean_display_name).await {
+                            Ok(response) => {
+                                // Edit the thinking message with the actual response
+                                let response_clone = response.clone();
+                                if let Err(e) = thinking_msg.edit(&ctx.http, EditMessage::new().content(response_clone)).await {
                                 error!("Error editing thinking message: {:?}", e);
                                 // Try sending a new message if editing fails
                                 if let Err(e) = msg.channel_id.say(&ctx.http, "Sorry, I couldn't edit my message. Here's my response:").await {
@@ -934,6 +976,22 @@ impl Bot {
                             error!("Error calling Gemini API: {:?}", e);
                             if let Err(e) = thinking_msg.edit(&ctx.http, EditMessage::new().content(format!("Sorry, I encountered an error: {}", e))).await {
                                 error!("Error editing thinking message: {:?}", e);
+                            }
+                        }
+                    }
+                    } else {
+                        // Direct response without thinking message
+                        match self.call_gemini_api_with_user(&content, &clean_display_name).await {
+                            Ok(response) => {
+                                if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
+                                    error!("Error sending Gemini response: {:?}", e);
+                                }
+                            },
+                            Err(e) => {
+                                error!("Error calling Gemini API: {:?}", e);
+                                if let Err(e) = msg.channel_id.say(&ctx.http, format!("Sorry, I encountered an error: {}", e)).await {
+                                    error!("Error sending error message: {:?}", e);
+                                }
                             }
                         }
                     }
@@ -1193,6 +1251,12 @@ async fn main() -> Result<()> {
     // Get custom prompt wrapper if available
     let gemini_prompt_wrapper = config.gemini_prompt_wrapper;
     
+    // Get thinking message if available
+    let thinking_message = config.thinking_message;
+    if let Some(message) = &thinking_message {
+        info!("Using custom thinking message: {}", message);
+    }
+    
     // Get custom Gemini API endpoint if available
     let gemini_api_endpoint = config.gemini_api_endpoint;
     if let Some(endpoint) = &gemini_api_endpoint {
@@ -1340,7 +1404,8 @@ async fn main() -> Result<()> {
         gemini_api_endpoint,
         bot_name.clone(),
         message_db.clone(),
-        message_history_limit
+        message_history_limit,
+        thinking_message
     );
     
     // Check database connection

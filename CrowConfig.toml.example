@@ -15,7 +15,7 @@ DB_TRIM_INTERVAL_SECS = "3600"  # 1 hour
 GEMINI_API_KEY = "your_gemini_api_key_here"
 GEMINI_API_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
 GEMINI_PROMPT_WRAPPER = "You are {bot_name}, a helpful and friendly Discord bot. Respond to {user}'s message: {message}"
-THINKING_MESSAGE = "*thinking...*"
+THINKING_MESSAGE = "*thinking...*"  # Set to empty string or "[none]" to disable thinking message
 GEMINI_RATE_LIMIT_MINUTE = "15"
 GEMINI_RATE_LIMIT_DAY = "1500"
 
