@@ -3,6 +3,7 @@ use reqwest;
 use serde_json;
 use tracing::info;
 use regex::Regex;
+use std::time::Duration;
 
 pub struct GeminiClient {
     api_key: String,
@@ -77,28 +78,51 @@ impl GeminiClient {
         // Create the client
         let client = reqwest::Client::new();
         
-        // Make the request
-        let response = client.post(format!("{}?key={}", self.api_endpoint, self.api_key))
-            .header("Content-Type", "application/json")
-            .body(request_body.to_string())
-            .send()
-            .await?;
+        // Implement retry logic for 503 errors
+        let max_retries = 5;
+        let retry_delay_secs = 15;
+        let mut attempts = 0;
         
-        // Check if the request was successful
-        if !response.status().is_success() {
-            let error_text = response.text().await?;
-            return Err(anyhow::anyhow!("Gemini API request failed: {}", error_text));
+        loop {
+            attempts += 1;
+            info!("Attempt {} of {} to call Gemini API", attempts, max_retries);
+            
+            // Make the request
+            let response = client.post(format!("{}?key={}", self.api_endpoint, self.api_key))
+                .header("Content-Type", "application/json")
+                .body(request_body.to_string())
+                .send()
+                .await?;
+            
+            let status = response.status();
+            
+            // Check if the request was successful
+            if status.is_success() {
+                // Parse the response
+                let response_json: serde_json::Value = response.json().await?;
+                
+                // Extract the generated text
+                let generated_text = response_json["candidates"][0]["content"]["parts"][0]["text"]
+                    .as_str()
+                    .ok_or_else(|| anyhow::anyhow!("Failed to extract text from Gemini API response"))?
+                    .to_string();
+                
+                return Ok(generated_text);
+            } else if status == reqwest::StatusCode::SERVICE_UNAVAILABLE && attempts < max_retries {
+                // If we get a 503 and haven't exceeded max retries, wait and try again
+                let error_text = response.text().await?;
+                info!("Received 503 error from Gemini API: {}. Retrying in {} seconds...", error_text, retry_delay_secs);
+                tokio::time::sleep(Duration::from_secs(retry_delay_secs)).await;
+                continue;
+            } else {
+                // For other errors or if we've exceeded max retries, return an error
+                let error_text = response.text().await?;
+                if status == reqwest::StatusCode::SERVICE_UNAVAILABLE {
+                    return Err(anyhow::anyhow!("Gemini API unavailable after {} attempts: {}", max_retries, error_text));
+                } else {
+                    return Err(anyhow::anyhow!("Gemini API request failed with status {}: {}", status, error_text));
+                }
+            }
         }
-        
-        // Parse the response
-        let response_json: serde_json::Value = response.json().await?;
-        
-        // Extract the generated text
-        let generated_text = response_json["candidates"][0]["content"]["parts"][0]["text"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("Failed to extract text from Gemini API response"))?
-            .to_string();
-        
-        Ok(generated_text)
     }
 }
