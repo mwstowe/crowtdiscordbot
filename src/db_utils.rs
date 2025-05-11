@@ -1,6 +1,8 @@
 use std::collections::VecDeque;
 use tokio_rusqlite::Connection as SqliteConnection;
 use tracing::info;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 // Initialize SQLite database for message history
 pub async fn initialize_database(db_path: &str) -> Result<SqliteConnection, Box<dyn std::error::Error>> {
@@ -24,11 +26,12 @@ pub async fn initialize_database(db_path: &str) -> Result<SqliteConnection, Box<
 
 // Load message history from SQLite database
 pub async fn load_message_history(
-    conn: &SqliteConnection,
+    conn: Arc<Mutex<SqliteConnection>>,
     history: &mut VecDeque<(String, String)>,
     limit: usize
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let messages = conn.call(move |conn| {
+    let conn_guard = conn.lock().await;
+    let messages = conn_guard.call(move |conn| {
         let mut stmt = conn.prepare(
             &format!("SELECT author, content FROM messages ORDER BY timestamp DESC LIMIT {}", limit)
         )?;
@@ -55,7 +58,7 @@ pub async fn load_message_history(
 
 // Save a message to the SQLite database
 pub async fn save_message(
-    conn: &SqliteConnection,
+    conn: Arc<Mutex<SqliteConnection>>,
     author: &str,
     content: &str
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -66,7 +69,8 @@ pub async fn save_message(
     let author = author.to_string();
     let content = content.to_string();
     
-    conn.call(move |conn| {
+    let conn_guard = conn.lock().await;
+    conn_guard.call(move |conn| {
         conn.execute(
             "INSERT INTO messages (author, content, timestamp) VALUES (?1, ?2, ?3)",
             [&author, &content, &timestamp.to_string()],
@@ -76,13 +80,16 @@ pub async fn save_message(
     
     Ok(())
 }
+
 // Trim the message history database to the specified limit
 pub async fn trim_message_history(
-    conn: &SqliteConnection,
+    conn: Arc<Mutex<SqliteConnection>>,
     limit: usize
 ) -> Result<usize, Box<dyn std::error::Error>> {
+    let conn_guard = conn.lock().await;
+    
     // First, count how many messages we have
-    let count = conn.call(move |conn| {
+    let count = conn_guard.call(move |conn| {
         let mut stmt = conn.prepare("SELECT COUNT(*) FROM messages")?;
         let count: i64 = stmt.query_row([], |row| row.get(0))?;
         Ok::<_, rusqlite::Error>(count)
@@ -92,7 +99,7 @@ pub async fn trim_message_history(
     if count as usize > limit {
         let to_delete = count as usize - limit;
         
-        conn.call(move |conn| {
+        conn_guard.call(move |conn| {
             conn.execute(
                 "DELETE FROM messages WHERE id IN (
                     SELECT id FROM messages ORDER BY timestamp ASC LIMIT ?

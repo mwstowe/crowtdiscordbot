@@ -12,13 +12,16 @@ use serenity::model::id::ChannelId;
 use serenity::prelude::*;
 use tokio::sync::RwLock;
 use tracing::{error, info};
-use rusqlite::Connection;
+use tokio_rusqlite::Connection;
 use serde::Deserialize;
 use rand::Rng;
 use rand::seq::SliceRandom;
 use mysql::{Pool, OptsBuilder, prelude::*};
 use reqwest;
 use serde_json;
+
+// Import database utility functions
+mod db_utils;
 // Define keys for the client data
 struct RecentSpeakersKey;
 impl TypeMapKey for RecentSpeakersKey {
@@ -604,16 +607,68 @@ impl Bot {
     
     // Handle the !quote -dud command (quote a user)
     async fn handle_quote_dud_command(&self, http: &Http, msg: &Message, username: Option<String>) -> Result<()> {
-        // This would require access to the message history database
-        // For now, we'll implement a simplified version using the in-memory message history
-        
-        // This would normally query the message database, but for now we'll use a placeholder
-        if let Some(username) = username {
-            info!("Quote -dud request for user: {}", username);
-            msg.channel_id.say(http, format!("Sorry, I don't have any quotes from {} yet.", username)).await?;
+        // Check if we have a database connection
+        if let Some(db) = &self.message_db {
+            let db_clone = db.clone();
+            
+            // Build the query based on whether a username was provided
+            let messages = if let Some(user) = &username {
+                let user_clone = user.clone();
+                info!("Quote -dud request for user: {}", user_clone);
+                
+                // Query the database for messages from this user
+                db_clone.lock().await.call(move |conn| {
+                    let mut stmt = conn.prepare(
+                        "SELECT author, content FROM messages WHERE author = ? ORDER BY RANDOM() LIMIT 1"
+                    )?;
+                    
+                    let rows = stmt.query_map([&user_clone], |row| {
+                        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                    })?;
+                    
+                    let mut result = Vec::new();
+                    for row in rows {
+                        result.push(row?);
+                    }
+                    
+                    Ok::<_, rusqlite::Error>(result)
+                }).await?
+            } else {
+                info!("Quote -dud request for random user");
+                
+                // Query the database for a random message from any user
+                db_clone.lock().await.call(move |conn| {
+                    let mut stmt = conn.prepare(
+                        "SELECT author, content FROM messages ORDER BY RANDOM() LIMIT 1"
+                    )?;
+                    
+                    let rows = stmt.query_map([], |row| {
+                        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                    })?;
+                    
+                    let mut result = Vec::new();
+                    for row in rows {
+                        result.push(row?);
+                    }
+                    
+                    Ok::<_, rusqlite::Error>(result)
+                }).await?
+            };
+            
+            // If we found a message, send it
+            if let Some((author, content)) = messages.first() {
+                msg.channel_id.say(http, format!("<{}> {}", author, content)).await?;
+            } else {
+                // No messages found
+                if let Some(user) = username {
+                    msg.channel_id.say(http, format!("No messages found from user {}", user)).await?;
+                } else {
+                    msg.channel_id.say(http, "No messages found in the database").await?;
+                }
+            }
         } else {
-            info!("Quote -dud request for random user");
-            msg.channel_id.say(http, "Sorry, I don't have any user quotes stored yet.").await?;
+            // No database connection
+            msg.channel_id.say(http, "Message history database is not available").await?;
         }
         
         Ok(())
@@ -623,7 +678,11 @@ impl Bot {
     async fn process_message(&self, ctx: &Context, msg: &Message) -> Result<()> {
         // Store the message in the database if available
         if let Some(db) = &self.message_db {
-            if let Err(e) = store_message(db, &msg).await {
+            let author = msg.author.name.clone();
+            let content = msg.content.clone();
+            let db_clone = db.clone();
+            
+            if let Err(e) = db_utils::save_message(db_clone, &author, &content).await {
                 error!("Error storing message: {:?}", e);
             }
         }
@@ -1066,7 +1125,7 @@ async fn main() -> Result<()> {
 
     // Initialize SQLite database for message history
     let db_path = "message_history.db";
-    let message_db = match initialize_database(db_path).await {
+    let message_db = match db_utils::initialize_database(db_path).await {
         Ok(conn) => {
             info!("Successfully connected to message history database");
             Some(Arc::new(tokio::sync::Mutex::new(conn)))
@@ -1117,9 +1176,18 @@ async fn main() -> Result<()> {
         
         // Load existing messages if database is available
         if let Some(db) = &message_db {
-            let mut history = message_history.write().await;
-            if let Err(e) = load_message_history(db, &mut history, message_history_limit).await {
+            // Create a temporary VecDeque to hold the loaded messages
+            let mut temp_history = VecDeque::new();
+            let db_clone = db.clone();
+            
+            if let Err(e) = db_utils::load_message_history(db_clone, &mut temp_history, message_history_limit).await {
                 error!("Failed to load message history: {:?}", e);
+            } else {
+                info!("Loaded {} messages from database", temp_history.len());
+                
+                // For now, we can't directly convert the loaded messages to serenity Message objects
+                // In a real implementation, you would need to create Message objects from the stored data
+                // or modify the database schema to store all necessary fields
             }
         }
         
@@ -1209,8 +1277,16 @@ async fn main() -> Result<()> {
         tokio::spawn(async move {
             loop {
                 tokio::time::sleep(Duration::from_secs(db_trim_interval)).await;
-                if let Err(e) = trim_database(&db_clone, limit).await {
-                    error!("Error trimming database: {:?}", e);
+                info!("Running scheduled database trim task");
+                match db_utils::trim_message_history(db_clone.clone(), limit).await {
+                    Ok(deleted) => {
+                        if deleted > 0 {
+                            info!("Trimmed database: removed {} old messages", deleted);
+                        }
+                    },
+                    Err(e) => {
+                        error!("Error trimming database: {:?}", e);
+                    }
                 }
             }
         });
@@ -1233,61 +1309,4 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-// Database functions
-async fn initialize_database(path: &str) -> Result<Connection> {
-    // This is a placeholder - in a real implementation, you would:
-    // 1. Connect to the SQLite database
-    // 2. Create necessary tables if they don't exist
-    // 3. Return the connection
-    
-    // For now, just return a dummy connection
-    let conn = Connection::open(path)?;
-    
-    // Create the messages table if it doesn't exist
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS messages (
-            id TEXT PRIMARY KEY,
-            author_id TEXT NOT NULL,
-            author_name TEXT NOT NULL,
-            content TEXT NOT NULL,
-            timestamp INTEGER NOT NULL
-        )",
-        [],
-    )?;
-    
-    Ok(conn)
-}
-
-async fn store_message(_db: &Arc<tokio::sync::Mutex<Connection>>, msg: &Message) -> Result<()> {
-    // This is a placeholder - in a real implementation, you would:
-    // 1. Extract relevant data from the message
-    // 2. Insert it into the database
-    
-    // For now, just log that we would store the message
-    info!("Would store message from {} with content: {}", msg.author.name, msg.content);
-    
-    Ok(())
-}
-
-async fn load_message_history(_db: &Arc<tokio::sync::Mutex<Connection>>, _history: &mut VecDeque<Message>, limit: usize) -> Result<()> {
-    // This is a placeholder - in a real implementation, you would:
-    // 1. Query the database for recent messages
-    // 2. Convert them to Message objects
-    // 3. Add them to the history deque
-    
-    // For now, just log that we would load messages
-    info!("Would load up to {} messages from the database", limit);
-    
-    Ok(())
-}
-
-async fn trim_database(_db: &Arc<tokio::sync::Mutex<Connection>>, limit: usize) -> Result<()> {
-    // This is a placeholder - in a real implementation, you would:
-    // 1. Count the total number of messages
-    // 2. If over the limit, delete the oldest messages
-    
-    // For now, just log that we would trim the database
-    info!("Would trim database to {} messages", limit);
-    
-    Ok(())
-}
+// Remove the placeholder database functions since we're now using db_utils
