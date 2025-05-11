@@ -1,0 +1,83 @@
+# Crow Discord Bot
+
+A Discord bot that follows a specific channel and responds to various triggers including commands, mentions, and keywords.
+
+## Features
+
+- Responds to commands starting with `!`
+- Responds to direct mentions
+- Responds to messages starting with the bot's name
+- Detects and responds to specific keywords
+- Performs Google searches
+- Generates AI responses using Google's Gemini API
+- Stores message history in a SQLite database
+- Automatically trims the database to prevent excessive growth
+
+## Setup Instructions
+
+1. Create a `CrowConfig.toml` file based on the `CrowConfig.toml.example` template
+2. Add your Discord bot token to the `DISCORD_TOKEN` field
+3. Add the channel ID you want the bot to follow to the `FOLLOWED_CHANNEL_ID` field
+4. Set the bot's name with the `BOT_NAME` field (defaults to "Crow" if not specified)
+5. Set the message history limit with the `MESSAGE_HISTORY_LIMIT` field (defaults to 10000)
+6. Set how often to trim the database with `DB_TRIM_INTERVAL_SECS` (defaults to 3600 seconds / 1 hour)
+7. Configure Gemini API rate limits with `GEMINI_RATE_LIMIT_MINUTE` and `GEMINI_RATE_LIMIT_DAY` fields
+8. For database functionality, add MySQL credentials
+9. For Google search functionality, add Google API key and Search Engine ID
+10. For AI responses, add Gemini API key
+
+## Available Commands
+
+- `!hello` - Bot responds with "world!"
+- `!help` - Bot displays a list of available commands
+- `!fightcrime` - Bot generates a crime fighting duo using recent chat participants
+- `!quote [search_term]` - Bot returns a random quote, optionally filtered by search term
+- `!quote -show [show_name]` - Bot returns a random quote from a specific show
+- `!quote -dud [username]` - Bot returns a random message previously sent by the specified user
+- `!slogan [search_term]` - Bot returns a random advertising slogan, optionally filtered by search term
+
+## Message History Database
+
+The bot stores message history in a SQLite database to enable features like `!quote -dud` and to maintain persistence across bot restarts.
+
+### Database Schema
+
+The messages table has the following structure:
+```sql
+CREATE TABLE IF NOT EXISTS messages (
+    id INTEGER PRIMARY KEY,
+    author TEXT NOT NULL,
+    content TEXT NOT NULL,
+    timestamp INTEGER NOT NULL
+)
+```
+
+### Database Management
+
+The bot automatically manages its message history database:
+
+1. New messages are stored as they arrive
+2. The database is periodically trimmed to keep only the most recent messages (up to the `MESSAGE_HISTORY_LIMIT`)
+3. The trim interval can be configured with `DB_TRIM_INTERVAL_SECS` (defaults to 3600 seconds / 1 hour)
+
+This ensures that the bot's memory usage remains stable over time while still maintaining enough history for features like `!quote -dud`.
+
+## Configuration Options
+
+The bot can be configured through the `CrowConfig.toml` file:
+
+- `DISCORD_TOKEN` - Your Discord bot token
+- `FOLLOWED_CHANNEL_ID` - ID of the channel the bot should follow
+- `FOLLOWED_CHANNEL_NAME` - Name of the channel the bot should follow (alternative to ID)
+- `FOLLOWED_SERVER_NAME` - Name of the server to look for the channel in
+- `BOT_NAME` - Name of the bot (defaults to "Crow")
+- `MESSAGE_HISTORY_LIMIT` - Maximum number of messages to store (defaults to 10000)
+- `DB_TRIM_INTERVAL_SECS` - How often to trim the database (defaults to 3600 seconds)
+- `GEMINI_RATE_LIMIT_MINUTE` - Maximum Gemini API calls per minute (defaults to 15)
+- `GEMINI_RATE_LIMIT_DAY` - Maximum Gemini API calls per day (defaults to 1500)
+- `GEMINI_API_KEY` - Your Gemini API key
+- `GEMINI_API_ENDPOINT` - Custom Gemini API endpoint
+- `GEMINI_PROMPT_WRAPPER` - Custom prompt wrapper for Gemini API calls
+- `GOOGLE_API_KEY` - Your Google API key
+- `GOOGLE_SEARCH_ENGINE_ID` - Your Google Custom Search Engine ID
+- `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` - MySQL database credentials

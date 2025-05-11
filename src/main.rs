@@ -817,8 +817,8 @@ impl Bot {
         let bot_name_lower = self.bot_name.to_lowercase();
         
         if content_lower.starts_with(&bot_name_lower) {
-            // Extract the message content without the bot's name
-            let content = msg.content[self.bot_name.len()..].trim().to_string();
+            // Use the full message content including the bot's name
+            let content = msg.content.trim().to_string();
             
             if !content.is_empty() {
                 if let Some(_api_key) = &self.gemini_api_key {
@@ -857,7 +857,8 @@ impl Bot {
                     }
                 } else {
                     // Fallback if Gemini API is not configured
-                    if let Err(e) = msg.channel_id.say(&ctx.http, format!("Hello {}, you called my name! I'm {}! (Gemini API is not configured)", msg.author.name, self.bot_name)).await {
+                    let display_name = msg.author.global_name.clone().unwrap_or_else(|| msg.author.name.clone());
+                    if let Err(e) = msg.channel_id.say(&ctx.http, format!("Hello {}, you called my name! I'm {}! (Gemini API is not configured)", display_name, self.bot_name)).await {
                         error!("Error sending name response: {:?}", e);
                     }
                 }
@@ -938,7 +939,8 @@ impl Bot {
                     }
                 } else {
                     // Fallback if Gemini API is not configured
-                    if let Err(e) = msg.channel_id.say(&ctx.http, format!("Hello {}, you mentioned me! I'm {}! (Gemini API is not configured)", msg.author.name, self.bot_name)).await {
+                    let display_name = msg.author.global_name.clone().unwrap_or_else(|| msg.author.name.clone());
+                    if let Err(e) = msg.channel_id.say(&ctx.http, format!("Hello {}, you mentioned me! I'm {}! (Gemini API is not configured)", display_name, self.bot_name)).await {
                         error!("Error sending mention response: {:?}", e);
                     }
                 }
