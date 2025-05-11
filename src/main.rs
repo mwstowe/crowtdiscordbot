@@ -18,6 +18,7 @@ use rand::Rng;
 use rand::seq::SliceRandom;
 use mysql::{Pool, OptsBuilder, prelude::*};
 use reqwest;
+use regex::Regex;
 use serde_json;
 
 // Import database utility functions
@@ -830,9 +831,10 @@ impl Bot {
                         }
                     };
                     
-                    // Call the Gemini API with user's display name
-                    let user_name = &msg.author.name;
-                    match self.call_gemini_api_with_user(&content, user_name).await {
+                    // Call the Gemini API with user's display name (without pronouns)
+                    let display_name = msg.author.global_name.clone().unwrap_or_else(|| msg.author.name.clone());
+                    let clean_display_name = self.strip_pronouns(&display_name);
+                    match self.call_gemini_api_with_user(&content, &clean_display_name).await {
                         Ok(response) => {
                             // Edit the thinking message with the actual response
                             if let Err(e) = thinking_msg.edit(&ctx.http, EditMessage::new().content(response.clone())).await {
@@ -909,9 +911,10 @@ impl Bot {
                         }
                     };
                     
-                    // Call the Gemini API with user's display name
-                    let user_name = &msg.author.name;
-                    match self.call_gemini_api_with_user(&content, user_name).await {
+                    // Call the Gemini API with user's display name (without pronouns)
+                    let display_name = msg.author.global_name.clone().unwrap_or_else(|| msg.author.name.clone());
+                    let clean_display_name = self.strip_pronouns(&display_name);
+                    match self.call_gemini_api_with_user(&content, &clean_display_name).await {
                         Ok(response) => {
                             // Edit the thinking message with the actual response
                             let response_clone = response.clone();
@@ -947,6 +950,27 @@ impl Bot {
 }
 
 impl Bot {
+    // Function to strip pronouns from display names
+    fn strip_pronouns(&self, display_name: &str) -> String {
+        // Remove content in parentheses (they/them)
+        let without_parentheses = Regex::new(r"\s*\([^)]*\)").unwrap_or_else(|_| Regex::new(r"").unwrap())
+            .replace_all(display_name, "").to_string();
+        
+        // Remove content in brackets [she/her]
+        let without_brackets = Regex::new(r"\s*\[[^\]]*\]").unwrap_or_else(|_| Regex::new(r"").unwrap())
+            .replace_all(&without_parentheses, "").to_string();
+        
+        // Remove content after | or pipe character (common separator for pronouns)
+        let without_pipe = without_brackets.split('|').next().unwrap_or("").trim().to_string();
+        
+        // Return cleaned name, or original if empty
+        if without_pipe.is_empty() {
+            display_name.to_string()
+        } else {
+            without_pipe
+        }
+    }
+
     async fn call_gemini_api(&self, prompt: &str) -> Result<String> {
         // For backward compatibility, call the version with user name
         self.call_gemini_api_with_user(prompt, "User").await
