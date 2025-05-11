@@ -1,0 +1,30 @@
+# Discord Bot Configuration
+DISCORD_TOKEN = "your_discord_token_here"
+
+# Channel to follow (use either ID or name)
+FOLLOWED_CHANNEL_ID = "123456789012345678"
+# FOLLOWED_CHANNEL_NAME = "general"
+# FOLLOWED_SERVER_NAME = "My Discord Server"  # Optional: specify server name to find channel in
+
+# Bot settings
+BOT_NAME = "Crow"
+MESSAGE_HISTORY_LIMIT = "10000"
+DB_TRIM_INTERVAL_SECS = "3600"  # 1 hour
+
+# Gemini API settings
+GEMINI_API_KEY = "your_gemini_api_key_here"
+GEMINI_API_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+GEMINI_PROMPT_WRAPPER = "You are {bot_name}, a helpful and friendly Discord bot. Respond to {user}'s message: {message}"
+THINKING_MESSAGE = "*thinking...*"
+GEMINI_RATE_LIMIT_MINUTE = "15"
+GEMINI_RATE_LIMIT_DAY = "1500"
+
+# Google Search settings
+GOOGLE_API_KEY = "your_google_api_key_here"
+GOOGLE_SEARCH_ENGINE_ID = "your_search_engine_id_here"
+
+# Database settings (for quotes and slogans)
+DB_HOST = "localhost"
+DB_NAME = "quotes_db"
+DB_USER = "username"
+DB_PASSWORD = "password"
