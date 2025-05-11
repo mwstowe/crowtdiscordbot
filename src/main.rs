@@ -354,8 +354,7 @@ impl Bot {
         
         // Define keyword triggers
         let mut keyword_triggers = Vec::new();
-        keyword_triggers.push((vec!["magic".to_string(), "voice".to_string()], 
-                              "I heard someone talking about magic voice!".to_string()));
+        // Removed "magic voice" trigger as requested
         keyword_triggers.push((vec!["discord".to_string(), "bot".to_string()], 
                               format!("Yes, I'm a Discord bot! My name is {}!", bot_name)));
         keyword_triggers.push((vec!["who".to_string(), "fights".to_string(), "crime".to_string()], 
