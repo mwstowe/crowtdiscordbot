@@ -4,6 +4,37 @@ use std::fs;
 use std::path::Path;
 use tracing::info;
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_preprocess_config_content() {
+        let input = r#"
+# Test config
+DiScOrD_ToKeN = "test_token"
+BOT_NAME = "TestCrow"
+MESSAGE_HISTORY_LIMIT = "5000"
+"#;
+        
+        let processed = preprocess_config_content(input);
+        println!("Processed content: {}", processed);
+        
+        // Check that keys are converted to lowercase
+        assert!(processed.contains("discord_token"));
+        assert!(processed.contains("bot_name"));
+        assert!(processed.contains("message_history_limit"));
+        
+        // Check that values are preserved
+        assert!(processed.contains("\"test_token\""));
+        assert!(processed.contains("\"TestCrow\""));
+        assert!(processed.contains("\"5000\""));
+        
+        // Check that comments are preserved
+        assert!(processed.contains("# Test config"));
+    }
+}
+
 #[derive(Debug, Deserialize, Clone)]
 pub struct Config {
     pub discord_token: String,
@@ -37,13 +68,50 @@ pub fn load_config() -> Result<Config> {
         let config_content = fs::read_to_string(config_path)
             .context("Failed to read CrowConfig.toml")?;
         
-        let config: Config = toml::from_str(&config_content)
+        // Pre-process the config content to make keys case-insensitive
+        let processed_content = preprocess_config_content(&config_content);
+        
+        let config: Config = toml::from_str(&processed_content)
             .context("Failed to parse CrowConfig.toml")?;
         
         return Ok(config);
     }
     
     Err(anyhow::anyhow!("Configuration file CrowConfig.toml not found"))
+}
+
+// Helper function to make config keys case-insensitive
+pub fn preprocess_config_content(content: &str) -> String {
+    let mut processed = String::new();
+    
+    for line in content.lines() {
+        let trimmed = line.trim();
+        
+        // Skip comments and empty lines
+        if trimmed.starts_with('#') || trimmed.is_empty() {
+            processed.push_str(line);
+            processed.push('\n');
+            continue;
+        }
+        
+        // Check if this line contains a key-value pair
+        if let Some(equals_pos) = trimmed.find('=') {
+            let key = &trimmed[..equals_pos].trim();
+            let value = &trimmed[equals_pos..];
+            
+            // Convert key to lowercase
+            let lowercase_key = key.to_lowercase();
+            processed.push_str(&lowercase_key);
+            processed.push_str(value);
+        } else {
+            // Not a key-value pair, keep as is (section headers, etc.)
+            processed.push_str(line);
+        }
+        
+        processed.push('\n');
+    }
+    
+    processed
 }
 
 pub fn parse_config(config: &Config) -> (
