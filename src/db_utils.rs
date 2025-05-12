@@ -69,7 +69,11 @@ pub async fn save_message(
         .as_secs();
     
     let author = author.to_string();
-    let display_name = display_name.to_string();
+    // Clean up display name - remove <> brackets and [irc] tag
+    let mut clean_display_name = display_name.to_string();
+    clean_display_name = clean_display_name.replace("<", "").replace(">", "");
+    clean_display_name = clean_display_name.replace("[irc]", "").trim().to_string();
+    
     let content = content.to_string();
     
     let conn_guard = conn.lock().await;
@@ -82,7 +86,7 @@ pub async fn save_message(
         
         conn.execute(
             "INSERT INTO messages (author, display_name, content, timestamp) VALUES (?1, ?2, ?3, ?4)",
-            [&author, &display_name, &content, &timestamp.to_string()],
+            [&author, &clean_display_name, &content, &timestamp.to_string()],
         )?;
         Ok::<_, rusqlite::Error>(())
     }).await?;

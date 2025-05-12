@@ -378,7 +378,12 @@ impl Bot {
             
             // If we found a message, send it
             if let Some((_, display_name, content)) = messages.first() {
-                msg.channel_id.say(http, format!("<{}> {}", display_name, content)).await?;
+                // Clean up display name - remove <> brackets and [irc] tag
+                let mut clean_display_name = display_name.clone();
+                clean_display_name = clean_display_name.replace("<", "").replace(">", "");
+                clean_display_name = clean_display_name.replace("[irc]", "").trim().to_string();
+                
+                msg.channel_id.say(http, format!("<{}> {}", clean_display_name, content)).await?;
             } else {
                 // No messages found
                 if let Some(user) = username {
