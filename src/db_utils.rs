@@ -13,6 +13,7 @@ pub async fn initialize_database(db_path: &str) -> Result<SqliteConnection, Box<
             "CREATE TABLE IF NOT EXISTS messages (
                 id INTEGER PRIMARY KEY,
                 author TEXT NOT NULL,
+                display_name TEXT,
                 content TEXT NOT NULL,
                 timestamp INTEGER NOT NULL
             )",
@@ -60,6 +61,7 @@ pub async fn load_message_history(
 pub async fn save_message(
     conn: Arc<Mutex<SqliteConnection>>,
     author: &str,
+    display_name: &str,
     content: &str
 ) -> Result<(), Box<dyn std::error::Error>> {
     let timestamp = std::time::SystemTime::now()
@@ -67,13 +69,20 @@ pub async fn save_message(
         .as_secs();
     
     let author = author.to_string();
+    let display_name = display_name.to_string();
     let content = content.to_string();
     
     let conn_guard = conn.lock().await;
     conn_guard.call(move |conn| {
+        // First, ensure the table has a display_name column
+        let _ = conn.execute(
+            "ALTER TABLE messages ADD COLUMN display_name TEXT",
+            [],
+        );
+        
         conn.execute(
-            "INSERT INTO messages (author, content, timestamp) VALUES (?1, ?2, ?3)",
-            [&author, &content, &timestamp.to_string()],
+            "INSERT INTO messages (author, display_name, content, timestamp) VALUES (?1, ?2, ?3, ?4)",
+            [&author, &display_name, &content, &timestamp.to_string()],
         )?;
         Ok::<_, rusqlite::Error>(())
     }).await?;

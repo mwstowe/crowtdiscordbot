@@ -275,12 +275,40 @@ impl Bot {
                 
                 // Query the database for messages from this user
                 db_clone.lock().await.call(move |conn| {
-                    let mut stmt = conn.prepare(
-                        "SELECT author, content FROM messages WHERE author = ? ORDER BY RANDOM() LIMIT 1"
-                    )?;
+                    // First check if display_name column exists
+                    let has_display_name = conn
+                        .prepare("PRAGMA table_info(messages)")
+                        .and_then(|mut stmt| {
+                            let rows = stmt.query_map([], |row| {
+                                let name: String = row.get(1)?;
+                                Ok(name)
+                            })?;
+                            
+                            for name_result in rows {
+                                if let Ok(name) = name_result {
+                                    if name == "display_name" {
+                                        return Ok(true);
+                                    }
+                                }
+                            }
+                            Ok(false)
+                        })
+                        .unwrap_or(false);
+                    
+                    let query = if has_display_name {
+                        "SELECT author, display_name, content FROM messages WHERE author = ? ORDER BY RANDOM() LIMIT 1"
+                    } else {
+                        "SELECT author, author as display_name, content FROM messages WHERE author = ? ORDER BY RANDOM() LIMIT 1"
+                    };
+                    
+                    let mut stmt = conn.prepare(query)?;
                     
                     let rows = stmt.query_map([&user_clone], |row| {
-                        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                        Ok((
+                            row.get::<_, String>(0)?, 
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?
+                        ))
                     })?;
                     
                     let mut result = Vec::new();
@@ -295,12 +323,40 @@ impl Bot {
                 
                 // Query the database for a random message from any user
                 db_clone.lock().await.call(move |conn| {
-                    let mut stmt = conn.prepare(
-                        "SELECT author, content FROM messages ORDER BY RANDOM() LIMIT 1"
-                    )?;
+                    // First check if display_name column exists
+                    let has_display_name = conn
+                        .prepare("PRAGMA table_info(messages)")
+                        .and_then(|mut stmt| {
+                            let rows = stmt.query_map([], |row| {
+                                let name: String = row.get(1)?;
+                                Ok(name)
+                            })?;
+                            
+                            for name_result in rows {
+                                if let Ok(name) = name_result {
+                                    if name == "display_name" {
+                                        return Ok(true);
+                                    }
+                                }
+                            }
+                            Ok(false)
+                        })
+                        .unwrap_or(false);
+                    
+                    let query = if has_display_name {
+                        "SELECT author, display_name, content FROM messages ORDER BY RANDOM() LIMIT 1"
+                    } else {
+                        "SELECT author, author as display_name, content FROM messages ORDER BY RANDOM() LIMIT 1"
+                    };
+                    
+                    let mut stmt = conn.prepare(query)?;
                     
                     let rows = stmt.query_map([], |row| {
-                        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?
+                        ))
                     })?;
                     
                     let mut result = Vec::new();
@@ -313,8 +369,8 @@ impl Bot {
             };
             
             // If we found a message, send it
-            if let Some((author, content)) = messages.first() {
-                msg.channel_id.say(http, format!("<{}> {}", author, content)).await?;
+            if let Some((_, display_name, content)) = messages.first() {
+                msg.channel_id.say(http, format!("<{}> {}", display_name, content)).await?;
             } else {
                 // No messages found
                 if let Some(user) = username {
@@ -337,10 +393,11 @@ impl Bot {
         // Store the message in the database if available
         if let Some(db) = &self.message_db {
             let author = msg.author.name.clone();
+            let display_name = msg.author.global_name.clone().unwrap_or_else(|| msg.author.name.clone());
             let content = msg.content.clone();
             let db_clone = db.clone();
             
-            if let Err(e) = db_utils::save_message(db_clone, &author, &content).await {
+            if let Err(e) = db_utils::save_message(db_clone, &author, &display_name, &content).await {
                 error!("Error storing message: {:?}", e);
             }
         }
