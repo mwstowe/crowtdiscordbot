@@ -54,6 +54,7 @@ pub struct Config {
     pub thinking_message: Option<String>,
     pub google_api_key: Option<String>,
     pub google_search_engine_id: Option<String>,
+    pub google_search_enabled: Option<String>,
     pub db_host: Option<String>,
     pub db_name: Option<String>,
     pub db_user: Option<String>,
@@ -120,7 +121,8 @@ pub fn parse_config(config: &Config) -> (
     u64,                    // db_trim_interval
     u32,                    // gemini_rate_limit_minute
     u32,                    // gemini_rate_limit_day
-    Vec<u64>                // gateway_bot_ids
+    Vec<u64>,               // gateway_bot_ids
+    bool                    // google_search_enabled
 ) {
     // Get the bot name
     let bot_name = config.bot_name.clone().unwrap_or_else(|| "Crow".to_string());
@@ -179,6 +181,23 @@ pub fn parse_config(config: &Config) -> (
     } else {
         info!("No gateway bots configured, will ignore all bot messages");
     }
+    
+    // Parse Google search enabled flag (default: true for backward compatibility)
+    let google_search_enabled = config.google_search_enabled
+        .as_ref()
+        .and_then(|enabled| {
+            match enabled.to_lowercase().as_str() {
+                "false" | "0" | "no" | "disabled" | "off" => Some(false),
+                "true" | "1" | "yes" | "enabled" | "on" => Some(true),
+                _ => {
+                    info!("Invalid google_search_enabled value: {}, defaulting to enabled", enabled);
+                    Some(true)
+                }
+            }
+        })
+        .unwrap_or(true); // Default to enabled for backward compatibility
+    
+    info!("Google search feature is {}", if google_search_enabled { "enabled" } else { "disabled" });
           
     (
         bot_name,
@@ -186,6 +205,7 @@ pub fn parse_config(config: &Config) -> (
         db_trim_interval,
         gemini_rate_limit_minute,
         gemini_rate_limit_day,
-        gateway_bot_ids
+        gateway_bot_ids,
+        google_search_enabled
     )
 }

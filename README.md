@@ -28,7 +28,8 @@ A Discord bot that follows specific channels and responds to various triggers in
 8. Configure Gemini API rate limits with `GEMINI_RATE_LIMIT_MINUTE` and `GEMINI_RATE_LIMIT_DAY` fields
 9. For database functionality, add MySQL credentials
 10. For Google search functionality, add Google API key and Search Engine ID
-11. For AI responses, add Gemini API key
+11. To enable/disable Google search, set `GOOGLE_SEARCH_ENABLED` to "true" or "false" (defaults to "true")
+12. For AI responses, add Gemini API key
 
 ## Available Commands
 
@@ -86,4 +87,5 @@ The bot can be configured through the `CrowConfig.toml` file:
 - `GEMINI_PROMPT_WRAPPER` - Custom prompt wrapper for Gemini API calls
 - `GOOGLE_API_KEY` - Your Google API key
 - `GOOGLE_SEARCH_ENGINE_ID` - Your Google Custom Search Engine ID
+- `GOOGLE_SEARCH_ENABLED` - Enable or disable Google search feature (defaults to "true")
 - `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` - MySQL database credentials

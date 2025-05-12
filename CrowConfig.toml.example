@@ -1,40 +1,38 @@
 # Discord Bot Configuration
-DISCORD_TOKEN = "your_discord_token_here"
+DISCORD_TOKEN = "your_discord_bot_token_here"
 
-# Channel to follow (use either ID or name)
-# Single channel options (legacy support)
+# Channel Configuration
+# You can use either channel ID or channel name
+# For multiple channels, use comma-separated values
 FOLLOWED_CHANNEL_ID = "123456789012345678"
 # FOLLOWED_CHANNEL_NAME = "general"
+# FOLLOWED_CHANNEL_IDS = "123456789012345678, 987654321098765432"
+# FOLLOWED_CHANNEL_NAMES = "general, random"
+# FOLLOWED_SERVER_NAME = "My Discord Server"  # Optional: limit channel search to this server
 
-# Multiple channel options (comma-separated)
-# FOLLOWED_CHANNEL_IDS = "123456789012345678,234567890123456789"
-# FOLLOWED_CHANNEL_NAMES = "general,bot-commands,random"
+# Bot Configuration
+BOT_NAME = "Crow"  # Default: "Crow"
+MESSAGE_HISTORY_LIMIT = "10000"  # Default: 10000
+DB_TRIM_INTERVAL_SECS = "3600"  # Default: 3600 (1 hour)
 
-# Optional: specify server name to find channel in
-# FOLLOWED_SERVER_NAME = "My Discord Server"
-
-# Bot settings
-BOT_NAME = "Crow"
-MESSAGE_HISTORY_LIMIT = "10000"
-DB_TRIM_INTERVAL_SECS = "3600"  # 1 hour
-
-# Gateway bot IDs (comma-separated list of bot IDs to respond to)
-# GATEWAY_BOT_IDS = "123456789012345678,987654321098765432"
-
-# Gemini API settings
+# Gemini API Configuration
 GEMINI_API_KEY = "your_gemini_api_key_here"
-GEMINI_API_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
-GEMINI_PROMPT_WRAPPER = "You are {bot_name}, a helpful and friendly Discord bot. Respond to {user}'s message: {message}"
-THINKING_MESSAGE = "*thinking...*"  # Set to empty string or "[none]" to disable thinking message
-GEMINI_RATE_LIMIT_MINUTE = "15"
-GEMINI_RATE_LIMIT_DAY = "1500"
+GEMINI_API_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent"
+GEMINI_PROMPT_WRAPPER = "You are {bot_name}, a helpful Discord bot. {user} says: {message}"
+THINKING_MESSAGE = "*thinking...*"  # Set to empty string or "[none]" to disable
+GEMINI_RATE_LIMIT_MINUTE = "15"  # Default: 15 calls per minute
+GEMINI_RATE_LIMIT_DAY = "1500"  # Default: 1500 calls per day
 
-# Google Search settings
+# Google Search Configuration
 GOOGLE_API_KEY = "your_google_api_key_here"
 GOOGLE_SEARCH_ENGINE_ID = "your_search_engine_id_here"
+GOOGLE_SEARCH_ENABLED = "true"  # Set to "false" to disable Google search feature
 
-# Database settings (for quotes and slogans)
-DB_HOST = "localhost"
-DB_NAME = "quotes_db"
-DB_USER = "username"
-DB_PASSWORD = "password"
+# Database Configuration (Optional)
+# DB_HOST = "localhost"
+# DB_NAME = "crow_db"
+# DB_USER = "crow_user"
+# DB_PASSWORD = "crow_password"
+
+# Gateway Bot Configuration (Optional)
+# GATEWAY_BOT_IDS = "123456789012345678, 987654321098765432"
