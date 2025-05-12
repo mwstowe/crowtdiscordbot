@@ -9,6 +9,8 @@ pub struct Config {
     pub discord_token: String,
     pub followed_channel_name: Option<String>,
     pub followed_channel_id: Option<String>,
+    pub followed_channel_names: Option<String>,
+    pub followed_channel_ids: Option<String>,
     pub followed_server_name: Option<String>,
     pub bot_name: Option<String>,
     pub message_history_limit: Option<String>,

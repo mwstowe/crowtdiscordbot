@@ -41,7 +41,7 @@ impl TypeMapKey for MessageHistoryKey {
 }
 
 struct Bot {
-    followed_channel: ChannelId,
+    followed_channels: Vec<ChannelId>,
     db_manager: DatabaseManager,
     google_client: Option<GoogleSearchClient>,
     gemini_client: Option<GeminiClient>,
@@ -57,7 +57,7 @@ struct Bot {
 
 impl Bot {
     fn new(
-        followed_channel: ChannelId,
+        followed_channels: Vec<ChannelId>,
         mysql_host: Option<String>,
         mysql_db: Option<String>,
         mysql_user: Option<String>,
@@ -119,7 +119,7 @@ impl Bot {
         let crime_generator = CrimeFightingGenerator::new();
         
         Self {
-            followed_channel,
+            followed_channels,
             db_manager,
             google_client,
             gemini_client,
@@ -719,8 +719,8 @@ impl EventHandler for Bot {
             info!("✅ Processing message from gateway bot {}", bot_id);
         }
         
-        // Only process messages in the followed channel
-        if msg.channel_id != self.followed_channel {
+        // Only process messages in the followed channels
+        if !self.followed_channels.contains(&msg.channel_id) {
             return;
         }
         
@@ -731,8 +731,15 @@ impl EventHandler for Bot {
     }
 
     async fn ready(&self, _: Context, ready: Ready) {
-        info!("✅ {} ({}) is connected and following channel {}!", self.bot_name, ready.user.name, self.followed_channel);
-        info!("Bot is ready to respond to messages in the channel");
+        info!("✅ {} ({}) is connected and following {} channels!", 
+              self.bot_name, ready.user.name, self.followed_channels.len());
+        
+        // Log each followed channel
+        for channel_id in &self.followed_channels {
+            info!("Following channel: {}", channel_id);
+        }
+        
+        info!("Bot is ready to respond to messages in the configured channels");
         
         // Log available commands
         let command_list = self.commands.keys()
@@ -749,12 +756,17 @@ impl EventHandler for Bot {
     }
 }
 
-// Helper function to find a channel by name
-async fn find_channel_by_name(http: &Http, name: &str, server_name: Option<&str>) -> Option<ChannelId> {
+// Helper function to find channels by name
+async fn find_channels_by_name(http: &Http, name: &str, server_name: Option<&str>) -> Vec<ChannelId> {
     // Get all the guilds (servers) the bot is in
-    let guilds = http.get_guilds(None, None).await.ok()?;
+    let guilds = match http.get_guilds(None, None).await {
+        Ok(guilds) => guilds,
+        Err(_) => return Vec::new(),
+    };
     
     info!("Searching for channel '{}' across {} servers", name, guilds.len());
+    
+    let mut found_channels = Vec::new();
     
     // For each guild, try to find the channel
     for guild_info in guilds {
@@ -781,18 +793,25 @@ async fn find_channel_by_name(http: &Http, name: &str, server_name: Option<&str>
             for channel in channels {
                 if channel.name.to_lowercase() == name.to_lowercase() {
                     info!("✅ Found matching channel '{}' (ID: {}) in server", channel.name, channel.id);
-                    return Some(channel.id);
+                    found_channels.push(channel.id);
                 }
             }
             
-            info!("No matching channel found in this server");
+            if found_channels.is_empty() {
+                info!("No matching channel found in this server");
+            }
         } else {
             info!("Could not retrieve channels for this server");
         }
     }
     
-    info!("❌ Channel '{}' not found in any server", name);
-    None
+    if found_channels.is_empty() {
+        info!("❌ Channel '{}' not found in any server", name);
+    } else {
+        info!("Found {} channels matching '{}'", found_channels.len(), name);
+    }
+    
+    found_channels
 }
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -912,57 +931,87 @@ async fn main() -> Result<()> {
         data.insert::<MessageHistoryKey>(message_history);
     }
     
-    // Find the channel ID
-    info!("Looking for channel by {}...", 
-          if config.followed_channel_name.is_some() { 
-              format!("name '{}'", config.followed_channel_name.as_ref().unwrap()) 
-          } else { 
-              format!("ID '{}'", config.followed_channel_id.as_ref().unwrap_or(&"none".to_string())) 
-          });
-          
-    let channel_id = if let Some(name) = &config.followed_channel_name {
-        // Try to find by name
-        info!("Searching for channel with name: '{}'", name);
-        if let Some(server_name) = &config.followed_server_name {
-            info!("Limiting search to server: '{}'", server_name);
+    // Find the channel IDs
+    info!("Looking for channels to follow...");
+    
+    let mut channel_ids = Vec::new();
+    
+    // First check for multiple channel IDs
+    if let Some(ids_str) = &config.followed_channel_ids {
+        for id_str in ids_str.split(',') {
+            let id_str = id_str.trim();
+            if let Ok(id) = id_str.parse::<u64>() {
+                info!("Adding channel ID: {}", id);
+                channel_ids.push(ChannelId::new(id));
+            } else {
+                error!("Invalid channel ID: {}", id_str);
+            }
         }
-        
-        match find_channel_by_name(&client.http, name, config.followed_server_name.as_deref()).await {
-            Some(id) => {
-                info!("✅ Found channel '{}' with ID {}", name, id);
-                id
-            },
-            None => {
-                info!("❌ Could not find channel with name '{}'", name);
-                // Fall back to ID if provided
-                if let Some(id_str) = &config.followed_channel_id {
-                    if let Ok(id) = id_str.parse::<u64>() {
-                        info!("Using fallback channel ID: {}", id);
-                        ChannelId::new(id)
-                    } else {
-                        error!("❌ Could not find channel '{}' and FOLLOWED_CHANNEL_ID '{}' is not valid", name, id_str);
-                        return Err(anyhow::anyhow!("Could not find channel '{}' and FOLLOWED_CHANNEL_ID is not valid", name));
-                    }
-                } else {
-                    error!("❌ Could not find channel '{}' and no FOLLOWED_CHANNEL_ID provided", name);
-                    return Err(anyhow::anyhow!("Could not find channel '{}' and no FOLLOWED_CHANNEL_ID provided", name));
+    }
+    
+    // Then check for multiple channel names
+    if let Some(names_str) = &config.followed_channel_names {
+        for name in names_str.split(',') {
+            let name = name.trim();
+            info!("Searching for channel with name: '{}'", name);
+            
+            let found_channels = find_channels_by_name(
+                &client.http, 
+                name, 
+                config.followed_server_name.as_deref()
+            ).await;
+            
+            for channel_id in found_channels {
+                if !channel_ids.contains(&channel_id) {
+                    info!("Adding channel '{}' with ID {}", name, channel_id);
+                    channel_ids.push(channel_id);
                 }
             }
         }
-    } else if let Some(id_str) = &config.followed_channel_id {
-        // Use ID directly
-        let id = id_str.parse::<u64>()
-            .context("'FOLLOWED_CHANNEL_ID' is not a valid u64")?;
-        info!("Using provided channel ID: {}", id);
-        ChannelId::new(id)
-    } else {
-        error!("❌ Neither FOLLOWED_CHANNEL_NAME nor FOLLOWED_CHANNEL_ID was provided");
-        return Err(anyhow::anyhow!("Neither FOLLOWED_CHANNEL_NAME nor FOLLOWED_CHANNEL_ID was provided"));
-    };
+    }
     
-    // Create a new bot instance with the valid channel ID
+    // Then check for single channel ID (legacy support)
+    if let Some(id_str) = &config.followed_channel_id {
+        if let Ok(id) = id_str.parse::<u64>() {
+            let channel_id = ChannelId::new(id);
+            if !channel_ids.contains(&channel_id) {
+                info!("Adding single channel ID: {}", id);
+                channel_ids.push(channel_id);
+            }
+        } else {
+            error!("Invalid channel ID: {}", id_str);
+        }
+    }
+    
+    // Finally check for single channel name (legacy support)
+    if let Some(name) = &config.followed_channel_name {
+        info!("Searching for single channel with name: '{}'", name);
+        
+        let found_channels = find_channels_by_name(
+            &client.http, 
+            name, 
+            config.followed_server_name.as_deref()
+        ).await;
+        
+        for channel_id in found_channels {
+            if !channel_ids.contains(&channel_id) {
+                info!("Adding channel '{}' with ID {}", name, channel_id);
+                channel_ids.push(channel_id);
+            }
+        }
+    }
+    
+    // Check if we found any channels
+    if channel_ids.is_empty() {
+        error!("❌ No valid channels found to follow!");
+        return Err(anyhow::anyhow!("No valid channels found to follow"));
+    }
+    
+    info!("✅ Found {} channels to follow", channel_ids.len());
+    
+    // Create a new bot instance with the valid channel IDs
     let bot = Bot::new(
-        channel_id,
+        channel_ids.clone(),
         config.db_host.clone(),
         config.db_name.clone(),
         config.db_user.clone(),
@@ -1016,7 +1065,10 @@ async fn main() -> Result<()> {
     // Start the client
     info!("✅ Bot initialization complete! Starting bot...");
     info!("Bot name: {}", bot_name);
-    info!("Following channel ID: {}", channel_id);
+    info!("Following {} channels", channel_ids.len());
+    for channel_id in &channel_ids {
+        info!("- Channel ID: {}", channel_id);
+    }
     if !gateway_bot_ids.is_empty() {
         info!("Will respond to gateway bots with IDs: {:?}", gateway_bot_ids);
     }

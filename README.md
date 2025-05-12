@@ -1,6 +1,6 @@
 # Crow Discord Bot
 
-A Discord bot that follows a specific channel and responds to various triggers including commands, mentions, and keywords.
+A Discord bot that follows specific channels and responds to various triggers including commands, mentions, and keywords.
 
 ## Features
 
@@ -12,19 +12,23 @@ A Discord bot that follows a specific channel and responds to various triggers i
 - Generates AI responses using Google's Gemini API
 - Stores message history in a SQLite database
 - Automatically trims the database to prevent excessive growth
+- **Can follow multiple channels simultaneously**
 
 ## Setup Instructions
 
 1. Create a `CrowConfig.toml` file based on the `CrowConfig.toml.example` template
 2. Add your Discord bot token to the `DISCORD_TOKEN` field
-3. Add the channel ID you want the bot to follow to the `FOLLOWED_CHANNEL_ID` field
-4. Set the bot's name with the `BOT_NAME` field (defaults to "Crow" if not specified)
-5. Set the message history limit with the `MESSAGE_HISTORY_LIMIT` field (defaults to 10000)
-6. Set how often to trim the database with `DB_TRIM_INTERVAL_SECS` (defaults to 3600 seconds / 1 hour)
-7. Configure Gemini API rate limits with `GEMINI_RATE_LIMIT_MINUTE` and `GEMINI_RATE_LIMIT_DAY` fields
-8. For database functionality, add MySQL credentials
-9. For Google search functionality, add Google API key and Search Engine ID
-10. For AI responses, add Gemini API key
+3. Configure channels to follow using one of these options:
+   - Single channel: `FOLLOWED_CHANNEL_ID` or `FOLLOWED_CHANNEL_NAME`
+   - Multiple channels: `FOLLOWED_CHANNEL_IDS` or `FOLLOWED_CHANNEL_NAMES` (comma-separated)
+4. Optionally specify `FOLLOWED_SERVER_NAME` to limit channel search to a specific server
+5. Set the bot's name with the `BOT_NAME` field (defaults to "Crow" if not specified)
+6. Set the message history limit with the `MESSAGE_HISTORY_LIMIT` field (defaults to 10000)
+7. Set how often to trim the database with `DB_TRIM_INTERVAL_SECS` (defaults to 3600 seconds / 1 hour)
+8. Configure Gemini API rate limits with `GEMINI_RATE_LIMIT_MINUTE` and `GEMINI_RATE_LIMIT_DAY` fields
+9. For database functionality, add MySQL credentials
+10. For Google search functionality, add Google API key and Search Engine ID
+11. For AI responses, add Gemini API key
 
 ## Available Commands
 
@@ -67,9 +71,11 @@ This ensures that the bot's memory usage remains stable over time while still ma
 The bot can be configured through the `CrowConfig.toml` file:
 
 - `DISCORD_TOKEN` - Your Discord bot token
-- `FOLLOWED_CHANNEL_ID` - ID of the channel the bot should follow
-- `FOLLOWED_CHANNEL_NAME` - Name of the channel the bot should follow (alternative to ID)
-- `FOLLOWED_SERVER_NAME` - Name of the server to look for the channel in
+- `FOLLOWED_CHANNEL_ID` - ID of a single channel to follow
+- `FOLLOWED_CHANNEL_NAME` - Name of a single channel to follow
+- `FOLLOWED_CHANNEL_IDS` - Comma-separated list of channel IDs to follow
+- `FOLLOWED_CHANNEL_NAMES` - Comma-separated list of channel names to follow
+- `FOLLOWED_SERVER_NAME` - Name of the server to look for channels in
 - `BOT_NAME` - Name of the bot (defaults to "Crow")
 - `MESSAGE_HISTORY_LIMIT` - Maximum number of messages to store (defaults to 10000)
 - `DB_TRIM_INTERVAL_SECS` - How often to trim the database (defaults to 3600 seconds)

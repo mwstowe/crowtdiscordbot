@@ -2,9 +2,16 @@
 DISCORD_TOKEN = "your_discord_token_here"
 
 # Channel to follow (use either ID or name)
+# Single channel options (legacy support)
 FOLLOWED_CHANNEL_ID = "123456789012345678"
 # FOLLOWED_CHANNEL_NAME = "general"
-# FOLLOWED_SERVER_NAME = "My Discord Server"  # Optional: specify server name to find channel in
+
+# Multiple channel options (comma-separated)
+# FOLLOWED_CHANNEL_IDS = "123456789012345678,234567890123456789"
+# FOLLOWED_CHANNEL_NAMES = "general,bot-commands,random"
+
+# Optional: specify server name to find channel in
+# FOLLOWED_SERVER_NAME = "My Discord Server"
 
 # Bot settings
 BOT_NAME = "Crow"
