@@ -184,7 +184,7 @@ impl Bot {
     }
     
     // Generate a crime fighting duo description
-    async fn generate_crime_fighting_duo(&self, ctx: &Context) -> Result<String> {
+    async fn generate_crime_fighting_duo(&self, ctx: &Context, msg: &Message) -> Result<String> {
         // Try to get the list of recent speakers, but use defaults if anything fails
         let data = ctx.data.read().await;
         
@@ -192,22 +192,37 @@ impl Bot {
         let default_speaker1 = "The Mysterious Stranger".to_string();
         let default_speaker2 = "The Unknown Vigilante".to_string();
         
+        // Get the username of the person who invoked the command
+        let invoker_username = msg.author.name.clone();
+        
         // Try to get real speaker names, but fall back to defaults at any error
         let (speaker1, speaker2) = match data.get::<RecentSpeakersKey>() {
             Some(recent_speakers_lock) => {
                 match recent_speakers_lock.try_read() {
                     Ok(recent_speakers) => {
-                        if recent_speakers.len() >= 2 {
-                            // Select two random speakers
+                        // Filter out the invoker from the list of potential speakers
+                        let filtered_speakers: Vec<(String, String)> = recent_speakers
+                            .iter()
+                            .filter(|(username, _)| username != &invoker_username)
+                            .cloned()
+                            .collect();
+                        
+                        if filtered_speakers.len() >= 2 {
+                            // Select two random speakers from the filtered list
                             let mut rng = rand::thread_rng();
-                            let speaker_indices: Vec<usize> = (0..recent_speakers.len()).collect();
+                            let speaker_indices: Vec<usize> = (0..filtered_speakers.len()).collect();
                             let selected_indices = speaker_indices.choose_multiple(&mut rng, 2).collect::<Vec<&usize>>();
                             
                             // Use display names
-                            (recent_speakers[*selected_indices[0]].1.clone(), 
-                             recent_speakers[*selected_indices[1]].1.clone())
+                            (filtered_speakers[*selected_indices[0]].1.clone(), 
+                             filtered_speakers[*selected_indices[1]].1.clone())
+                        } else if filtered_speakers.len() == 1 && recent_speakers.len() >= 2 {
+                            // If we have only one filtered speaker but at least two total speakers,
+                            // use the filtered speaker and the invoker
+                            (filtered_speakers[0].1.clone(), 
+                             get_best_display_name(ctx, msg).await)
                         } else {
-                            info!("Not enough recent speakers, using default names for crime fighting duo");
+                            info!("Not enough speakers excluding invoker, using default names for crime fighting duo");
                             (default_speaker1, default_speaker2)
                         }
                     },
@@ -764,7 +779,7 @@ impl Bot {
                         }
                     }
                 } else if command == "fightcrime" {
-                    match self.generate_crime_fighting_duo(&ctx).await {
+                    match self.generate_crime_fighting_duo(&ctx, &msg).await {
                         Ok(duo) => {
                             if let Err(e) = msg.channel_id.say(&ctx.http, duo).await {
                                 error!("Error sending crime fighting duo: {:?}", e);
@@ -952,7 +967,7 @@ impl Bot {
         
         // First check for exact phrase matches (case insensitive)
         if content_lower.contains("who fights crime") {
-            match self.generate_crime_fighting_duo(&ctx).await {
+            match self.generate_crime_fighting_duo(&ctx, &msg).await {
                 Ok(duo) => {
                     if let Err(e) = msg.channel_id.say(&ctx.http, duo).await {
                         error!("Error sending crime fighting duo: {:?}", e);
