@@ -1,7 +1,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
-use anyhow::{Result, Context as AnyhowContext};
+use anyhow::Result;
 use serenity::all::*;
 use serenity::async_trait;
 use serenity::model::channel::Message;
@@ -403,6 +403,97 @@ impl Bot {
 impl Bot {
     // Process a message
     async fn process_message(&self, ctx: &Context, msg: &Message) -> Result<()> {
+        // Random interjection (2% chance - 1 in 50)
+        if rand::thread_rng().gen_bool(0.02) {
+            info!("Triggered random interjection (1 in 50 chance)");
+            
+            // Choose which type of interjection to make (MST3K quote, channel memory, or message pondering)
+            let interjection_type = rand::thread_rng().gen_range(0..3);
+            
+            match interjection_type {
+                0 => {
+                    // MST3K Quote
+                    info!("Random interjection: MST3K Quote");
+                    let mst3k_quotes = [
+                        "Watch out for snakes!",
+                        "It's the amazing Rando!",
+                        "Normal view... Normal view... NORMAL VIEW!",
+                        "Hi-keeba!",
+                        "I'm different!",
+                        "Rowsdower!",
+                        "Mitchell!",
+                        "Deep hurting...",
+                        "Trumpy, you can do magic things!",
+                        "Torgo's theme intensifies",
+                    ];
+                    
+                    let quote = mst3k_quotes.choose(&mut rand::thread_rng()).unwrap_or(&"I'm different!").to_string();
+                    if let Err(e) = msg.channel_id.say(&ctx.http, quote).await {
+                        error!("Error sending random MST3K quote: {:?}", e);
+                    }
+                },
+                1 => {
+                    // Channel Memory (quote something someone previously said)
+                    info!("Random interjection: Channel Memory");
+                    if let Some(db) = &self.message_db {
+                        let db_clone = Arc::clone(db);
+                        
+                        // Query the database for a random message
+                        let result = db_clone.lock().await.call(|conn| {
+                            let query = "SELECT content FROM messages ORDER BY RANDOM() LIMIT 1";
+                            let mut stmt = conn.prepare(query)?;
+                            
+                            let rows = stmt.query_map([], |row| {
+                                Ok(row.get::<_, String>(0)?)
+                            })?;
+                            
+                            let mut result = Vec::new();
+                            for row in rows {
+                                result.push(row?);
+                            }
+                            
+                            Ok::<_, rusqlite::Error>(result)
+                        }).await;
+                        
+                        match result {
+                            Ok(messages) => {
+                                if let Some(content) = messages.first() {
+                                    if let Err(e) = msg.channel_id.say(&ctx.http, content).await {
+                                        error!("Error sending random channel memory: {:?}", e);
+                                    }
+                                }
+                            },
+                            Err(e) => {
+                                error!("Error querying database for random message: {:?}", e);
+                            }
+                        }
+                    }
+                },
+                2 => {
+                    // Message Pondering (respond to the last message with a thoughtful comment)
+                    info!("Random interjection: Message Pondering");
+                    let ponderings = [
+                        "Hmm, that's an interesting point.",
+                        "I was just thinking about that!",
+                        "That reminds me of something...",
+                        "I'm not sure I agree with that.",
+                        "Fascinating perspective.",
+                        "I've been pondering that very question.",
+                        "That's what I've been saying all along!",
+                        "I never thought of it that way before.",
+                        "You know, that's actually quite profound.",
+                        "Wait, what?",
+                    ];
+                    
+                    let pondering = ponderings.choose(&mut rand::thread_rng()).unwrap_or(&"Hmm, interesting.").to_string();
+                    if let Err(e) = msg.channel_id.say(&ctx.http, pondering).await {
+                        error!("Error sending random pondering: {:?}", e);
+                    }
+                },
+                _ => {} // Should never happen
+            }
+        }
+        
         // Store the message in the database if available
         if let Some(db) = &self.message_db {
             let author = msg.author.name.clone();
@@ -895,7 +986,7 @@ async fn main() -> Result<()> {
     let token = &config.discord_token;
     
     // Parse config values
-    let (bot_name, message_history_limit, db_trim_interval, gemini_rate_limit_minute, gemini_rate_limit_day, gateway_bot_ids, google_search_enabled) = 
+    let (bot_name, message_history_limit, db_trim_interval, _gemini_rate_limit_minute, _gemini_rate_limit_day, gateway_bot_ids, google_search_enabled) = 
         parse_config(&config);
     
     // Get Gemini API key
