@@ -4,9 +4,11 @@ use serenity::all::Http;
 use tracing::{error, info};
 use reqwest::Client as HttpClient;
 use serde::Deserialize;
+use serde_json;
 use std::time::Duration;
 use rand::seq::SliceRandom;
 
+// API endpoints
 const FRINKIAC_BASE_URL: &str = "https://frinkiac.com/api/search";
 const FRINKIAC_CAPTION_URL: &str = "https://frinkiac.com/api/caption";
 const FRINKIAC_IMAGE_URL: &str = "https://frinkiac.com/img";
@@ -29,12 +31,12 @@ pub struct FrinkiacClient {
 
 #[derive(Debug, Deserialize)]
 struct FrinkiacSearchResult {
+    #[serde(rename = "Id")]
+    id: Option<u64>,
     #[serde(rename = "Episode")]
     episode: String,
     #[serde(rename = "Timestamp")]
     timestamp: u64,
-    #[serde(rename = "Id")]
-    id: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -142,22 +144,73 @@ impl FrinkiacClient {
             return Err(anyhow!("Frinkiac random API failed with status: {}", random_response.status()));
         }
         
-        // Parse the response - it should be a single FrinkiacSearchResult
-        let random_result: FrinkiacSearchResult = random_response.json()
+        // Parse the response - the structure is different from what we expected
+        // The random API returns a complex object with Episode, Frame, and Subtitles
+        let random_result: serde_json::Value = random_response.json()
             .await
             .map_err(|e| anyhow!("Failed to parse Frinkiac random result: {}", e))?;
             
-        // Get the caption for this frame
-        let episode = &random_result.episode;
-        let timestamp = random_result.timestamp;
+        // Extract the frame information
+        let frame = random_result.get("Frame")
+            .ok_or_else(|| anyhow!("Missing Frame in random result"))?;
+            
+        let episode = frame.get("Episode")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing Episode in frame"))?;
+            
+        let timestamp = frame.get("Timestamp")
+            .and_then(|v| v.as_u64())
+            .ok_or_else(|| anyhow!("Missing Timestamp in frame"))?;
+            
+        // Extract episode information
+        let episode_info = random_result.get("Episode")
+            .ok_or_else(|| anyhow!("Missing Episode info in random result"))?;
+            
+        let season = episode_info.get("Season")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32;
+            
+        let episode_number = episode_info.get("EpisodeNumber")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32;
+            
+        let episode_title = episode_info.get("Title")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Unknown")
+            .to_string();
+            
+        // Extract subtitles/caption
+        let subtitles = random_result.get("Subtitles")
+            .and_then(|v| v.as_array())
+            .ok_or_else(|| anyhow!("Missing Subtitles in random result"))?;
+            
+        let caption = subtitles.iter()
+            .filter_map(|s| s.get("Content").and_then(|c| c.as_str()))
+            .collect::<Vec<&str>>()
+            .join(" ");
+            
+        // Format the image URL
+        let image_url = format!("{}/{}/{}.jpg", FRINKIAC_IMAGE_URL, episode, timestamp);
         
-        self.get_caption_for_frame(episode, timestamp).await
+        // Format the meme URL (for sharing)
+        let meme_url = format!("{}/{}/{}.jpg", FRINKIAC_MEME_URL, episode, timestamp);
+        
+        Ok(Some(FrinkiacResult {
+            episode: episode.to_string(),
+            episode_title,
+            season,
+            episode_number,
+            timestamp: timestamp.to_string(),
+            image_url,
+            meme_url,
+            caption,
+        }))
     }
 
     // Get caption and details for a specific frame
     async fn get_caption_for_frame(&self, episode: &str, timestamp: u64) -> Result<Option<FrinkiacResult>> {
         // Get the caption for this frame
-        let caption_url = format!("{}/{}/{}", FRINKIAC_CAPTION_URL, episode, timestamp);
+        let caption_url = format!("{}?e={}&t={}", FRINKIAC_CAPTION_URL, episode, timestamp);
         
         let caption_response = self.http_client.get(&caption_url)
             .send()
@@ -168,23 +221,36 @@ impl FrinkiacClient {
             return Err(anyhow!("Frinkiac caption request failed with status: {}", caption_response.status()));
         }
         
-        // Parse the caption result
-        let caption_result: FrinkiacCaptionResult = caption_response.json()
+        // Parse the caption result as a generic JSON Value first
+        let caption_result: serde_json::Value = caption_response.json()
             .await
             .map_err(|e| anyhow!("Failed to parse Frinkiac caption result: {}", e))?;
             
         // Extract episode information
-        let (episode_title, season, episode_number) = if let Some(episode_info) = caption_result.episode {
-            (episode_info.title, episode_info.season, episode_info.episode_number)
-        } else {
-            ("Unknown".to_string(), 0, 0)
-        };
-        
-        // Combine all subtitle content into one caption
-        let caption = caption_result.subtitles
-            .iter()
-            .map(|s| s.content.clone())
-            .collect::<Vec<String>>()
+        let episode_info = caption_result.get("Episode")
+            .ok_or_else(|| anyhow!("Missing Episode info in caption result"))?;
+            
+        let episode_title = episode_info.get("Title")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Unknown")
+            .to_string();
+            
+        let season = episode_info.get("Season")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32;
+            
+        let episode_number = episode_info.get("EpisodeNumber")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32;
+            
+        // Extract subtitles/caption
+        let subtitles = caption_result.get("Subtitles")
+            .and_then(|v| v.as_array())
+            .ok_or_else(|| anyhow!("Missing Subtitles in caption result"))?;
+            
+        let caption = subtitles.iter()
+            .filter_map(|s| s.get("Content").and_then(|c| c.as_str()))
+            .collect::<Vec<&str>>()
             .join(" ");
             
         // Format the image URL
@@ -210,7 +276,7 @@ impl FrinkiacClient {
         
         // URL encode the query
         let encoded_query = urlencoding::encode(query);
-        let search_url = format!("{}/{}", FRINKIAC_BASE_URL, encoded_query);
+        let search_url = format!("{}?q={}", FRINKIAC_BASE_URL, encoded_query);
         
         // Make the search request
         let search_response = self.http_client.get(&search_url)
