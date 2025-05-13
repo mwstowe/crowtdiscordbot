@@ -1,12 +1,9 @@
 use anyhow::Result;
 use reqwest;
-use serde_json;
+use scraper::{Html, Selector};
 use tracing::{error, info};
 
-pub struct GoogleSearchClient {
-    api_key: String,
-    search_engine_id: String,
-}
+pub struct GoogleSearchClient {}
 
 pub struct SearchResult {
     pub title: String,
@@ -15,24 +12,21 @@ pub struct SearchResult {
 }
 
 impl GoogleSearchClient {
-    pub fn new(api_key: String, search_engine_id: String) -> Self {
-        Self {
-            api_key,
-            search_engine_id,
-        }
+    pub fn new() -> Self {
+        Self {}
     }
 
     pub async fn search(&self, query: &str) -> Result<Option<SearchResult>> {
         info!("Performing Google search for: {}", query);
         
-        // Create the client
-        let client = reqwest::Client::new();
+        // Create the client with custom user agent to avoid being blocked
+        let client = reqwest::Client::builder()
+            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36")
+            .build()?;
         
         // Build the URL with query parameters
         let url = format!(
-            "https://www.googleapis.com/customsearch/v1?key={}&cx={}&q={}",
-            self.api_key,
-            self.search_engine_id,
+            "https://www.google.com/search?q={}",
             urlencoding::encode(query)
         );
         
@@ -44,35 +38,57 @@ impl GoogleSearchClient {
         // Check if the request was successful
         if !response.status().is_success() {
             let error_text = response.text().await?;
-            error!("Google search API request failed: {}", error_text);
-            return Err(anyhow::anyhow!("Google search API request failed: {}", error_text));
+            error!("Google search request failed: {}", error_text);
+            return Err(anyhow::anyhow!("Google search request failed: {}", error_text));
         }
         
-        // Parse the response
-        let response_json: serde_json::Value = response.json().await?;
+        // Get the HTML content
+        let html_content = response.text().await?;
         
-        // Check if we have search results
-        if let Some(items) = response_json["items"].as_array() {
-            if let Some(first_result) = items.first() {
-                // Extract the title, URL, and snippet
-                let title = first_result["title"].as_str()
-                    .unwrap_or("No title")
-                    .to_string();
-                    
-                let url = first_result["link"].as_str()
-                    .unwrap_or("No URL")
-                    .to_string();
-                    
-                let snippet = first_result["snippet"].as_str()
-                    .unwrap_or("No description available")
-                    .to_string();
-                
-                return Ok(Some(SearchResult {
-                    title,
-                    url,
-                    snippet,
-                }));
-            }
+        // Parse the HTML
+        let document = Html::parse_document(&html_content);
+        
+        // Try to find search results
+        // These selectors might need adjustment based on Google's current HTML structure
+        let search_result_selector = Selector::parse("div.g").unwrap_or_else(|_| Selector::parse("div.tF2Cxc").unwrap());
+        let title_selector = Selector::parse("h3").unwrap();
+        let link_selector = Selector::parse("a").unwrap();
+        let snippet_selector = Selector::parse("div.VwiC3b").unwrap_or_else(|_| Selector::parse("span.aCOpRe").unwrap());
+        
+        // Find the first search result
+        if let Some(result) = document.select(&search_result_selector).next() {
+            // Extract title
+            let title = result.select(&title_selector)
+                .next()
+                .map(|el| el.text().collect::<Vec<_>>().join(""))
+                .unwrap_or_else(|| "No title".to_string());
+            
+            // Extract URL
+            let url = result.select(&link_selector)
+                .next()
+                .and_then(|el| el.value().attr("href"))
+                .map(|href| {
+                    if href.starts_with("/url?q=") {
+                        // Extract the actual URL from Google's redirect URL
+                        if let Some(end_idx) = href.find("&sa=") {
+                            return href[7..end_idx].to_string();
+                        }
+                    }
+                    href.to_string()
+                })
+                .unwrap_or_else(|| "No URL".to_string());
+            
+            // Extract snippet
+            let snippet = result.select(&snippet_selector)
+                .next()
+                .map(|el| el.text().collect::<Vec<_>>().join(""))
+                .unwrap_or_else(|| "No description available".to_string());
+            
+            return Ok(Some(SearchResult {
+                title,
+                url,
+                snippet,
+            }));
         }
         
         // No results found

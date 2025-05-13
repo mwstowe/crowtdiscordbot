@@ -24,8 +24,6 @@ GEMINI_RATE_LIMIT_MINUTE = "15"  # Default: 15 calls per minute
 GEMINI_RATE_LIMIT_DAY = "1500"  # Default: 1500 calls per day
 
 # Google Search Configuration
-GOOGLE_API_KEY = "your_google_api_key_here"
-GOOGLE_SEARCH_ENGINE_ID = "your_search_engine_id_here"
 GOOGLE_SEARCH_ENABLED = "true"  # Set to "false" to disable Google search feature
 
 # Database Configuration (Optional)

@@ -64,8 +64,8 @@ impl Bot {
         mysql_db: Option<String>,
         mysql_user: Option<String>,
         mysql_password: Option<String>,
-        google_api_key: Option<String>,
-        google_search_engine_id: Option<String>,
+        _google_api_key: Option<String>,         // Unused but kept for compatibility
+        _google_search_engine_id: Option<String>, // Unused but kept for compatibility
         gemini_api_key: Option<String>,
         gemini_api_endpoint: Option<String>,
         gemini_prompt_wrapper: Option<String>,
@@ -91,18 +91,10 @@ impl Bot {
         let db_manager = DatabaseManager::new(mysql_host.clone(), mysql_db.clone(), mysql_user.clone(), mysql_password.clone());
         info!("Database manager created, is configured: {}", db_manager.is_configured());
         
-        // Create Google search client if credentials are provided and feature is enabled
+        // Create Google search client if feature is enabled
         let google_client = if google_search_enabled {
-            match (google_api_key.clone(), google_search_engine_id.clone()) {
-                (Some(api_key), Some(search_engine_id)) => {
-                    info!("Creating Google search client with provided credentials");
-                    Some(GoogleSearchClient::new(api_key, search_engine_id))
-                },
-                _ => {
-                    info!("Google search client not created - missing credentials");
-                    None
-                }
-            }
+            info!("Creating Google search client for web scraping");
+            Some(GoogleSearchClient::new())
         } else {
             info!("Google search feature is disabled in configuration");
             None
@@ -1257,8 +1249,8 @@ async fn main() -> Result<()> {
         config.db_name.clone(),
         config.db_user.clone(),
         config.db_password.clone(),
-        config.google_api_key.clone(),
-        config.google_search_engine_id.clone(),
+        None, // No Google API key needed anymore
+        None, // No Google Search Engine ID needed anymore
         gemini_api_key,
         gemini_api_endpoint,
         gemini_prompt_wrapper,

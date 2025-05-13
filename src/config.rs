@@ -52,8 +52,6 @@ pub struct Config {
     pub gemini_api_endpoint: Option<String>,
     pub gemini_prompt_wrapper: Option<String>,
     pub thinking_message: Option<String>,
-    pub google_api_key: Option<String>,
-    pub google_search_engine_id: Option<String>,
     pub google_search_enabled: Option<String>,
     pub db_host: Option<String>,
     pub db_name: Option<String>,
