@@ -23,6 +23,7 @@ mod gemini_api;
 mod crime_fighting;
 mod rate_limiter;
 mod frinkiac;
+mod morbotron;
 
 // Use our modules
 use config::{load_config, parse_config};
@@ -31,6 +32,7 @@ use google_search::GoogleSearchClient;
 use gemini_api::GeminiClient;
 use crime_fighting::CrimeFightingGenerator;
 use frinkiac::{FrinkiacClient, handle_frinkiac_command};
+use morbotron::{MorbotronClient, handle_morbotron_command};
 
 // Define keys for the client data
 struct RecentSpeakersKey;
@@ -49,6 +51,7 @@ struct Bot {
     google_client: Option<GoogleSearchClient>,
     gemini_client: Option<GeminiClient>,
     frinkiac_client: FrinkiacClient,
+    morbotron_client: MorbotronClient,
     bot_name: String,
     message_db: Option<Arc<tokio::sync::Mutex<Connection>>>,
     message_history_limit: usize,
@@ -84,7 +87,7 @@ impl Bot {
         // Define the commands the bot will respond to
         let mut commands = HashMap::new();
         commands.insert("hello".to_string(), "world!".to_string());
-        commands.insert("help".to_string(), "Available commands:\n!hello - Say hello\n!help - Show this help message\n!fightcrime - Generate a crime fighting duo\n!quote [search_term] - Get a random quote\n!quote -show [show_name] - Get a random quote from a specific show\n!quote -dud [username] - Get a random message from a user\n!slogan [search_term] - Get a random advertising slogan\n!frinkiac [search_term] - Get a Simpsons screenshot from Frinkiac (or random if no term provided)".to_string());
+        commands.insert("help".to_string(), "Available commands:\n!hello - Say hello\n!help - Show this help message\n!fightcrime - Generate a crime fighting duo\n!quote [search_term] - Get a random quote\n!quote -show [show_name] - Get a random quote from a specific show\n!quote -dud [username] - Get a random message from a user\n!slogan [search_term] - Get a random advertising slogan\n!frinkiac [search_term] - Get a Simpsons screenshot from Frinkiac (or random if no term provided)\n!morbotron [search_term] - Get a Futurama screenshot from Morbotron (or random if no term provided)".to_string());
         
         // Define keyword triggers - empty but we keep the structure for future additions
         let keyword_triggers = Vec::new();
@@ -129,12 +132,16 @@ impl Bot {
         // Create Frinkiac client
         let frinkiac_client = FrinkiacClient::new();
         
+        // Create Morbotron client
+        let morbotron_client = MorbotronClient::new();
+        
         Self {
             followed_channels,
             db_manager,
             google_client,
             gemini_client,
             frinkiac_client,
+            morbotron_client,
             bot_name,
             message_db,
             message_history_limit,
@@ -773,6 +780,21 @@ impl Bot {
                     if let Err(e) = handle_frinkiac_command(&ctx.http, &msg, search_term, &self.frinkiac_client).await {
                         error!("Error handling frinkiac command: {:?}", e);
                         if let Err(e) = msg.channel_id.say(&ctx.http, "Error searching Frinkiac").await {
+                            error!("Error sending error message: {:?}", e);
+                        }
+                    }
+                } else if command == "morbotron" {
+                    // Extract search term if provided
+                    let search_term = if parts.len() > 1 {
+                        Some(parts[1..].join(" "))
+                    } else {
+                        None
+                    };
+                    
+                    // Handle the morbotron command
+                    if let Err(e) = handle_morbotron_command(&ctx.http, &msg, search_term, &self.morbotron_client).await {
+                        error!("Error handling morbotron command: {:?}", e);
+                        if let Err(e) = msg.channel_id.say(&ctx.http, "Error searching Morbotron").await {
                             error!("Error sending error message: {:?}", e);
                         }
                     }
