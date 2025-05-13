@@ -87,3 +87,83 @@ The bot can be configured through the `CrowConfig.toml` file:
 - `GEMINI_PROMPT_WRAPPER` - Custom prompt wrapper for Gemini API calls
 - `GOOGLE_SEARCH_ENABLED` - Enable or disable Google search feature (defaults to "true")
 - `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` - MySQL database credentials
+## Quote and Slogan Database Structure
+
+The bot uses a MySQL database to store and retrieve quotes and slogans. Here's the expected database structure:
+
+### Quote Database Tables
+
+The quote system requires three related tables:
+
+1. **masterlist_shows** - Contains information about TV shows
+   ```sql
+   CREATE TABLE masterlist_shows (
+       show_id INT PRIMARY KEY,
+       show_title VARCHAR(255) NOT NULL
+   );
+   ```
+
+2. **masterlist_episodes** - Contains information about episodes
+   ```sql
+   CREATE TABLE masterlist_episodes (
+       show_id INT,
+       show_ep VARCHAR(10),
+       title VARCHAR(255) NOT NULL,
+       PRIMARY KEY (show_id, show_ep),
+       FOREIGN KEY (show_id) REFERENCES masterlist_shows(show_id)
+   );
+   ```
+
+3. **masterlist_quotes** - Contains the actual quotes
+   ```sql
+   CREATE TABLE masterlist_quotes (
+       quote_id INT PRIMARY KEY AUTO_INCREMENT,
+       show_id INT,
+       show_ep VARCHAR(10),
+       quote TEXT NOT NULL,
+       FOREIGN KEY (show_id, show_ep) REFERENCES masterlist_episodes(show_id, show_ep)
+   );
+   ```
+
+### Slogan Database Table
+
+The slogan system uses a single table:
+
+```sql
+CREATE TABLE nuke_quotes (
+    pn_id INT PRIMARY KEY AUTO_INCREMENT,
+    pn_quote TEXT NOT NULL
+);
+```
+
+### User Message History
+
+The bot also maintains a local SQLite database to store user message history:
+
+```sql
+CREATE TABLE IF NOT EXISTS messages (
+    id INTEGER PRIMARY KEY,
+    author TEXT NOT NULL,
+    display_name TEXT,
+    content TEXT NOT NULL,
+    timestamp INTEGER NOT NULL
+);
+```
+
+This table is used for the `!quote -dud` command to retrieve random messages from users.
+
+## Display Name Handling
+
+The bot uses a sophisticated approach to determine the best display name for users:
+
+1. **Server Nickname** - First priority, if the user has set a nickname in the server
+2. **Global Display Name** - Second priority, if the user has set a global display name
+3. **Username** - Last resort, if no other display name is available
+
+This ensures that users are addressed by their preferred name in the server context, improving the personalization of the bot's responses.
+
+The display name is used in various features:
+- When addressing users in AI responses
+- When storing messages in the database for `!quote -dud` command
+- When generating crime fighting duos
+- When responding to direct mentions or messages starting with the bot's name
