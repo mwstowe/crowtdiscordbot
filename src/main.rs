@@ -1338,33 +1338,6 @@ async fn main() -> Result<()> {
         info!("You can generate an invite link from the Discord Developer Portal.");
     }
     
-    // Initialize the data structures in the client data
-    {
-        let mut data = client.data.write().await;
-        let recent_speakers = Arc::new(RwLock::new(VecDeque::<(String, String)>::with_capacity(5)));
-        let message_history = Arc::new(RwLock::new(VecDeque::with_capacity(message_history_limit)));
-        
-        // Load existing messages if database is available
-        if let Some(db) = &message_db {
-            // Create a temporary VecDeque to hold the loaded messages
-            let mut temp_history = VecDeque::new();
-            let db_clone = db.clone();
-            
-            if let Err(e) = db_utils::load_message_history(db_clone, &mut temp_history, message_history_limit).await {
-                error!("Failed to load message history: {:?}", e);
-            } else {
-                info!("Loaded {} messages from database", temp_history.len());
-                
-                // For now, we can't directly convert the loaded messages to serenity Message objects
-                // In a real implementation, you would need to create Message objects from the stored data
-                // or modify the database schema to store all necessary fields
-            }
-        }
-        
-        data.insert::<RecentSpeakersKey>(recent_speakers);
-        data.insert::<MessageHistoryKey>(message_history);
-    }
-    
     // Find the channel IDs
     info!("Looking for channels to follow...");
     
@@ -1498,6 +1471,64 @@ async fn main() -> Result<()> {
     let mut client = Client::builder(token, intents)
         .event_handler(bot)
         .await?;
+        
+    // Initialize the data structures in the client data
+    {
+        let mut data = client.data.write().await;
+        let recent_speakers = Arc::new(RwLock::new(VecDeque::<(String, String)>::with_capacity(5)));
+        let message_history = Arc::new(RwLock::new(VecDeque::with_capacity(message_history_limit)));
+        
+        // Load existing messages if database is available
+        if let Some(db) = &message_db {
+            // Create a temporary VecDeque to hold the loaded messages
+            let mut temp_history = VecDeque::new();
+            let db_clone = db.clone();
+            
+            if let Err(e) = db_utils::load_message_history(db_clone, &mut temp_history, message_history_limit).await {
+                error!("Failed to load message history: {:?}", e);
+            } else {
+                info!("Loaded {} messages from database", temp_history.len());
+                
+                // For now, we can't directly convert the loaded messages to serenity Message objects
+                // In a real implementation, you would need to create Message objects from the stored data
+                // or modify the database schema to store all necessary fields
+            }
+        }
+        
+        info!("Initializing RecentSpeakersKey in client data");
+        data.insert::<RecentSpeakersKey>(recent_speakers);
+        info!("Initializing MessageHistoryKey in client data");
+        data.insert::<MessageHistoryKey>(message_history);
+    }
+        
+    // Initialize the data structures in the client data
+    {
+        let mut data = client.data.write().await;
+        let recent_speakers = Arc::new(RwLock::new(VecDeque::<(String, String)>::with_capacity(5)));
+        let message_history = Arc::new(RwLock::new(VecDeque::with_capacity(message_history_limit)));
+        
+        // Load existing messages if database is available
+        if let Some(db) = &message_db {
+            // Create a temporary VecDeque to hold the loaded messages
+            let mut temp_history = VecDeque::new();
+            let db_clone = db.clone();
+            
+            if let Err(e) = db_utils::load_message_history(db_clone, &mut temp_history, message_history_limit).await {
+                error!("Failed to load message history: {:?}", e);
+            } else {
+                info!("Loaded {} messages from database", temp_history.len());
+                
+                // For now, we can't directly convert the loaded messages to serenity Message objects
+                // In a real implementation, you would need to create Message objects from the stored data
+                // or modify the database schema to store all necessary fields
+            }
+        }
+        
+        info!("Initializing RecentSpeakersKey in client data");
+        data.insert::<RecentSpeakersKey>(recent_speakers);
+        info!("Initializing MessageHistoryKey in client data");
+        data.insert::<MessageHistoryKey>(message_history);
+    }
     
     // Start the client
     info!("✅ Bot initialization complete! Starting bot...");
