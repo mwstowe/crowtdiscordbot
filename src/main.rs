@@ -208,14 +208,15 @@ impl Bot {
                             .collect();
                         
                         if filtered_speakers.len() >= 2 {
-                            // Select two random speakers from the filtered list
-                            let mut rng = rand::thread_rng();
-                            let speaker_indices: Vec<usize> = (0..filtered_speakers.len()).collect();
-                            let selected_indices = speaker_indices.choose_multiple(&mut rng, 2).collect::<Vec<&usize>>();
+                            // Get the last two speakers (most recent first)
+                            // Since VecDeque is ordered with most recent at the back,
+                            // we take the last two elements from our filtered list
+                            let last_idx = filtered_speakers.len() - 1;
+                            let second_last_idx = filtered_speakers.len() - 2;
                             
-                            // Use display names
-                            (filtered_speakers[*selected_indices[0]].1.clone(), 
-                             filtered_speakers[*selected_indices[1]].1.clone())
+                            // Use display names of the last two speakers who aren't the invoker
+                            (filtered_speakers[last_idx].1.clone(), 
+                             filtered_speakers[second_last_idx].1.clone())
                         } else if filtered_speakers.len() == 1 && recent_speakers.len() >= 2 {
                             // If we have only one filtered speaker but at least two total speakers,
                             // use the filtered speaker and the invoker
