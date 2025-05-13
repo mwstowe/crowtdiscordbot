@@ -39,6 +39,7 @@ A Discord bot that follows specific channels and responds to various triggers in
 - `!quote -show [show_name]` - Bot returns a random quote from a specific show
 - `!quote -dud [username]` - Bot returns a random message previously sent by the specified user
 - `!slogan [search_term]` - Bot returns a random advertising slogan, optionally filtered by search term
+- `!frinkiac [search_term]` - Bot returns a Simpsons screenshot from Frinkiac matching the search term (or a random screenshot if no term provided)
 
 ## Message History Database
 
