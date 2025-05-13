@@ -404,13 +404,20 @@ impl Bot {
         let bot_name = &self.bot_name.to_lowercase();
         let content_lower = content.to_lowercase();
         
-        // Direct mention at the start (already implemented)
+        // Direct mention at the start - the message must start with the bot's name
+        // followed by a space, punctuation, or end of string
         if content_lower.starts_with(bot_name) {
-            info!("Bot addressed: name at beginning of message");
-            return true;
+            // Check what comes after the bot name
+            let remainder = &content_lower[bot_name.len()..];
+            if remainder.is_empty() || remainder.starts_with(' ') || 
+               remainder.starts_with('?') || remainder.starts_with('!') || 
+               remainder.starts_with(',') || remainder.starts_with(':') {
+                info!("Bot addressed: name at beginning of message");
+                return true;
+            }
         }
         
-        // Common address patterns
+        // Common address patterns - these are explicit ways to address the bot
         let address_patterns = [
             format!("hey {}", bot_name),
             format!("hi {}", bot_name),
@@ -434,45 +441,101 @@ impl Bot {
             }
         }
         
-        // Check for the bot's name followed by a question mark or exclamation
-        let name_followed_by_punctuation = [
-            format!("{} ", bot_name),      // Name followed by space
-            format!("{}?", bot_name),      // Name followed by question mark
-            format!("{}!", bot_name),      // Name followed by exclamation
-            format!("{},", bot_name),      // Name followed by comma
+        // Check for the bot's name as a standalone word followed by punctuation
+        // This requires word boundary checking to avoid matching substrings
+        let name_with_word_boundary = format!(r"\b{}\b", regex::escape(bot_name));
+        if let Ok(re) = regex::Regex::new(&name_with_word_boundary) {
+            if re.is_match(&content_lower) {
+                // The bot name appears as a complete word
+                // Now check if it's followed by appropriate punctuation
+                let name_followed_by_punctuation = [
+                    format!(r"\b{}\s", bot_name),      // Name followed by space
+                    format!(r"\b{}\?", bot_name),      // Name followed by question mark
+                    format!(r"\b{}!", bot_name),       // Name followed by exclamation
+                    format!(r"\b{},", bot_name),       // Name followed by comma
+                    format!(r"\b{}:", bot_name),       // Name followed by colon
+                ];
+                
+                for pattern in &name_followed_by_punctuation {
+                    if let Ok(re) = regex::Regex::new(pattern) {
+                        if re.is_match(&content_lower) {
+                            info!("Bot addressed: name followed by punctuation '{}'", pattern);
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Check for common phrases that directly address the bot
+        let direct_address_patterns = [
+            format!(r"\b{} can you\b", bot_name),
+            format!(r"\b{} could you\b", bot_name),
+            format!(r"\b{} will you\b", bot_name),
+            format!(r"\b{} would you\b", bot_name),
+            format!(r"\b{} please\b", bot_name),
+            format!(r"\bask {}\b", bot_name),
+            format!(r"\btell {}\b", bot_name),
         ];
         
-        for pattern in &name_followed_by_punctuation {
-            if content_lower.contains(pattern) {
-                info!("Bot addressed: name followed by punctuation '{}'", pattern);
-                return true;
+        for pattern in &direct_address_patterns {
+            if let Ok(re) = regex::Regex::new(&pattern) {
+                if re.is_match(&content_lower) {
+                    info!("Bot addressed: direct address pattern '{}'", pattern);
+                    return true;
+                }
             }
         }
         
         // Negative cases - when the bot name is mentioned but not addressed
+        // These patterns indicate the bot is being talked about, not to
         let negative_patterns = [
-            format!("{} is", bot_name),    // Talking about the bot
-            format!("the {}", bot_name),   // Referring to the bot
-            format!("that {}", bot_name),  // Referring to the bot
-            format!("this {}", bot_name),  // Referring to the bot
-            format!("stupid {}", bot_name), // Negative reference
-            format!("dumb {}", bot_name),  // Negative reference
+            format!(r"\b{} is\b", bot_name),           // Talking about the bot
+            format!(r"\bthe {}\b", bot_name),          // Referring to the bot
+            format!(r"\bthat {}\b", bot_name),         // Referring to the bot
+            format!(r"\bthis {}\b", bot_name),         // Referring to the bot
+            format!(r"\ba {}\b", bot_name),            // Referring to a crow
+            format!(r"\ban {}\b", bot_name),           // Referring to a crow
+            format!(r"\bmy {}\b", bot_name),           // Referring to someone's crow
+            format!(r"\bhis {}\b", bot_name),          // Referring to someone's crow
+            format!(r"\bher {}\b", bot_name),          // Referring to someone's crow
+            format!(r"\btheir {}\b", bot_name),        // Referring to someone's crow
+            format!(r"\babout {}\b", bot_name),        // Talking about crows
+            format!(r"\bstupid {}\b", bot_name),       // Negative reference
+            format!(r"\bdumb {}\b", bot_name),         // Negative reference
+            format!(r"\blike a {}\b", bot_name),       // Comparison
+            format!(r"\bas a {}\b", bot_name),         // Comparison
         ];
         
-        for pattern in &negative_patterns {
-            if content_lower.contains(pattern) {
-                info!("Bot mentioned but not addressed: matched negative pattern '{}'", pattern);
+        // First check if the bot name appears as a complete word
+        if let Ok(re) = regex::Regex::new(&name_with_word_boundary) {
+            if re.is_match(&content_lower) {
+                // Check negative patterns
+                for pattern in &negative_patterns {
+                    if let Ok(re) = regex::Regex::new(pattern) {
+                        if re.is_match(&content_lower) {
+                            info!("Bot mentioned but not addressed: matched negative pattern '{}'", pattern);
+                            return false;
+                        }
+                    }
+                }
+                
+                // If the bot name appears as a standalone word at the beginning of the message,
+                // it's likely being addressed
+                if content_lower.trim().starts_with(bot_name) {
+                    info!("Bot addressed: name at beginning of trimmed message");
+                    return true;
+                }
+                
+                // If the bot name is a standalone word and not matched by negative patterns,
+                // we need more context to determine if it's being addressed
+                // For now, we'll be conservative and NOT assume it's being addressed
+                info!("Bot name found as standalone word, but not clearly addressed");
                 return false;
             }
         }
         
-        // If the bot name is somewhere in the message and we haven't matched a negative pattern,
-        // it's likely being addressed
-        if content_lower.contains(bot_name) {
-            info!("Bot likely addressed: name found in message");
-            return true;
-        }
-        
+        // If we get here, the bot name might be part of another word or not present at all
         false
     }
     
