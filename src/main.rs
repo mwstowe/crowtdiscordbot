@@ -26,6 +26,7 @@ mod frinkiac;
 mod morbotron;
 mod masterofallscience;
 mod display_name;
+mod buzz;
 
 // Use our modules
 use config::{load_config, parse_config};
@@ -37,6 +38,7 @@ use frinkiac::{FrinkiacClient, handle_frinkiac_command};
 use morbotron::{MorbotronClient, handle_morbotron_command};
 use masterofallscience::{MasterOfAllScienceClient, handle_masterofallscience_command};
 use display_name::get_best_display_name;
+use buzz::handle_buzz_command;
 
 // Define keys for the client data
 struct RecentSpeakersKey;
@@ -811,6 +813,14 @@ impl Bot {
                             if let Err(e) = msg.channel_id.say(&ctx.http, "Error generating crime fighting duo").await {
                                 error!("Error sending error message: {:?}", e);
                             }
+                        }
+                    }
+                } else if command == "buzz" {
+                    // Handle the buzz command
+                    if let Err(e) = handle_buzz_command(&ctx.http, &msg).await {
+                        error!("Error handling buzz command: {:?}", e);
+                        if let Err(e) = msg.channel_id.say(&ctx.http, "Error generating buzzword").await {
+                            error!("Error sending error message: {:?}", e);
                         }
                     }
                 } else if command == "frinkiac" {
