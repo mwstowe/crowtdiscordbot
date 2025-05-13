@@ -4,12 +4,17 @@ use serde_json;
 use tracing::info;
 use regex::Regex;
 use std::time::Duration;
+use std::sync::Arc;
+
+// Import our rate limiter
+use crate::rate_limiter::RateLimiter;
 
 pub struct GeminiClient {
     api_key: String,
     api_endpoint: String,
     prompt_wrapper: String,
     bot_name: String,
+    rate_limiter: Arc<RateLimiter>,
 }
 
 impl GeminiClient {
@@ -17,16 +22,22 @@ impl GeminiClient {
         api_key: String, 
         api_endpoint: Option<String>, 
         prompt_wrapper: Option<String>,
-        bot_name: String
+        bot_name: String,
+        minute_limit: u32,
+        day_limit: u32
     ) -> Self {
         let default_endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent";
         let default_prompt = "You are {bot_name}, a helpful and friendly Discord bot. Respond to {user}: {message}";
+        
+        // Create the rate limiter with the specified limits
+        let rate_limiter = Arc::new(RateLimiter::new(minute_limit, day_limit));
         
         Self {
             api_key,
             api_endpoint: api_endpoint.unwrap_or_else(|| default_endpoint.to_string()),
             prompt_wrapper: prompt_wrapper.unwrap_or_else(|| default_prompt.to_string()),
             bot_name,
+            rate_limiter,
         }
     }
     
@@ -52,6 +63,22 @@ impl GeminiClient {
     }
 
     pub async fn generate_response(&self, prompt: &str, user_name: &str) -> Result<String> {
+        // First, try to acquire a rate limit token
+        match self.rate_limiter.acquire().await {
+            Ok(()) => {
+                // We've acquired the token, proceed with the API call
+                info!("Rate limit check passed, proceeding with Gemini API call");
+            },
+            Err(e) => {
+                // If it's a daily limit error, return it directly
+                if e.to_string().contains("Daily rate limit reached") {
+                    return Err(e);
+                }
+                // For other errors (which shouldn't happen with acquire()), return them
+                return Err(e);
+            }
+        }
+        
         // Format the prompt using the wrapper, including the user's name
         let formatted_prompt = self.prompt_wrapper
             .replace("{message}", prompt)

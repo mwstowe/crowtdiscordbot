@@ -21,6 +21,7 @@ mod database;
 mod google_search;
 mod gemini_api;
 mod crime_fighting;
+mod rate_limiter;
 
 // Use our modules
 use config::{load_config, parse_config};
@@ -74,6 +75,8 @@ impl Bot {
         thinking_message: Option<String>,
         gateway_bot_ids: Vec<u64>,
         google_search_enabled: bool,
+        gemini_rate_limit_minute: u32,
+        gemini_rate_limit_day: u32,
     ) -> Self {
         // Define the commands the bot will respond to
         let mut commands = HashMap::new();
@@ -109,11 +112,14 @@ impl Bot {
         let gemini_client = match gemini_api_key {
             Some(api_key) => {
                 info!("Creating Gemini client with provided API key");
+                info!("Gemini rate limits: {} per minute, {} per day", gemini_rate_limit_minute, gemini_rate_limit_day);
                 Some(GeminiClient::new(
                     api_key,
                     gemini_api_endpoint,
                     gemini_prompt_wrapper,
-                    bot_name.clone()
+                    bot_name.clone(),
+                    gemini_rate_limit_minute,
+                    gemini_rate_limit_day
                 ))
             },
             None => {
@@ -986,7 +992,7 @@ async fn main() -> Result<()> {
     let token = &config.discord_token;
     
     // Parse config values
-    let (bot_name, message_history_limit, db_trim_interval, _gemini_rate_limit_minute, _gemini_rate_limit_day, gateway_bot_ids, google_search_enabled) = 
+    let (bot_name, message_history_limit, db_trim_interval, gemini_rate_limit_minute, gemini_rate_limit_day, gateway_bot_ids, google_search_enabled) = 
         parse_config(&config);
     
     // Get Gemini API key
@@ -1187,7 +1193,9 @@ async fn main() -> Result<()> {
         message_history_limit,
         thinking_message,
         gateway_bot_ids.clone(),
-        google_search_enabled
+        google_search_enabled,
+        gemini_rate_limit_minute,
+        gemini_rate_limit_day
     );
     
     // Check database connection
