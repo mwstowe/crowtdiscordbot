@@ -312,14 +312,12 @@ impl FrinkiacClient {
 // Format a Frinkiac result for display
 fn format_frinkiac_result(result: &FrinkiacResult) -> String {
     format!(
-        "**S{:02}E{:02} - {}**\n{}\n\n\"{}\"\n\n[Direct Image]({}) | [Meme Link]({})",
+        "**S{:02}E{:02} - {}**\n{}\n\n\"{}\"",
         result.season, 
         result.episode_number, 
         result.episode_title,
         result.image_url,
-        result.caption,
-        result.image_url,
-        result.meme_url
+        result.caption
     )
 }
 
