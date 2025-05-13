@@ -25,6 +25,7 @@ mod rate_limiter;
 mod frinkiac;
 mod morbotron;
 mod masterofallscience;
+mod display_name;
 
 // Use our modules
 use config::{load_config, parse_config};
@@ -35,6 +36,7 @@ use crime_fighting::CrimeFightingGenerator;
 use frinkiac::{FrinkiacClient, handle_frinkiac_command};
 use morbotron::{MorbotronClient, handle_morbotron_command};
 use masterofallscience::{MasterOfAllScienceClient, handle_masterofallscience_command};
+use display_name::get_best_display_name;
 
 // Define keys for the client data
 struct RecentSpeakersKey;
@@ -668,7 +670,7 @@ impl Bot {
         // Store the message in the database if available
         if let Some(db) = &self.message_db {
             let author = msg.author.name.clone();
-            let display_name = msg.author.global_name.clone().unwrap_or_else(|| msg.author.name.clone());
+            let display_name = get_best_display_name(ctx, msg).await;
             let content = msg.content.clone();
             let db_clone = db.clone();
             
@@ -683,8 +685,8 @@ impl Bot {
             if let Some(recent_speakers) = data.get::<RecentSpeakersKey>() {
                 let mut speakers = recent_speakers.write().await;
                 let username = msg.author.name.clone();
-                // Use the username as display name since User doesn't have a display_name method
-                let display_name = msg.author.global_name.clone().unwrap_or_else(|| msg.author.name.clone());
+                // Use the best display name available
+                let display_name = get_best_display_name(ctx, msg).await;
                 
                 // Check if user is already in the list
                 if !speakers.iter().any(|(name, _)| name == &username) {
@@ -875,7 +877,7 @@ impl Bot {
             if !content.is_empty() {
                 if let Some(gemini_client) = &self.gemini_client {
                     // Get the display name
-                    let display_name = msg.author.global_name.clone().unwrap_or_else(|| msg.author.name.clone());
+                    let display_name = get_best_display_name(ctx, msg).await;
                     let clean_display_name = gemini_client.strip_pronouns(&display_name);
                     
                     // Check if we should use a thinking message
@@ -936,7 +938,7 @@ impl Bot {
                     }
                 } else {
                     // Fallback if Gemini API is not configured
-                    let display_name = msg.author.global_name.clone().unwrap_or_else(|| msg.author.name.clone());
+                    let display_name = get_best_display_name(ctx, msg).await;
                     if let Err(e) = msg.channel_id.say(&ctx.http, format!("Hello {}, you called my name! I'm {}! (Gemini API is not configured)", display_name, self.bot_name)).await {
                         error!("Error sending name response: {:?}", e);
                     }
@@ -999,7 +1001,7 @@ impl Bot {
             if !content.is_empty() {
                 if let Some(gemini_client) = &self.gemini_client {
                     // Get the display name
-                    let display_name = msg.author.global_name.clone().unwrap_or_else(|| msg.author.name.clone());
+                    let display_name = get_best_display_name(ctx, msg).await;
                     let clean_display_name = gemini_client.strip_pronouns(&display_name);
                     
                     // Check if we should use a thinking message
@@ -1061,7 +1063,7 @@ impl Bot {
                     }
                 } else {
                     // Fallback if Gemini API is not configured
-                    let display_name = msg.author.global_name.clone().unwrap_or_else(|| msg.author.name.clone());
+                    let display_name = get_best_display_name(ctx, msg).await;
                     if let Err(e) = msg.channel_id.say(&ctx.http, format!("Hello {}, you mentioned me! I'm {}! (Gemini API is not configured)", display_name, self.bot_name)).await {
                         error!("Error sending mention response: {:?}", e);
                     }
