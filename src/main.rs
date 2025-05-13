@@ -301,25 +301,37 @@ impl Bot {
                         })
                         .unwrap_or(false);
                     
-                    let query = if has_display_name {
-                        "SELECT author, display_name, content FROM messages WHERE author = ? ORDER BY RANDOM() LIMIT 1"
-                    } else {
-                        "SELECT author, author as display_name, content FROM messages WHERE author = ? ORDER BY RANDOM() LIMIT 1"
-                    };
-                    
-                    let mut stmt = conn.prepare(query)?;
-                    
-                    let rows = stmt.query_map([&user_clone], |row| {
-                        Ok((
-                            row.get::<_, String>(0)?, 
-                            row.get::<_, String>(1)?,
-                            row.get::<_, String>(2)?
-                        ))
-                    })?;
-                    
                     let mut result = Vec::new();
-                    for row in rows {
-                        result.push(row?);
+                    
+                    if has_display_name {
+                        let query = "SELECT author, display_name, content FROM messages WHERE author = ? OR display_name LIKE ? ORDER BY RANDOM() LIMIT 1";
+                        let mut stmt = conn.prepare(query)?;
+                        let search_pattern = format!("%{}%", &user_clone);
+                        let rows = stmt.query_map([&user_clone, &search_pattern], |row| {
+                            Ok((
+                                row.get::<_, String>(0)?, 
+                                row.get::<_, String>(1)?,
+                                row.get::<_, String>(2)?
+                            ))
+                        })?;
+                        
+                        for row in rows {
+                            result.push(row?);
+                        }
+                    } else {
+                        let query = "SELECT author, author as display_name, content FROM messages WHERE author = ? ORDER BY RANDOM() LIMIT 1";
+                        let mut stmt = conn.prepare(query)?;
+                        let rows = stmt.query_map([&user_clone], |row| {
+                            Ok((
+                                row.get::<_, String>(0)?, 
+                                row.get::<_, String>(1)?,
+                                row.get::<_, String>(2)?
+                            ))
+                        })?;
+                        
+                        for row in rows {
+                            result.push(row?);
+                        }
                     }
                     
                     Ok::<_, rusqlite::Error>(result)
