@@ -200,12 +200,20 @@ impl Bot {
             Some(recent_speakers_lock) => {
                 match recent_speakers_lock.try_read() {
                     Ok(recent_speakers) => {
+                        // Log the current speakers list for debugging
+                        let all_speakers: Vec<String> = recent_speakers.iter().map(|(_, display)| display.clone()).collect();
+                        info!("All speakers before filtering: {:?}", all_speakers);
+                        
                         // Filter out the invoker from the list of potential speakers
                         let filtered_speakers: Vec<(String, String)> = recent_speakers
                             .iter()
                             .filter(|(username, _)| username != &invoker_username)
                             .cloned()
                             .collect();
+                        
+                        // Log the filtered speakers list for debugging
+                        let filtered_names: Vec<String> = filtered_speakers.iter().map(|(_, display)| display.clone()).collect();
+                        info!("Filtered speakers (excluding invoker): {:?}", filtered_names);
                         
                         if filtered_speakers.len() >= 2 {
                             // Get the last two speakers (most recent first)
@@ -214,21 +222,29 @@ impl Bot {
                             let last_idx = filtered_speakers.len() - 1;
                             let second_last_idx = filtered_speakers.len() - 2;
                             
+                            let speaker1_name = filtered_speakers[last_idx].1.clone();
+                            let speaker2_name = filtered_speakers[second_last_idx].1.clone();
+                            
+                            info!("Selected speakers: {} and {}", speaker1_name, speaker2_name);
+                            
                             // Use display names of the last two speakers who aren't the invoker
-                            (filtered_speakers[last_idx].1.clone(), 
-                             filtered_speakers[second_last_idx].1.clone())
+                            (speaker1_name, speaker2_name)
                         } else if filtered_speakers.len() == 1 && recent_speakers.len() >= 2 {
                             // If we have only one filtered speaker but at least two total speakers,
                             // use the filtered speaker and the invoker
-                            (filtered_speakers[0].1.clone(), 
-                             get_best_display_name(ctx, msg).await)
+                            let speaker1_name = filtered_speakers[0].1.clone();
+                            let speaker2_name = get_best_display_name(ctx, msg).await;
+                            
+                            info!("Using one filtered speaker and invoker: {} and {}", speaker1_name, speaker2_name);
+                            
+                            (speaker1_name, speaker2_name)
                         } else {
                             info!("Not enough speakers excluding invoker, using default names for crime fighting duo");
                             (default_speaker1, default_speaker2)
                         }
                     },
-                    Err(_) => {
-                        error!("Could not read recent speakers lock, using default names");
+                    Err(e) => {
+                        error!("Could not read recent speakers lock, using default names: {:?}", e);
                         (default_speaker1, default_speaker2)
                     }
                 }
@@ -704,13 +720,21 @@ impl Bot {
                 // Use the best display name available
                 let display_name = get_best_display_name(ctx, msg).await;
                 
-                // Check if user is already in the list
-                if !speakers.iter().any(|(name, _)| name == &username) {
-                    if speakers.len() >= 5 {
-                        speakers.pop_front();
-                    }
-                    speakers.push_back((username, display_name));
+                // Always update the list with the current speaker
+                // Remove the user if they're already in the list
+                if let Some(pos) = speakers.iter().position(|(name, _)| name == &username) {
+                    speakers.remove(pos);
                 }
+                
+                // Add the user to the end (most recent position)
+                if speakers.len() >= 5 {
+                    speakers.pop_front();
+                }
+                speakers.push_back((username, display_name));
+                
+                // Log the current speakers list for debugging
+                let speakers_list: Vec<String> = speakers.iter().map(|(_, display)| display.clone()).collect();
+                info!("Current speakers list: {:?}", speakers_list);
             }
         }
         
