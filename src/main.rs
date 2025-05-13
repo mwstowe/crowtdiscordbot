@@ -913,6 +913,24 @@ impl Bot {
         if self.is_bot_addressed(&msg.content) {
             // Use the full message content including the bot's name
             let content = msg.content.trim().to_string();
+            let content_lower = content.to_lowercase();
+            
+            // Check if the message contains "who fights crime" when the bot is addressed
+            if content_lower.contains("who fights crime") {
+                info!("Bot addressed with 'who fights crime' question");
+                match self.generate_crime_fighting_duo(&ctx, &msg).await {
+                    Ok(duo) => {
+                        if let Err(e) = msg.channel_id.say(&ctx.http, duo).await {
+                            error!("Error sending crime fighting duo: {:?}", e);
+                        }
+                        return Ok(());
+                    },
+                    Err(e) => {
+                        error!("Error generating crime fighting duo: {:?}", e);
+                        // Continue with normal response if crime fighting duo generation fails
+                    }
+                }
+            }
             
             if !content.is_empty() {
                 if let Some(gemini_client) = &self.gemini_client {
