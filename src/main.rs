@@ -407,6 +407,83 @@ impl Bot {
     }
 }
 impl Bot {
+    // Function to check if the bot is being addressed
+    fn is_bot_addressed(&self, content: &str) -> bool {
+        let bot_name = &self.bot_name.to_lowercase();
+        let content_lower = content.to_lowercase();
+        
+        // Direct mention at the start (already implemented)
+        if content_lower.starts_with(bot_name) {
+            info!("Bot addressed: name at beginning of message");
+            return true;
+        }
+        
+        // Common address patterns
+        let address_patterns = [
+            format!("hey {}", bot_name),
+            format!("hi {}", bot_name),
+            format!("hello {}", bot_name),
+            format!("ok {}", bot_name),
+            format!("hey, {}", bot_name),
+            format!("hi, {}", bot_name),
+            format!("hello, {}", bot_name),
+            format!("ok, {}", bot_name),
+            format!("{}, ", bot_name),     // When name is used with a comma
+            format!("@{}", bot_name),      // Informal mention
+            format!("excuse me, {}", bot_name),
+            format!("by the way, {}", bot_name),
+            format!("btw, {}", bot_name),
+        ];
+        
+        for pattern in &address_patterns {
+            if content_lower.contains(pattern) {
+                info!("Bot addressed: matched pattern '{}'", pattern);
+                return true;
+            }
+        }
+        
+        // Check for the bot's name followed by a question mark or exclamation
+        let name_followed_by_punctuation = [
+            format!("{} ", bot_name),      // Name followed by space
+            format!("{}?", bot_name),      // Name followed by question mark
+            format!("{}!", bot_name),      // Name followed by exclamation
+            format!("{},", bot_name),      // Name followed by comma
+        ];
+        
+        for pattern in &name_followed_by_punctuation {
+            if content_lower.contains(pattern) {
+                info!("Bot addressed: name followed by punctuation '{}'", pattern);
+                return true;
+            }
+        }
+        
+        // Negative cases - when the bot name is mentioned but not addressed
+        let negative_patterns = [
+            format!("{} is", bot_name),    // Talking about the bot
+            format!("the {}", bot_name),   // Referring to the bot
+            format!("that {}", bot_name),  // Referring to the bot
+            format!("this {}", bot_name),  // Referring to the bot
+            format!("stupid {}", bot_name), // Negative reference
+            format!("dumb {}", bot_name),  // Negative reference
+        ];
+        
+        for pattern in &negative_patterns {
+            if content_lower.contains(pattern) {
+                info!("Bot mentioned but not addressed: matched negative pattern '{}'", pattern);
+                return false;
+            }
+        }
+        
+        // If the bot name is somewhere in the message and we haven't matched a negative pattern,
+        // it's likely being addressed
+        if content_lower.contains(bot_name) {
+            info!("Bot likely addressed: name found in message");
+            return true;
+        }
+        
+        false
+    }
+    
     // Process a message
     async fn process_message(&self, ctx: &Context, msg: &Message) -> Result<()> {
         // Random interjection (2% chance - 1 in 50)
@@ -657,11 +734,8 @@ impl Bot {
             return Ok(());
         }
         
-        // Check if message starts with the bot's name
-        let content_lower = msg.content.to_lowercase();
-        let bot_name_lower = self.bot_name.to_lowercase();
-        
-        if content_lower.starts_with(&bot_name_lower) {
+        // Check if the bot is being addressed using our new function
+        if self.is_bot_addressed(&msg.content) {
             // Use the full message content including the bot's name
             let content = msg.content.trim().to_string();
             
