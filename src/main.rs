@@ -189,8 +189,8 @@ impl Bot {
         let data = ctx.data.read().await;
         
         // Default names to use if we can't get real speakers
-        let default_speaker1 = "Anonymous Coward".to_string();
-        let default_speaker2 = "Redacted".to_string();
+        let default_speaker1 = "The Mysterious Stranger".to_string();
+        let default_speaker2 = "The Unknown Vigilante".to_string();
         
         // Try to get real speaker names, but fall back to defaults at any error
         let (speaker1, speaker2) = match data.get::<RecentSpeakersKey>() {
