@@ -27,6 +27,7 @@ mod morbotron;
 mod masterofallscience;
 mod display_name;
 mod buzz;
+mod lastseen;
 
 // Use our modules
 use config::{load_config, parse_config};
@@ -39,6 +40,7 @@ use morbotron::{MorbotronClient, handle_morbotron_command};
 use masterofallscience::{MasterOfAllScienceClient, handle_masterofallscience_command};
 use display_name::get_best_display_name;
 use buzz::handle_buzz_command;
+use lastseen::handle_lastseen_command;
 
 // Define keys for the client data
 struct RecentSpeakersKey;
@@ -820,6 +822,21 @@ impl Bot {
                     if let Err(e) = handle_buzz_command(&ctx.http, &msg).await {
                         error!("Error handling buzz command: {:?}", e);
                         if let Err(e) = msg.channel_id.say(&ctx.http, "Error generating buzzword").await {
+                            error!("Error sending error message: {:?}", e);
+                        }
+                    }
+                } else if command == "lastseen" {
+                    // Extract name to search for
+                    let name = if parts.len() > 1 {
+                        parts[1..].join(" ")
+                    } else {
+                        String::new()
+                    };
+                    
+                    // Handle the lastseen command
+                    if let Err(e) = handle_lastseen_command(&ctx.http, &msg, &name, &self.message_db).await {
+                        error!("Error handling lastseen command: {:?}", e);
+                        if let Err(e) = msg.channel_id.say(&ctx.http, "Error searching message history").await {
                             error!("Error sending error message: {:?}", e);
                         }
                     }
