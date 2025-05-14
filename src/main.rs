@@ -96,7 +96,10 @@ impl Bot {
         // Define the commands the bot will respond to
         let mut commands = HashMap::new();
         commands.insert("hello".to_string(), "world!".to_string());
-        commands.insert("help".to_string(), "Available commands:\n!hello - Say hello\n!help - Show this help message\n!fightcrime - Generate a crime fighting duo\n!quote [search_term] - Get a random quote\n!quote -show [show_name] - Get a random quote from a specific show\n!quote -dud [username] - Get a random message from a user\n!slogan [search_term] - Get a random advertising slogan\n!frinkiac [search_term] - Get a Simpsons screenshot from Frinkiac (or random if no term provided)\n!morbotron [search_term] - Get a Futurama screenshot from Morbotron (or random if no term provided)\n!masterofallscience [search_term] - Get a Rick and Morty screenshot from Master of All Science (or random if no term provided)".to_string());
+        
+        // Generate a comprehensive help message with all commands
+        let help_message = "Available commands:\n!help - Show this help message\n!hello - Say hello\n!buzz - Generate a corporate buzzword phrase\n!fightcrime - Generate a crime fighting duo\n!lastseen [name] - Find when a user was last active\n!quote [search_term] - Get a random quote\n!quote -show [show_name] - Get a random quote from a specific show\n!quote -dud [username] - Get a random message from a user\n!slogan [search_term] - Get a random advertising slogan\n!frinkiac [search_term] - Get a Simpsons screenshot from Frinkiac (or random if no term provided)\n!morbotron [search_term] - Get a Futurama screenshot from Morbotron (or random if no term provided)\n!masterofallscience [search_term] - Get a Rick and Morty screenshot from Master of All Science (or random if no term provided)";
+        commands.insert("help".to_string(), help_message.to_string());
         
         // Define keyword triggers - empty but we keep the structure for future additions
         let keyword_triggers = Vec::new();
@@ -756,7 +759,19 @@ impl Bot {
             if !parts.is_empty() {
                 let command = parts[0].to_lowercase();
                 
-                if command == "slogan" {
+                if command == "hello" {
+                    // Simple hello command
+                    if let Err(e) = msg.channel_id.say(&ctx.http, "world!").await {
+                        error!("Error sending hello response: {:?}", e);
+                    }
+                } else if command == "help" {
+                    // Help command - use the help message from our commands HashMap
+                    if let Some(help_text) = self.commands.get("help") {
+                        if let Err(e) = msg.channel_id.say(&ctx.http, help_text).await {
+                            error!("Error sending help message: {:?}", e);
+                        }
+                    }
+                } else if command == "slogan" {
                     // Extract search term if provided
                     let search_term = if parts.len() > 1 {
                         Some(parts[1..].join(" "))
