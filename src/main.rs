@@ -8,6 +8,8 @@ use serenity::model::channel::Message;
 use serenity::model::gateway::Ready;
 use serenity::model::id::ChannelId;
 use serenity::prelude::*;
+use serenity::builder::CreateMessage;
+use serenity::model::channel::MessageReference;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info};
 use tokio_rusqlite::Connection;
@@ -1077,8 +1079,16 @@ impl Bot {
                                 // Apply realistic typing delay based on response length
                                 apply_realistic_delay(&response, ctx, msg.channel_id).await;
 
-                                if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
-                                    error!("Error sending Gemini response: {:?}", e);
+                                // Create a message reference for replying
+                                let message_reference = MessageReference::from(msg);
+                                let mut create_message = CreateMessage::new().content(response.clone()).reference_message(message_reference);
+                                
+                                if let Err(e) = msg.channel_id.send_message(&ctx.http, create_message).await {
+                                    error!("Error sending Gemini response as reply: {:?}", e);
+                                    // Fallback to regular message if reply fails
+                                    if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
+                                        error!("Error sending fallback Gemini response: {:?}", e);
+                                    }
                                 }
                             },
                             Err(e) => {
@@ -1239,8 +1249,16 @@ impl Bot {
                                 // Apply realistic typing delay based on response length
                                 apply_realistic_delay(&response, ctx, msg.channel_id).await;
                                 
-                                if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
-                                    error!("Error sending Gemini response: {:?}", e);
+                                // Create a message reference for replying
+                                let message_reference = MessageReference::from(msg);
+                                let mut create_message = CreateMessage::new().content(response.clone()).reference_message(message_reference);
+                                
+                                if let Err(e) = msg.channel_id.send_message(&ctx.http, create_message).await {
+                                    error!("Error sending Gemini response as reply: {:?}", e);
+                                    // Fallback to regular message if reply fails
+                                    if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
+                                        error!("Error sending fallback Gemini response: {:?}", e);
+                                    }
                                 }
                             },
                             Err(e) => {

@@ -220,7 +220,9 @@ When the bot is directly mentioned in a message or when a message starts with th
    - Send the content directly to Google's Gemini API with conversation context
    - Show a typing indicator while waiting for the response and during the typing delay
    - Apply a realistic typing delay based on response length (0.2 seconds per word, minimum 2s, maximum 5s)
-   - Post the AI-generated response without showing a "thinking" message first
+   - Post the AI-generated response as a reply to the user's message
+
+When directly addressed (via mention or when a message starts with the bot's name), the bot will reply to the message, making it clear which message it's responding to. For other triggers like keyword detection, the bot will respond with a regular message.
 
 The prompt sent to Gemini can be customized by setting the `GEMINI_PROMPT_WRAPPER` in your `CrowConfig.toml` file. The wrapper should include placeholders:
 
