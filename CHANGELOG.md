@@ -12,6 +12,7 @@
 - Realistic typing delay for bot responses based on message length
 - Typing indicators while waiting for API responses and during typing delays
 - Reply functionality when directly addressed by users
+- Support for tracking edited messages in the database
 
 ### Changed
 - Updated all Gemini API calls to use conversation context
@@ -28,6 +29,7 @@
 - Improved conversation coherence by providing context to the AI
 - Fixed message history loading from database
 - Resolved borrowing issues in database functions
+- Added support for tracking edited messages to ensure conversation context is accurate
 
 ## [1.0.0] - 2023-05-10
 

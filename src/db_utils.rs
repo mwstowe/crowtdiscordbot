@@ -319,3 +319,23 @@ pub async fn load_message_history(
     
     Ok(())
 }
+// Update an existing message in the database when it's edited
+pub async fn update_message(
+    conn: Arc<Mutex<SqliteConnection>>,
+    message_id: String,
+    new_content: String
+) -> Result<(), Box<dyn std::error::Error>> {
+    let conn_guard = conn.lock().await;
+    
+    conn_guard.call(move |conn| {
+        // Update only the content field, keeping all other fields the same
+        conn.execute(
+            "UPDATE messages SET content = ? WHERE message_id = ?",
+            [&new_content, &message_id],
+        )?;
+        
+        Ok(())
+    }).await?;
+    
+    Ok(())
+}

@@ -76,15 +76,17 @@ This enhanced schema stores all necessary fields from Discord messages, allowing
 2. Provide rich context for AI responses
 3. Track message references and relationships
 4. Support advanced message history features
+5. Track edited messages to maintain accurate conversation context
 
 ### Database Management
 
 The bot automatically manages its message history database:
 
 1. New messages are stored as they arrive with all metadata
-2. The database is periodically trimmed to keep only the most recent messages (up to the `MESSAGE_HISTORY_LIMIT`)
-3. The trim interval can be configured with `DB_TRIM_INTERVAL_SECS` (defaults to 3600 seconds / 1 hour)
-4. Existing databases are automatically migrated to the enhanced schema
+2. Edited messages are updated in the database to maintain accurate conversation context
+3. The database is periodically trimmed to keep only the most recent messages (up to the `MESSAGE_HISTORY_LIMIT`)
+4. The trim interval can be configured with `DB_TRIM_INTERVAL_SECS` (defaults to 3600 seconds / 1 hour)
+5. Existing databases are automatically migrated to the enhanced schema
 
 This ensures that the bot's memory usage remains stable over time while still maintaining enough history for features like `!quote -dud` and context-aware AI responses.
 
