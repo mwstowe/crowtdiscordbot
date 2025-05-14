@@ -9,7 +9,7 @@ use serenity::model::gateway::Ready;
 use serenity::model::id::ChannelId;
 use serenity::prelude::*;
 use tokio::sync::RwLock;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 use tokio_rusqlite::Connection;
 use rand::seq::SliceRandom;
 use rand::Rng;
@@ -207,9 +207,11 @@ impl Bot {
             Some(recent_speakers_lock) => {
                 match recent_speakers_lock.try_read() {
                     Ok(recent_speakers) => {
-                        // Log the current speakers list for debugging
-                        let all_speakers: Vec<String> = recent_speakers.iter().map(|(_, display)| display.clone()).collect();
-                        info!("All speakers before filtering: {:?}", all_speakers);
+                        // Only log speakers at debug level
+                        if tracing::level_enabled!(tracing::Level::DEBUG) {
+                            let all_speakers: Vec<String> = recent_speakers.iter().map(|(_, display)| display.clone()).collect();
+                            debug!("All speakers before filtering: {:?}", all_speakers);
+                        }
                         
                         // Filter out the invoker from the list of potential speakers
                         let filtered_speakers: Vec<(String, String)> = recent_speakers
@@ -218,9 +220,11 @@ impl Bot {
                             .cloned()
                             .collect();
                         
-                        // Log the filtered speakers list for debugging
-                        let filtered_names: Vec<String> = filtered_speakers.iter().map(|(_, display)| display.clone()).collect();
-                        info!("Filtered speakers (excluding invoker): {:?}", filtered_names);
+                        // Only log filtered speakers at debug level
+                        if tracing::level_enabled!(tracing::Level::DEBUG) {
+                            let filtered_names: Vec<String> = filtered_speakers.iter().map(|(_, display)| display.clone()).collect();
+                            debug!("Filtered speakers (excluding invoker): {:?}", filtered_names);
+                        }
                         
                         if filtered_speakers.len() >= 2 {
                             // Get the last two speakers (most recent first)
@@ -736,9 +740,11 @@ impl Bot {
                 }
                 speakers.push_back((username, display_name));
                 
-                // Log the current speakers list for debugging
-                let speakers_list: Vec<String> = speakers.iter().map(|(_, display)| display.clone()).collect();
-                info!("Current speakers list: {:?}", speakers_list);
+                // Only log speakers list at debug level
+                if tracing::level_enabled!(tracing::Level::DEBUG) {
+                    let speakers_list: Vec<String> = speakers.iter().map(|(_, display)| display.clone()).collect();
+                    debug!("Current speakers list: {:?}", speakers_list);
+                }
             }
         }
         
