@@ -1,0 +1,37 @@
+# Ignore Crow configuration file
+CrowConfig.toml
+
+# Ignore message history DB
+message_history.db
+
+# Ignore target directory
+/target/
+
+# Ignore Cargo lock file for libraries
+Cargo.lock
+
+# Ignore backup files
+**/*.rs.bk
+
+# Ignore IDE/editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Ignore MacOS files
+.DS_Store
+
+# Ignore Windows files
+Thumbs.db
+
+# Ignore byproducts of rustup
+/.rustup/
+
+# Ignore byproducts of cargo
+/.cargo/
+
+# Ignore coverage/debug/test output
+/coverage/
+debug/
+*.profraw
