@@ -22,6 +22,7 @@
 - Added typing indicators to make the bot's responses feel more natural
 - Bot now replies to messages when directly addressed, making conversations clearer
 - Modified Google search to skip sponsored results
+- Removed "thinking..." message in favor of Discord's typing indicator
 
 ### Fixed
 - Improved conversation coherence by providing context to the AI

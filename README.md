@@ -209,29 +209,20 @@ The display name is used in various features:
 ## AI Response Feature
 
 When the bot is directly mentioned in a message or when a message starts with the bot's name, it will:
-
-1. If `thinking_message` is set to a non-empty string (and not "[none]"):
-   - Send a "thinking" message (configurable via `THINKING_MESSAGE` in config)
-   - Send the content to Google's Gemini API with conversation context
-   - Show a typing indicator while waiting for the response and during the typing delay
-   - Apply a realistic typing delay based on response length (0.2 seconds per word, minimum 2s, maximum 5s)
-   - Edit the "thinking" message with the AI-generated response
-2. If `thinking_message` is empty or set to "[none]":
-   - Send the content directly to Google's Gemini API with conversation context
-   - Show a typing indicator while waiting for the response and during the typing delay
-   - Apply a realistic typing delay based on response length (0.2 seconds per word, minimum 2s, maximum 5s)
-   - Post the AI-generated response as a reply to the user's message
+1. Show a typing indicator while waiting for the API response
+2. Send the content to Google's Gemini API with conversation context
+3. Apply a realistic typing delay based on response length (0.2 seconds per word, minimum 2s, maximum 5s)
+4. Post the AI-generated response as a reply to the user's message
 
 When directly addressed (via mention or when a message starts with the bot's name), the bot will reply to the message, making it clear which message it's responding to. For other triggers like keyword detection, the bot will respond with a regular message.
 
 The prompt sent to Gemini can be customized by setting the `GEMINI_PROMPT_WRAPPER` in your `CrowConfig.toml` file. The wrapper should include placeholders:
-
 - `{message}` - The user's message
 - `{bot_name}` - The bot's name
 - `{user}` - The user's display name
 - `{context}` - Recent conversation history (last 5 messages)
 
-You can also configure which Gemini model to use by setting the `GEMINI_API_ENDPOINT` in your `CrowConfig.toml` file. This allows you to switch between different models like `gemini-1.0-pro`, `gemini-1.5-pro`, `gemini-1.5-flash` or `gemini-2.0-flash`.  
+You can also configure which Gemini model to use by setting the `GEMINI_API_ENDPOINT` in your `CrowConfig.toml` file. This allows you to switch between different models like `gemini-1.0-pro`, `gemini-1.5-pro`, `gemini-1.5-flash` or `gemini-2.0-flash`.
 
 ## Conversation Context
 

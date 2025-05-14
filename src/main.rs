@@ -1423,11 +1423,9 @@ async fn main() -> Result<()> {
     // Get custom prompt wrapper if available
     let gemini_prompt_wrapper = config.gemini_prompt_wrapper.clone();
     
-    // Get thinking message if available
-    let thinking_message = config.thinking_message.clone();
-    if let Some(message) = &thinking_message {
-        info!("Using custom thinking message: {}", message);
-    }
+    // Set thinking message to None to disable it
+    let thinking_message = None;
+    info!("Thinking message disabled, using typing indicator instead");
     
     // Get custom Gemini API endpoint if available
     let gemini_api_endpoint = config.gemini_api_endpoint.clone();
