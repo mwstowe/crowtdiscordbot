@@ -43,29 +43,42 @@ A Discord bot that follows specific channels and responds to various triggers in
 
 ## Message History Database
 
-The bot stores message history in a SQLite database to enable features like `!quote -dud` and to maintain persistence across bot restarts.
+The bot stores message history in a SQLite database to enable features like `!quote -dud`, provide context for AI responses, and maintain persistence across bot restarts.
 
-### Database Schema
+### Enhanced Database Schema
 
 The messages table has the following structure:
 ```sql
 CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY,
+    message_id TEXT NOT NULL,
+    channel_id TEXT NOT NULL,
+    guild_id TEXT,
+    author_id TEXT NOT NULL,
     author TEXT NOT NULL,
+    display_name TEXT,
     content TEXT NOT NULL,
-    timestamp INTEGER NOT NULL
+    timestamp INTEGER NOT NULL,
+    referenced_message_id TEXT
 )
 ```
+
+This enhanced schema stores all necessary fields from Discord messages, allowing the bot to:
+1. Reconstruct complete message objects from the database
+2. Provide rich context for AI responses
+3. Track message references and relationships
+4. Support advanced message history features
 
 ### Database Management
 
 The bot automatically manages its message history database:
 
-1. New messages are stored as they arrive
+1. New messages are stored as they arrive with all metadata
 2. The database is periodically trimmed to keep only the most recent messages (up to the `MESSAGE_HISTORY_LIMIT`)
 3. The trim interval can be configured with `DB_TRIM_INTERVAL_SECS` (defaults to 3600 seconds / 1 hour)
+4. Existing databases are automatically migrated to the enhanced schema
 
-This ensures that the bot's memory usage remains stable over time while still maintaining enough history for features like `!quote -dud`.
+This ensures that the bot's memory usage remains stable over time while still maintaining enough history for features like `!quote -dud` and context-aware AI responses.
 
 ## Configuration Options
 
@@ -138,19 +151,30 @@ CREATE TABLE nuke_quotes (
 
 ### User Message History
 
-The bot also maintains a local SQLite database to store user message history:
+The bot maintains a comprehensive SQLite database to store user message history with all Discord metadata:
 
 ```sql
 CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY,
+    message_id TEXT NOT NULL,
+    channel_id TEXT NOT NULL,
+    guild_id TEXT,
+    author_id TEXT NOT NULL,
     author TEXT NOT NULL,
     display_name TEXT,
     content TEXT NOT NULL,
-    timestamp INTEGER NOT NULL
+    timestamp INTEGER NOT NULL,
+    referenced_message_id TEXT
 );
 ```
 
-This table is used for the `!quote -dud` command to retrieve random messages from users.
+This enhanced schema allows the bot to:
+1. Store complete message objects with all Discord metadata
+2. Provide rich context for AI responses
+3. Support the `!quote -dud` command to retrieve random messages from users
+4. Maintain conversation threads and references
+
+The database is automatically migrated from older versions, preserving existing message history.
 
 ## Display Name Handling
 
