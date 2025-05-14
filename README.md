@@ -14,25 +14,12 @@ A Discord bot that follows specific channels and responds to various triggers in
 - Automatically trims the database to prevent excessive growth
 - **Can follow multiple channels simultaneously**
 
-## Available Commands
-
-- `!help` - Show this help message
-- `!hello` - Say hello
-- `!buzz` - Generate a corporate buzzword phrase
-- `!fightcrime` - Generate a crime fighting duo
-- `!lastseen [name]` - Find when a user was last active
-- `!quote [search_term]` - Get a random quote
-- `!quote -show [show_name]` - Get a random quote from a specific show
-- `!quote -dud [username]` - Get a random message from a user (or random user if no username provided)
-- `!slogan [search_term]` - Get a random advertising slogan
-- `!frinkiac [search_term]` - Get a Simpsons screenshot from Frinkiac (or random if no term provided)
-- `!morbotron [search_term]` - Get a Futurama screenshot from Morbotron (or random if no term provided)
-- `!masterofallscience [search_term]` - Get a Rick and Morty screenshot from Master of All Science (or random if no term provided)
-
 ## Setup Instructions
 
 1. Create a `CrowConfig.toml` file based on the `CrowConfig.toml.example` template
 2. Add your Discord bot token to the `DISCORD_TOKEN` field
+   - Privileged Gateway Intents: Message Content Intent
+   - Scopes: `bot`, `messages.read`, `applications.commands`
 3. Configure channels to follow using one of these options:
    - Single channel: `FOLLOWED_CHANNEL_ID` or `FOLLOWED_CHANNEL_NAME`
    - Multiple channels: `FOLLOWED_CHANNEL_IDS` or `FOLLOWED_CHANNEL_NAMES` (comma-separated)
@@ -44,8 +31,6 @@ A Discord bot that follows specific channels and responds to various triggers in
 9. For database functionality, add MySQL credentials
 10. To enable/disable Google search, set `GOOGLE_SEARCH_ENABLED` to "true" or "false" (defaults to "true")
 11. For AI responses, add Gemini API key
-
-## Available Commands
 
 ## Available Commands
 
@@ -69,6 +54,7 @@ The bot stores message history in a SQLite database to enable features like `!qu
 ### Enhanced Database Schema
 
 The messages table has the following structure:
+
 ```sql
 CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY,
@@ -85,6 +71,7 @@ CREATE TABLE IF NOT EXISTS messages (
 ```
 
 This enhanced schema stores all necessary fields from Discord messages, allowing the bot to:
+
 1. Reconstruct complete message objects from the database
 2. Provide rich context for AI responses
 3. Track message references and relationships
@@ -121,6 +108,7 @@ The bot can be configured through the `CrowConfig.toml` file:
 - `GEMINI_PROMPT_WRAPPER` - Custom prompt wrapper for Gemini API calls
 - `GOOGLE_SEARCH_ENABLED` - Enable or disable Google search feature (defaults to "true")
 - `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` - MySQL database credentials
+
 ## Quote and Slogan Database Structure
 
 The bot uses a MySQL database to store and retrieve quotes and slogans. Here's the expected database structure:
@@ -130,6 +118,7 @@ The bot uses a MySQL database to store and retrieve quotes and slogans. Here's t
 The quote system requires three related tables:
 
 1. **masterlist_shows** - Contains information about TV shows
+
    ```sql
    CREATE TABLE masterlist_shows (
        show_id INT PRIMARY KEY,
@@ -138,6 +127,7 @@ The quote system requires three related tables:
    ```
 
 2. **masterlist_episodes** - Contains information about episodes
+
    ```sql
    CREATE TABLE masterlist_episodes (
        show_id INT,
@@ -149,6 +139,7 @@ The quote system requires three related tables:
    ```
 
 3. **masterlist_quotes** - Contains the actual quotes
+
    ```sql
    CREATE TABLE masterlist_quotes (
        quote_id INT PRIMARY KEY AUTO_INCREMENT,
@@ -190,6 +181,7 @@ CREATE TABLE IF NOT EXISTS messages (
 ```
 
 This enhanced schema allows the bot to:
+
 1. Store complete message objects with all Discord metadata
 2. Provide rich context for AI responses
 3. Support the `!quote -dud` command to retrieve random messages from users
@@ -208,13 +200,16 @@ The bot uses a sophisticated approach to determine the best display name for use
 This ensures that users are addressed by their preferred name in the server context, improving the personalization of the bot's responses.
 
 The display name is used in various features:
+
 - When addressing users in AI responses
 - When storing messages in the database for `!quote -dud` command
 - When generating crime fighting duos
 - When responding to direct mentions or messages starting with the bot's name
+
 ## AI Response Feature
 
 When the bot is directly mentioned in a message or when a message starts with the bot's name, it will:
+
 1. If `thinking_message` is set to a non-empty string (and not "[none]"):
    - Send a "thinking" message (configurable via `THINKING_MESSAGE` in config)
    - Send the content to Google's Gemini API with conversation context
@@ -228,26 +223,13 @@ When the bot is directly mentioned in a message or when a message starts with th
    - Post the AI-generated response without showing a "thinking" message first
 
 The prompt sent to Gemini can be customized by setting the `GEMINI_PROMPT_WRAPPER` in your `CrowConfig.toml` file. The wrapper should include placeholders:
+
 - `{message}` - The user's message
 - `{bot_name}` - The bot's name
 - `{user}` - The user's display name
 - `{context}` - Recent conversation history (last 5 messages)
 
-You can also configure which Gemini model to use by setting the `GEMINI_API_ENDPOINT` in your `CrowConfig.toml` file. This allows you to switch between different models like gemini-1.0-pro, gemini-1.5-pro, or gemini-1.5-flash.
-   - Apply a realistic typing delay based on response length (0.2 seconds per word, minimum 2s, maximum 5s)
-   - Edit the "thinking" message with the AI-generated response
-2. If `thinking_message` is empty or set to "[none]":
-   - Send the content directly to Google's Gemini API with conversation context
-   - Apply a realistic typing delay based on response length (0.2 seconds per word, minimum 2s, maximum 5s)
-   - Post the AI-generated response without showing a "thinking" message first
-
-The prompt sent to Gemini can be customized by setting the `GEMINI_PROMPT_WRAPPER` in your `CrowConfig.toml` file. The wrapper should include placeholders:
-- `{message}` - The user's message
-- `{bot_name}` - The bot's name
-- `{user}` - The user's display name
-- `{context}` - Recent conversation history (last 5 messages)
-
-You can also configure which Gemini model to use by setting the `GEMINI_API_ENDPOINT` in your `CrowConfig.toml` file. This allows you to switch between different models like gemini-1.0-pro, gemini-1.5-pro, or gemini-1.5-flash.
+You can also configure which Gemini model to use by setting the `GEMINI_API_ENDPOINT` in your `CrowConfig.toml` file. This allows you to switch between different models like `gemini-1.0-pro`, `gemini-1.5-pro`, `gemini-1.5-flash` or `gemini-2.0-flash`.  
 
 ## Conversation Context
 
