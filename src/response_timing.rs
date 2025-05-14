@@ -1,9 +1,13 @@
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
 use tracing::info;
+use serenity::prelude::*;
+use serenity::model::channel::Channel;
+use serenity::model::id::ChannelId;
 
 /// Calculates and applies a realistic typing delay based on response length
-pub async fn apply_realistic_delay(response: &str) {
+/// Also shows typing indicator in the channel during the delay
+pub async fn apply_realistic_delay(response: &str, ctx: &Context, channel_id: ChannelId) {
     // Record when we got the response
     let response_received = Instant::now();
     
@@ -16,6 +20,13 @@ pub async fn apply_realistic_delay(response: &str) {
     // Apply minimum and maximum constraints (2-5 seconds)
     let delay_seconds = calculated_delay.clamp(2.0, 5.0);
     let delay = Duration::from_secs_f32(delay_seconds);
+    
+    // Start typing indicator
+    if let Err(e) = channel_id.broadcast_typing(&ctx.http).await {
+        info!("Failed to send typing indicator: {:?}", e);
+    } else {
+        info!("Started typing indicator in channel {}", channel_id);
+    }
     
     // Calculate when we should send the response
     let send_time = response_received + delay;

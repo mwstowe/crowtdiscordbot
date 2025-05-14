@@ -10,6 +10,7 @@
 - Automatic database migration system for upgrading existing databases
 - Improved `load_message_history` function to properly reconstruct Message objects
 - Realistic typing delay for bot responses based on message length
+- Typing indicators while waiting for API responses and during typing delays
 
 ### Changed
 - Updated all Gemini API calls to use conversation context
@@ -17,6 +18,7 @@
 - Enhanced `save_message` function to store all relevant fields from Discord Message objects
 - Updated README.md with enhanced database schema information
 - Added delay to responses (0.2 seconds per word, minimum 2s, maximum 5s) to make the bot feel more human-like
+- Added typing indicators to make the bot's responses feel more natural
 
 ### Fixed
 - Improved conversation coherence by providing context to the AI

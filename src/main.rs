@@ -1020,11 +1020,16 @@ impl Bot {
                             Vec::new()
                         };
                         
+                        // Start typing indicator before making API call
+                        if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
+                            error!("Failed to send typing indicator: {:?}", e);
+                        }
+                        
                         // Call the Gemini API with context
                         match gemini_client.generate_response_with_context(&content, &clean_display_name, &context_messages).await {
                             Ok(response) => {
                                 // Apply realistic typing delay based on response length
-                                apply_realistic_delay(&response).await;
+                                apply_realistic_delay(&response, ctx, msg.channel_id).await;
                                 
                                 // Edit the thinking message with the actual response
                                 if let Err(e) = thinking_msg.edit(&ctx.http, EditMessage::new().content(response.clone())).await {
@@ -1033,7 +1038,8 @@ impl Bot {
                                     if let Err(e) = msg.channel_id.say(&ctx.http, "Sorry, I couldn't edit my message. Here's my response:").await {
                                         error!("Error sending fallback message: {:?}", e);
                                     }
-                                    apply_realistic_delay(&response).await;
+                                    // Apply realistic typing delay based on response length
+                                    apply_realistic_delay(&response, ctx, msg.channel_id).await;
 
                                     if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
                                         error!("Error sending Gemini response: {:?}", e);
@@ -1061,9 +1067,15 @@ impl Bot {
                             Vec::new()
                         };
                         
+                        // Start typing indicator before making API call
+                        if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
+                            error!("Failed to send typing indicator: {:?}", e);
+                        }
+                        
                         match gemini_client.generate_response_with_context(&content, &clean_display_name, &context_messages).await {
                             Ok(response) => {
-                                apply_realistic_delay(&response).await;
+                                // Apply realistic typing delay based on response length
+                                apply_realistic_delay(&response, ctx, msg.channel_id).await;
 
                                 if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
                                     error!("Error sending Gemini response: {:?}", e);
@@ -1182,7 +1194,7 @@ impl Bot {
                                 let response_clone = response.clone();
                                 
                                 // Apply realistic typing delay based on response length
-                                apply_realistic_delay(&response_clone).await;
+                                apply_realistic_delay(&response_clone, ctx, msg.channel_id).await;
                                 
                                 // Edit the thinking message with the actual response
                                 if let Err(e) = thinking_msg.edit(&ctx.http, EditMessage::new().content(response_clone)).await {
@@ -1217,8 +1229,16 @@ impl Bot {
                             Vec::new()
                         };
                         
+                        // Start typing indicator before making API call
+                        if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
+                            error!("Failed to send typing indicator: {:?}", e);
+                        }
+                        
                         match gemini_client.generate_response_with_context(&content, &clean_display_name, &context_messages).await {
                             Ok(response) => {
+                                // Apply realistic typing delay based on response length
+                                apply_realistic_delay(&response, ctx, msg.channel_id).await;
+                                
                                 if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
                                     error!("Error sending Gemini response: {:?}", e);
                                 }
