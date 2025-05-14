@@ -14,6 +14,21 @@ A Discord bot that follows specific channels and responds to various triggers in
 - Automatically trims the database to prevent excessive growth
 - **Can follow multiple channels simultaneously**
 
+## Available Commands
+
+- `!help` - Show this help message
+- `!hello` - Say hello
+- `!buzz` - Generate a corporate buzzword phrase
+- `!fightcrime` - Generate a crime fighting duo
+- `!lastseen [name]` - Find when a user was last active
+- `!quote [search_term]` - Get a random quote
+- `!quote -show [show_name]` - Get a random quote from a specific show
+- `!quote -dud [username]` - Get a random message from a user (or random user if no username provided)
+- `!slogan [search_term]` - Get a random advertising slogan
+- `!frinkiac [search_term]` - Get a Simpsons screenshot from Frinkiac (or random if no term provided)
+- `!morbotron [search_term]` - Get a Futurama screenshot from Morbotron (or random if no term provided)
+- `!masterofallscience [search_term]` - Get a Rick and Morty screenshot from Master of All Science (or random if no term provided)
+
 ## Setup Instructions
 
 1. Create a `CrowConfig.toml` file based on the `CrowConfig.toml.example` template
@@ -32,14 +47,20 @@ A Discord bot that follows specific channels and responds to various triggers in
 
 ## Available Commands
 
-- `!hello` - Bot responds with "world!"
-- `!help` - Bot displays a list of available commands
-- `!fightcrime` - Bot generates a crime fighting duo using recent chat participants
-- `!quote [search_term]` - Bot returns a random quote, optionally filtered by search term
-- `!quote -show [show_name]` - Bot returns a random quote from a specific show
-- `!quote -dud [username]` - Bot returns a random message previously sent by the specified user
-- `!slogan [search_term]` - Bot returns a random advertising slogan, optionally filtered by search term
-- `!frinkiac [search_term]` - Bot returns a Simpsons screenshot from Frinkiac matching the search term (or a random screenshot if no term provided)
+## Available Commands
+
+- `!help` - Show this help message
+- `!hello` - Say hello
+- `!buzz` - Generate a corporate buzzword phrase
+- `!fightcrime` - Generate a crime fighting duo
+- `!lastseen [name]` - Find when a user was last active
+- `!quote [search_term]` - Get a random quote
+- `!quote -show [show_name]` - Get a random quote from a specific show
+- `!quote -dud [username]` - Get a random message from a user (or random user if no username provided)
+- `!slogan [search_term]` - Get a random advertising slogan
+- `!frinkiac [search_term]` - Get a Simpsons screenshot from Frinkiac (or random if no term provided)
+- `!morbotron [search_term]` - Get a Futurama screenshot from Morbotron (or random if no term provided)
+- `!masterofallscience [search_term]` - Get a Rick and Morty screenshot from Master of All Science (or random if no term provided)
 
 ## Message History Database
 
