@@ -9,7 +9,7 @@ A Discord bot that follows specific channels and responds to various triggers in
 - Responds to messages starting with the bot's name
 - Detects and responds to specific keywords
 - Performs Google searches via web scraping
-- Generates AI responses using Google's Gemini API
+- Generates AI responses using Google's Gemini API with conversation context
 - Stores message history in a SQLite database
 - Automatically trims the database to prevent excessive growth
 - **Can follow multiple channels simultaneously**
@@ -167,3 +167,32 @@ The display name is used in various features:
 - When storing messages in the database for `!quote -dud` command
 - When generating crime fighting duos
 - When responding to direct mentions or messages starting with the bot's name
+## AI Response Feature
+
+When the bot is directly mentioned in a message or when a message starts with the bot's name, it will:
+1. If `thinking_message` is set to a non-empty string (and not "[none]"):
+   - Send a "thinking" message (configurable via `THINKING_MESSAGE` in config)
+   - Send the content to Google's Gemini API with conversation context
+   - Edit the "thinking" message with the AI-generated response
+2. If `thinking_message` is empty or set to "[none]":
+   - Send the content directly to Google's Gemini API with conversation context
+   - Post the AI-generated response without showing a "thinking" message first
+
+The prompt sent to Gemini can be customized by setting the `GEMINI_PROMPT_WRAPPER` in your `CrowConfig.toml` file. The wrapper should include placeholders:
+- `{message}` - The user's message
+- `{bot_name}` - The bot's name
+- `{user}` - The user's display name
+- `{context}` - Recent conversation history (last 5 messages)
+
+You can also configure which Gemini model to use by setting the `GEMINI_API_ENDPOINT` in your `CrowConfig.toml` file. This allows you to switch between different models like gemini-1.0-pro, gemini-1.5-pro, or gemini-1.5-flash.
+
+## Conversation Context
+
+The bot now includes conversation context when making API calls to Gemini. This means:
+
+1. The bot retrieves the last 5 messages from the conversation history
+2. These messages are included in the prompt sent to Gemini
+3. Gemini can generate more contextually relevant responses based on the conversation flow
+4. The bot appears more coherent and can maintain conversation threads
+
+This feature makes the bot feel more natural in conversations and helps it remember what was previously discussed.
