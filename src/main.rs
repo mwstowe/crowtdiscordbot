@@ -1396,7 +1396,7 @@ async fn main() -> Result<()> {
     let message_db = match db_utils::initialize_database(db_path).await {
         Ok(conn) => {
             info!("Successfully connected to message history database");
-            Some(Arc::new(tokio::sync::Mutex::new(conn)))
+            Some(conn) // Don't wrap in another Arc<Mutex>
         },
         Err(e) => {
             error!("Failed to initialize message database: {:?}", e);
