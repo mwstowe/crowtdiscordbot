@@ -1309,10 +1309,10 @@ impl EventHandler for Bot {
         
         // Log available commands
         let command_list = self.commands.keys()
-            .map(|k| k.as_str())
+            .map(|k| format!("!{}", k))
             .collect::<Vec<_>>()
             .join(", ");
-        info!("Available commands: !{}", command_list);
+        info!("Available commands: {}", command_list);
         
         // Log keyword triggers
         info!("Keyword triggers:");
