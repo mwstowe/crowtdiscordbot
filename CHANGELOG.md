@@ -21,6 +21,7 @@
 - Added delay to responses (0.2 seconds per word, minimum 2s, maximum 5s) to make the bot feel more human-like
 - Added typing indicators to make the bot's responses feel more natural
 - Bot now replies to messages when directly addressed, making conversations clearer
+- Modified Google search to skip sponsored results
 
 ### Fixed
 - Improved conversation coherence by providing context to the AI

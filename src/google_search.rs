@@ -62,6 +62,14 @@ impl GoogleSearchClient {
         // DuckDuckGo search results are in elements with class "result"
         if let Ok(result_selector) = Selector::parse(".result") {
             for result in document.select(&result_selector) {
+                // Skip sponsored results
+                // Check if this result has the sponsored class
+                let has_sponsored_class = result.value().has_class("result--ad", scraper::CaseSensitivity::CaseSensitive);
+                if has_sponsored_class {
+                    info!("Skipping sponsored result");
+                    continue;
+                }
+                
                 // Extract title
                 if let Ok(title_selector) = Selector::parse(".result__title") {
                     if let Some(title_element) = result.select(&title_selector).next() {
