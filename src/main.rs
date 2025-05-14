@@ -10,7 +10,6 @@ use serenity::model::id::ChannelId;
 use serenity::prelude::*;
 use serenity::builder::CreateMessage;
 use serenity::model::channel::MessageReference;
-use serenity::model::event::MessageUpdateEvent;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info};
 use tokio_rusqlite::Connection;
@@ -1312,31 +1311,6 @@ impl EventHandler for Bot {
         // Process the message
         if let Err(e) = self.process_message(&ctx, &msg).await {
             error!("Error processing message: {:?}", e);
-        }
-    }
-
-    // Handle message updates (edits)
-    async fn message_update(&self, _ctx: Context, _old_if_available: Option<Message>, _new: Option<Message>, event: MessageUpdateEvent) {
-        // Only process messages in the followed channels
-        if !self.followed_channels.contains(&event.channel_id) {
-            return;
-        }
-        
-        // We need both the message ID and the new content to update the database
-        if let Some(new_content) = event.content {
-            let message_id = event.id.to_string();
-            
-            // Update the message in the database
-            if let Some(db) = &self.message_db {
-                match db_utils::update_message(db.clone(), message_id, new_content).await {
-                    Ok(_) => {
-                        info!("Updated message {} in database", event.id);
-                    },
-                    Err(e) => {
-                        error!("Error updating message in database: {:?}", e);
-                    }
-                }
-            }
         }
     }
 
