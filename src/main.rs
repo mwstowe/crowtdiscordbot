@@ -450,10 +450,8 @@ impl Bot {
             
             // If we found a message, send it
             if let Some((_, display_name, content)) = messages.first() {
-                // Clean up display name - remove <> brackets and [irc] tag
-                let mut clean_display_name = display_name.clone();
-                clean_display_name = clean_display_name.replace("<", "").replace(">", "");
-                clean_display_name = clean_display_name.replace("[irc]", "").trim().to_string();
+                // Use the display_name::clean_display_name function for consistency
+                let clean_display_name = display_name::clean_display_name(display_name);
                 
                 msg.channel_id.say(http, format!("<{}> {}", clean_display_name, content)).await?;
             } else {
@@ -722,6 +720,9 @@ impl Bot {
                 let username = msg.author.name.clone();
                 // Use the best display name available
                 let display_name = get_best_display_name(ctx, msg).await;
+                
+                // Clean up display name - remove <> brackets and [irc] tag
+                let display_name = display_name::clean_display_name(&display_name);
                 
                 // Always update the list with the current speaker
                 // Remove the user if they're already in the list

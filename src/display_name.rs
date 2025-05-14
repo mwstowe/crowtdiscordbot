@@ -17,3 +17,11 @@ pub async fn get_best_display_name(ctx: &Context, msg: &Message) -> String {
     // Fall back to global name or username if no nickname or couldn't get member data
     msg.author.global_name.clone().unwrap_or_else(|| msg.author.name.clone())
 }
+
+// Clean a display name by removing IRC formatting and brackets
+pub fn clean_display_name(name: &str) -> String {
+    let mut clean_name = name.to_string();
+    clean_name = clean_name.replace("<", "").replace(">", "");
+    clean_name = clean_name.replace("[irc]", "").trim().to_string();
+    clean_name
+}

@@ -69,10 +69,8 @@ pub async fn save_message(
         .as_secs();
     
     let author = author.to_string();
-    // Clean up display name - remove <> brackets and [irc] tag
-    let mut clean_display_name = display_name.to_string();
-    clean_display_name = clean_display_name.replace("<", "").replace(">", "");
-    clean_display_name = clean_display_name.replace("[irc]", "").trim().to_string();
+    // Use the display_name::clean_display_name function for consistency
+    let clean_display_name = crate::display_name::clean_display_name(display_name);
     
     let content = content.to_string();
     
