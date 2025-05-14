@@ -27,7 +27,7 @@ impl GeminiClient {
         day_limit: u32
     ) -> Self {
         let default_endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent";
-        let default_prompt = "You are {bot_name}, a helpful and friendly Discord bot. Respond to {user}: {message}";
+        let default_prompt = "You are {bot_name}, a helpful and friendly Discord bot. Here is recent conversation context:\n\n{context}\n\nRespond to {user}: {message}";
         
         // Create the rate limiter with the specified limits
         let rate_limiter = Arc::new(RateLimiter::new(minute_limit, day_limit));
@@ -63,6 +63,45 @@ impl GeminiClient {
     }
 
     pub async fn generate_response(&self, prompt: &str, user_name: &str) -> Result<String> {
+        // Format the prompt using the wrapper, including the user's name
+        // For backward compatibility, replace {context} with empty string if it exists
+        let formatted_prompt = self.prompt_wrapper
+            .replace("{message}", prompt)
+            .replace("{bot_name}", &self.bot_name)
+            .replace("{user}", user_name)
+            .replace("{context}", "No recent conversation.");
+        
+        self.call_gemini_api(&formatted_prompt).await
+    }
+    
+    pub async fn generate_response_with_context(
+        &self, 
+        prompt: &str, 
+        user_name: &str, 
+        context_messages: &[(String, String, String)]
+    ) -> Result<String> {
+        // Format the context messages
+        let context = if context_messages.is_empty() {
+            "No recent conversation.".to_string()
+        } else {
+            let mut formatted_context = String::new();
+            for (_, display_name, content) in context_messages {
+                formatted_context.push_str(&format!("{}: {}\n", display_name, content));
+            }
+            formatted_context.trim().to_string()
+        };
+        
+        // Format the prompt using the wrapper, including the user's name and context
+        let formatted_prompt = self.prompt_wrapper
+            .replace("{message}", prompt)
+            .replace("{bot_name}", &self.bot_name)
+            .replace("{user}", user_name)
+            .replace("{context}", &context);
+        
+        self.call_gemini_api(&formatted_prompt).await
+    }
+    
+    async fn call_gemini_api(&self, formatted_prompt: &str) -> Result<String> {
         // First, try to acquire a rate limit token
         match self.rate_limiter.acquire().await {
             Ok(()) => {
@@ -78,12 +117,6 @@ impl GeminiClient {
                 return Err(e);
             }
         }
-        
-        // Format the prompt using the wrapper, including the user's name
-        let formatted_prompt = self.prompt_wrapper
-            .replace("{message}", prompt)
-            .replace("{bot_name}", &self.bot_name)
-            .replace("{user}", user_name);
         
         info!("Calling Gemini API with prompt: {}", formatted_prompt);
         
