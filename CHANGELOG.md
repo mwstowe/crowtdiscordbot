@@ -16,7 +16,7 @@
 - Modified default prompt template to include a `{context}` placeholder
 - Enhanced `save_message` function to store all relevant fields from Discord Message objects
 - Updated README.md with enhanced database schema information
-- Added delay to responses (0.5 seconds per word) to make the bot feel more human-like
+- Added delay to responses (0.2 seconds per word, minimum 2s, maximum 5s) to make the bot feel more human-like
 
 ### Fixed
 - Improved conversation coherence by providing context to the AI

@@ -10,8 +10,11 @@ pub async fn apply_realistic_delay(response: &str) {
     // Calculate the number of words in the response
     let word_count = response.split_whitespace().count();
     
-    // Calculate the delay: 0.5 seconds per word
-    let delay_seconds = word_count as f32 * 0.5;
+    // Calculate the delay: 0.2 seconds per word
+    let calculated_delay = word_count as f32 * 0.2;
+    
+    // Apply minimum and maximum constraints (2-5 seconds)
+    let delay_seconds = calculated_delay.clamp(2.0, 5.0);
     let delay = Duration::from_secs_f32(delay_seconds);
     
     // Calculate when we should send the response
@@ -24,8 +27,9 @@ pub async fn apply_realistic_delay(response: &str) {
         let remaining_delay = send_time - now;
         
         info!(
-            "Applying realistic typing delay: {} words = {:.1} seconds (waiting {:.1} more seconds)",
+            "Applying realistic typing delay: {} words = {:.1} seconds (clamped to {:.1}s, waiting {:.1} more seconds)",
             word_count,
+            calculated_delay,
             delay_seconds,
             remaining_delay.as_secs_f32()
         );
@@ -34,8 +38,9 @@ pub async fn apply_realistic_delay(response: &str) {
         sleep(remaining_delay).await;
     } else {
         info!(
-            "Response ready to send immediately: {} words = {:.1} seconds (already elapsed)",
+            "Response ready to send immediately: {} words = {:.1} seconds (clamped to {:.1}s, already elapsed)",
             word_count,
+            calculated_delay,
             delay_seconds
         );
     }

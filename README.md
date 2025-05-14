@@ -218,11 +218,11 @@ When the bot is directly mentioned in a message or when a message starts with th
 1. If `thinking_message` is set to a non-empty string (and not "[none]"):
    - Send a "thinking" message (configurable via `THINKING_MESSAGE` in config)
    - Send the content to Google's Gemini API with conversation context
-   - Apply a realistic typing delay based on response length (0.5 seconds per word)
+   - Apply a realistic typing delay based on response length (0.2 seconds per word, minimum 2s, maximum 5s)
    - Edit the "thinking" message with the AI-generated response
 2. If `thinking_message` is empty or set to "[none]":
    - Send the content directly to Google's Gemini API with conversation context
-   - Apply a realistic typing delay based on response length (0.5 seconds per word)
+   - Apply a realistic typing delay based on response length (0.2 seconds per word, minimum 2s, maximum 5s)
    - Post the AI-generated response without showing a "thinking" message first
 
 The prompt sent to Gemini can be customized by setting the `GEMINI_PROMPT_WRAPPER` in your `CrowConfig.toml` file. The wrapper should include placeholders:
