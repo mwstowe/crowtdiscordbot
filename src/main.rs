@@ -1004,8 +1004,22 @@ impl Bot {
                             }
                         };
                         
-                        // Call the Gemini API
-                        match gemini_client.generate_response(&content, &clean_display_name).await {
+                        // Get recent messages for context
+                        let context_messages = if let Some(db) = &self.message_db {
+                            // Get the last 5 messages from the database
+                            match db_utils::get_recent_messages(db.clone(), 5).await {
+                                Ok(messages) => messages,
+                                Err(e) => {
+                                    error!("Error retrieving recent messages: {:?}", e);
+                                    Vec::new()
+                                }
+                            }
+                        } else {
+                            Vec::new()
+                        };
+                        
+                        // Call the Gemini API with context
+                        match gemini_client.generate_response_with_context(&content, &clean_display_name, &context_messages).await {
                             Ok(response) => {
                                 // Edit the thinking message with the actual response
                                 if let Err(e) = thinking_msg.edit(&ctx.http, EditMessage::new().content(response.clone())).await {
@@ -1028,7 +1042,19 @@ impl Bot {
                         }
                     } else {
                         // Direct response without thinking message
-                        match gemini_client.generate_response(&content, &clean_display_name).await {
+                        let context_messages = if let Some(db) = &self.message_db {
+                            match db_utils::get_recent_messages(db.clone(), 5).await {
+                                Ok(messages) => messages,
+                                Err(e) => {
+                                    error!("Error retrieving recent messages: {:?}", e);
+                                    Vec::new()
+                                }
+                            }
+                        } else {
+                            Vec::new()
+                        };
+                        
+                        match gemini_client.generate_response_with_context(&content, &clean_display_name, &context_messages).await {
                             Ok(response) => {
                                 if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
                                     error!("Error sending Gemini response: {:?}", e);
@@ -1129,7 +1155,19 @@ impl Bot {
                         };
                         
                         // Call the Gemini API with user's display name
-                        match gemini_client.generate_response(&content, &clean_display_name).await {
+                        let context_messages = if let Some(db) = &self.message_db {
+                            match db_utils::get_recent_messages(db.clone(), 5).await {
+                                Ok(messages) => messages,
+                                Err(e) => {
+                                    error!("Error retrieving recent messages: {:?}", e);
+                                    Vec::new()
+                                }
+                            }
+                        } else {
+                            Vec::new()
+                        };
+                        
+                        match gemini_client.generate_response_with_context(&content, &clean_display_name, &context_messages).await {
                             Ok(response) => {
                                 // Edit the thinking message with the actual response
                                 let response_clone = response.clone();
@@ -1153,7 +1191,19 @@ impl Bot {
                     }
                     } else {
                         // Direct response without thinking message
-                        match gemini_client.generate_response(&content, &clean_display_name).await {
+                        let context_messages = if let Some(db) = &self.message_db {
+                            match db_utils::get_recent_messages(db.clone(), 5).await {
+                                Ok(messages) => messages,
+                                Err(e) => {
+                                    error!("Error retrieving recent messages: {:?}", e);
+                                    Vec::new()
+                                }
+                            }
+                        } else {
+                            Vec::new()
+                        };
+                        
+                        match gemini_client.generate_response_with_context(&content, &clean_display_name, &context_messages).await {
                             Ok(response) => {
                                 if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
                                     error!("Error sending Gemini response: {:?}", e);
