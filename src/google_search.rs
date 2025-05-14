@@ -2,6 +2,7 @@ use anyhow::Result;
 use reqwest;
 use scraper::{Html, Selector};
 use tracing::{error, info};
+use std::time::Duration;
 
 pub struct GoogleSearchClient {}
 
@@ -16,19 +17,21 @@ impl GoogleSearchClient {
         Self {}
     }
 
-    pub async fn search(&self, query: &str) -> Result<Option<SearchResult>> {
-        info!("Performing Google search for: {}", query);
-        
+    // Helper method to fetch raw HTML for debugging
+    pub async fn fetch_raw_html(&self, query: &str) -> Result<String> {
         // Create the client with custom user agent to avoid being blocked
         let client = reqwest::Client::builder()
             .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36")
+            .timeout(Duration::from_secs(10))
             .build()?;
         
         // Build the URL with query parameters
         let url = format!(
-            "https://www.google.com/search?q={}",
+            "https://duckduckgo.com/html/?q={}",
             urlencoding::encode(query)
         );
+        
+        info!("Fetching search results from: {}", url);
         
         // Make the request
         let response = client.get(&url)
@@ -38,57 +41,77 @@ impl GoogleSearchClient {
         // Check if the request was successful
         if !response.status().is_success() {
             let error_text = response.text().await?;
-            error!("Google search request failed: {}", error_text);
-            return Err(anyhow::anyhow!("Google search request failed: {}", error_text));
+            error!("Search request failed: {}", error_text);
+            return Err(anyhow::anyhow!("Search request failed: {}", error_text));
         }
         
         // Get the HTML content
         let html_content = response.text().await?;
+        Ok(html_content)
+    }
+
+    pub async fn search(&self, query: &str) -> Result<Option<SearchResult>> {
+        info!("Performing search for: {}", query);
+        
+        // Get the HTML content from DuckDuckGo
+        let html_content = self.fetch_raw_html(query).await?;
         
         // Parse the HTML
         let document = Html::parse_document(&html_content);
         
-        // Try to find search results
-        // These selectors might need adjustment based on Google's current HTML structure
-        let search_result_selector = Selector::parse("div.g").unwrap_or_else(|_| Selector::parse("div.tF2Cxc").unwrap());
-        let title_selector = Selector::parse("h3").unwrap();
-        let link_selector = Selector::parse("a").unwrap();
-        let snippet_selector = Selector::parse("div.VwiC3b").unwrap_or_else(|_| Selector::parse("span.aCOpRe").unwrap());
-        
-        // Find the first search result
-        if let Some(result) = document.select(&search_result_selector).next() {
-            // Extract title
-            let title = result.select(&title_selector)
-                .next()
-                .map(|el| el.text().collect::<Vec<_>>().join(""))
-                .unwrap_or_else(|| "No title".to_string());
-            
-            // Extract URL
-            let url = result.select(&link_selector)
-                .next()
-                .and_then(|el| el.value().attr("href"))
-                .map(|href| {
-                    if href.starts_with("/url?q=") {
-                        // Extract the actual URL from Google's redirect URL
-                        if let Some(end_idx) = href.find("&sa=") {
-                            return href[7..end_idx].to_string();
+        // DuckDuckGo search results are in elements with class "result"
+        if let Ok(result_selector) = Selector::parse(".result") {
+            for result in document.select(&result_selector) {
+                // Extract title
+                if let Ok(title_selector) = Selector::parse(".result__title") {
+                    if let Some(title_element) = result.select(&title_selector).next() {
+                        let title = title_element.text().collect::<Vec<_>>().join("");
+                        
+                        // Extract URL
+                        if let Ok(link_selector) = Selector::parse(".result__title a") {
+                            if let Some(link_element) = result.select(&link_selector).next() {
+                                if let Some(href) = link_element.value().attr("href") {
+                                    // Extract snippet
+                                    let snippet = if let Ok(snippet_selector) = Selector::parse(".result__snippet") {
+                                        if let Some(snippet_element) = result.select(&snippet_selector).next() {
+                                            snippet_element.text().collect::<Vec<_>>().join("")
+                                        } else {
+                                            "No description available".to_string()
+                                        }
+                                    } else {
+                                        "No description available".to_string()
+                                    };
+                                    
+                                    // Extract the actual URL from DuckDuckGo's redirect URL
+                                    let actual_url = if href.contains("//duckduckgo.com/l/?uddg=") {
+                                        if let Some(encoded_url) = href.split("uddg=").nth(1) {
+                                            if let Some(end_idx) = encoded_url.find("&") {
+                                                let encoded_part = &encoded_url[..end_idx];
+                                                match urlencoding::decode(encoded_part) {
+                                                    Ok(decoded) => decoded.to_string(),
+                                                    Err(_) => href.to_string()
+                                                }
+                                            } else {
+                                                href.to_string()
+                                            }
+                                        } else {
+                                            href.to_string()
+                                        }
+                                    } else {
+                                        href.to_string()
+                                    };
+                                    
+                                    return Ok(Some(SearchResult {
+                                        title,
+                                        url: actual_url,
+                                        snippet,
+                                    }));
+                                }
+                            }
                         }
                     }
-                    href.to_string()
-                })
-                .unwrap_or_else(|| "No URL".to_string());
-            
-            // Extract snippet
-            let snippet = result.select(&snippet_selector)
-                .next()
-                .map(|el| el.text().collect::<Vec<_>>().join(""))
-                .unwrap_or_else(|| "No description available".to_string());
-            
-            return Ok(Some(SearchResult {
-                title,
-                url,
-                snippet,
-            }));
+                }
+            }
         }
         
         // No results found

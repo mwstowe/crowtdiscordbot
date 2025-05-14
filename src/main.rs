@@ -922,8 +922,11 @@ impl Bot {
                 // Perform the search
                 match google_client.search(query).await {
                     Ok(Some(result)) => {
+                        // Clean up the title by removing extra whitespace
+                        let title = result.title.trim().replace("\n", " ").replace("  ", " ");
+                        
                         // Format and send the result
-                        let response = format!("**{}**\n{}\n{}", result.title, result.url, result.snippet);
+                        let response = format!("**{}**\n{}\n{}", title, result.url, result.snippet);
                         if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
                             error!("Error sending search result: {:?}", e);
                         }
@@ -934,14 +937,14 @@ impl Bot {
                         }
                     },
                     Err(e) => {
-                        error!("Error performing Google search: {:?}", e);
+                        error!("Error performing search: {:?}", e);
                         if let Err(e) = msg.channel_id.say(&ctx.http, "Error performing search.").await {
                             error!("Error sending error message: {:?}", e);
                         }
                     }
                 }
             } else {
-                if let Err(e) = msg.channel_id.say(&ctx.http, "Google search is not configured.").await {
+                if let Err(e) = msg.channel_id.say(&ctx.http, "Search is not configured.").await {
                     error!("Error sending search error: {:?}", e);
                 }
             }
