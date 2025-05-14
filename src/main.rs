@@ -18,6 +18,7 @@ use rand::Rng;
 mod db_utils;
 mod config;
 mod database;
+mod response_timing;
 mod google_search;
 mod gemini_api;
 mod crime_fighting;
@@ -37,6 +38,7 @@ use gemini_api::GeminiClient;
 use crime_fighting::CrimeFightingGenerator;
 use frinkiac::{FrinkiacClient, handle_frinkiac_command};
 use morbotron::{MorbotronClient, handle_morbotron_command};
+use response_timing::apply_realistic_delay;
 use masterofallscience::{MasterOfAllScienceClient, handle_masterofallscience_command};
 use display_name::get_best_display_name;
 use buzz::handle_buzz_command;
@@ -1021,6 +1023,9 @@ impl Bot {
                         // Call the Gemini API with context
                         match gemini_client.generate_response_with_context(&content, &clean_display_name, &context_messages).await {
                             Ok(response) => {
+                                // Apply realistic typing delay based on response length
+                                apply_realistic_delay(&response).await;
+                                
                                 // Edit the thinking message with the actual response
                                 if let Err(e) = thinking_msg.edit(&ctx.http, EditMessage::new().content(response.clone())).await {
                                     error!("Error editing thinking message: {:?}", e);
@@ -1028,6 +1033,8 @@ impl Bot {
                                     if let Err(e) = msg.channel_id.say(&ctx.http, "Sorry, I couldn't edit my message. Here's my response:").await {
                                         error!("Error sending fallback message: {:?}", e);
                                     }
+                                    apply_realistic_delay(&response).await;
+
                                     if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
                                         error!("Error sending Gemini response: {:?}", e);
                                     }
@@ -1056,6 +1063,8 @@ impl Bot {
                         
                         match gemini_client.generate_response_with_context(&content, &clean_display_name, &context_messages).await {
                             Ok(response) => {
+                                apply_realistic_delay(&response).await;
+
                                 if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
                                     error!("Error sending Gemini response: {:?}", e);
                                 }
@@ -1169,8 +1178,13 @@ impl Bot {
                         
                         match gemini_client.generate_response_with_context(&content, &clean_display_name, &context_messages).await {
                             Ok(response) => {
-                                // Edit the thinking message with the actual response
+                                // Clone the response for editing
                                 let response_clone = response.clone();
+                                
+                                // Apply realistic typing delay based on response length
+                                apply_realistic_delay(&response_clone).await;
+                                
+                                // Edit the thinking message with the actual response
                                 if let Err(e) = thinking_msg.edit(&ctx.http, EditMessage::new().content(response_clone)).await {
                                 error!("Error editing thinking message: {:?}", e);
                                 // Try sending a new message if editing fails
