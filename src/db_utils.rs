@@ -1,37 +1,115 @@
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio_rusqlite::Connection as SqliteConnection;
+use serenity::model::channel::Message;
+use serenity::model::id::{MessageId, ChannelId, GuildId, UserId};
+use std::collections::VecDeque;
+use tracing::error;
 
-// Initialize the SQLite database
+// Initialize the SQLite database with enhanced schema
 pub async fn initialize_database(path: &str) -> Result<Arc<Mutex<SqliteConnection>>, Box<dyn std::error::Error>> {
     // Connect to the database
     let conn = SqliteConnection::open(path).await?;
     
-    // Create the messages table if it doesn't exist
-    conn.call(|conn| {
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS messages (
-                id INTEGER PRIMARY KEY,
-                author TEXT NOT NULL,
-                display_name TEXT,
-                content TEXT NOT NULL,
-                timestamp INTEGER NOT NULL
-            )",
-            [],
-        )?;
-        Ok::<_, rusqlite::Error>(())
+    // Check if we need to migrate the schema
+    let needs_migration = conn.call(|conn| {
+        let mut stmt = conn.prepare("PRAGMA table_info(messages)")?;
+        let columns = stmt.query_map([], |row| {
+            let name: String = row.get(1)?;
+            Ok(name)
+        })?;
+        
+        let mut has_message_id = false;
+        let mut has_channel_id = false;
+        
+        for column_result in columns {
+            if let Ok(column_name) = column_result {
+                if column_name == "message_id" {
+                    has_message_id = true;
+                } else if column_name == "channel_id" {
+                    has_channel_id = true;
+                }
+            }
+        }
+        
+        Ok::<_, rusqlite::Error>(!has_message_id || !has_channel_id)
     }).await?;
+    
+    if needs_migration {
+        // Backup the old table
+        conn.call(|conn| {
+            conn.execute("CREATE TABLE IF NOT EXISTS messages_backup AS SELECT * FROM messages", [])?;
+            Ok::<_, rusqlite::Error>(())
+        }).await?;
+        
+        // Drop the old table
+        conn.call(|conn| {
+            conn.execute("DROP TABLE IF EXISTS messages", [])?;
+            Ok::<_, rusqlite::Error>(())
+        }).await?;
+        
+        // Create the new enhanced table
+        conn.call(|conn| {
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS messages (
+                    id INTEGER PRIMARY KEY,
+                    message_id TEXT NOT NULL,
+                    channel_id TEXT NOT NULL,
+                    guild_id TEXT,
+                    author_id TEXT NOT NULL,
+                    author TEXT NOT NULL,
+                    display_name TEXT,
+                    content TEXT NOT NULL,
+                    timestamp INTEGER NOT NULL,
+                    referenced_message_id TEXT
+                )",
+                [],
+            )?;
+            Ok::<_, rusqlite::Error>(())
+        }).await?;
+        
+        // Migrate data from backup with default values for new columns
+        conn.call(|conn| {
+            conn.execute(
+                "INSERT INTO messages (id, author, display_name, content, timestamp, message_id, channel_id, author_id)
+                 SELECT id, author, display_name, content, timestamp, '0', '0', '0' FROM messages_backup",
+                [],
+            )?;
+            Ok::<_, rusqlite::Error>(())
+        }).await?;
+    } else {
+        // Just ensure the table exists with the enhanced schema
+        conn.call(|conn| {
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS messages (
+                    id INTEGER PRIMARY KEY,
+                    message_id TEXT NOT NULL,
+                    channel_id TEXT NOT NULL,
+                    guild_id TEXT,
+                    author_id TEXT NOT NULL,
+                    author TEXT NOT NULL,
+                    display_name TEXT,
+                    content TEXT NOT NULL,
+                    timestamp INTEGER NOT NULL,
+                    referenced_message_id TEXT
+                )",
+                [],
+            )?;
+            Ok::<_, rusqlite::Error>(())
+        }).await?;
+    }
     
     // Return the connection wrapped in an Arc<Mutex>
     Ok(Arc::new(Mutex::new(conn)))
 }
 
-// Save a message to the SQLite database
+// Save a message to the SQLite database with enhanced fields
 pub async fn save_message(
     conn: Arc<Mutex<SqliteConnection>>,
     author: &str,
     display_name: &str,
-    content: &str
+    content: &str,
+    message: Option<&Message> // Optional Message object for enhanced fields
 ) -> Result<(), Box<dyn std::error::Error>> {
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)?
@@ -40,18 +118,58 @@ pub async fn save_message(
     let author = author.to_string();
     // Use the display_name::clean_display_name function for consistency
     let clean_display_name = crate::display_name::clean_display_name(display_name);
-    
     let content = content.to_string();
     
     let conn_guard = conn.lock().await;
     
-    conn_guard.call(move |conn| {
-        conn.execute(
-            "INSERT INTO messages (author, display_name, content, timestamp) VALUES (?, ?, ?, ?)",
-            [&author, &clean_display_name, &content, &timestamp.to_string()],
-        )?;
-        Ok::<_, rusqlite::Error>(())
-    }).await?;
+    // If we have a Message object, save all fields
+    if let Some(msg) = message {
+        // Clone the values we need from the Message
+        let message_id = msg.id.to_string();
+        let channel_id = msg.channel_id.to_string();
+        let guild_id = msg.guild_id.map(|id| id.to_string()).unwrap_or_default();
+        let author_id = msg.author.id.to_string();
+        let referenced_message_id = msg.referenced_message.as_ref().map(|m| m.id.to_string()).unwrap_or_default();
+        
+        conn_guard.call(move |conn| {
+            conn.execute(
+                "INSERT INTO messages (
+                    message_id, channel_id, guild_id, author_id, author, display_name, content, timestamp, referenced_message_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    &message_id,
+                    &channel_id,
+                    &guild_id,
+                    &author_id,
+                    &author,
+                    &clean_display_name,
+                    &content,
+                    &timestamp.to_string(),
+                    &referenced_message_id,
+                ],
+            )?;
+            Ok::<_, rusqlite::Error>(())
+        }).await?;
+    } else {
+        // Fallback to basic fields if no Message object is provided
+        conn_guard.call(move |conn| {
+            conn.execute(
+                "INSERT INTO messages (
+                    message_id, channel_id, author_id, author, display_name, content, timestamp
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                [
+                    "0", // Default message_id
+                    "0", // Default channel_id
+                    "0", // Default author_id
+                    &author,
+                    &clean_display_name,
+                    &content,
+                    &timestamp.to_string(),
+                ],
+            )?;
+            Ok::<_, rusqlite::Error>(())
+        }).await?;
+    }
     
     Ok(())
 }
@@ -138,9 +256,66 @@ pub async fn load_message_history(
     history: &mut std::collections::VecDeque<serenity::model::channel::Message>,
     limit: usize
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // This is a stub implementation since we can't directly convert database records to Message objects
-    // In a real implementation, you would need to create Message objects from the stored data
+    let conn_guard = conn.lock().await;
     
-    // For now, we'll just return Ok to avoid breaking the existing code
+    // Get messages from the database
+    let db_messages = conn_guard.call(move |conn| {
+        let mut stmt = conn.prepare(
+            "SELECT message_id, channel_id, guild_id, author_id, author, content, timestamp, referenced_message_id 
+             FROM messages ORDER BY timestamp DESC LIMIT ?"
+        )?;
+        
+        let rows = stmt.query_map([limit], |row| {
+            Ok((
+                row.get::<_, String>(0)?, // message_id
+                row.get::<_, String>(1)?, // channel_id
+                row.get::<_, Option<String>>(2)?, // guild_id
+                row.get::<_, String>(3)?, // author_id
+                row.get::<_, String>(4)?, // author
+                row.get::<_, String>(5)?, // content
+                row.get::<_, i64>(6)?, // timestamp
+                row.get::<_, Option<String>>(7)?, // referenced_message_id
+            ))
+        })?;
+        
+        let mut result = Vec::new();
+        for row_result in rows {
+            if let Ok(row) = row_result {
+                result.push(row);
+            }
+        }
+        
+        Ok::<_, rusqlite::Error>(result)
+    }).await?;
+    
+    // Try to convert database records to Message objects
+    for (msg_id_str, channel_id_str, guild_id_opt, author_id_str, author_name, content, _timestamp, _ref_msg_id) in db_messages {
+        // Parse IDs - use default values if parsing fails
+        let msg_id = msg_id_str.parse::<u64>().unwrap_or(0);
+        let channel_id = channel_id_str.parse::<u64>().unwrap_or(0);
+        let author_id = author_id_str.parse::<u64>().unwrap_or(0);
+        
+        // Skip records with invalid IDs (likely from old schema)
+        if msg_id == 0 || channel_id == 0 || author_id == 0 {
+            continue;
+        }
+        
+        // Create a minimal Message object with the available data
+        let mut msg = Message::default();
+        msg.id = MessageId::new(msg_id);
+        msg.channel_id = ChannelId::new(channel_id);
+        if let Some(guild_id_str) = guild_id_opt {
+            if let Ok(guild_id) = guild_id_str.parse::<u64>() {
+                msg.guild_id = Some(GuildId::new(guild_id));
+            }
+        }
+        msg.author.id = UserId::new(author_id);
+        msg.author.name = author_name;
+        msg.content = content;
+        
+        // Add to history
+        history.push_back(msg);
+    }
+    
     Ok(())
 }

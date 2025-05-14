@@ -711,7 +711,7 @@ impl Bot {
             let content = msg.content.clone();
             let db_clone = db.clone();
             
-            if let Err(e) = db_utils::save_message(db_clone, &author, &display_name, &content).await {
+            if let Err(e) = db_utils::save_message(db_clone, &author, &display_name, &content, Some(msg)).await {
                 error!("Error storing message: {:?}", e);
             }
         }
