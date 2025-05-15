@@ -73,6 +73,7 @@ struct Bot {
     crime_generator: CrimeFightingGenerator,
     gateway_bot_ids: Vec<u64>,
     google_search_enabled: bool,
+    gemini_interjection_prompt: Option<String>,
 }
 
 impl Bot {
@@ -87,6 +88,7 @@ impl Bot {
         gemini_api_key: Option<String>,
         gemini_api_endpoint: Option<String>,
         gemini_prompt_wrapper: Option<String>,
+        gemini_interjection_prompt: Option<String>,
         bot_name: String,
         message_db: Option<Arc<tokio::sync::Mutex<Connection>>>,
         message_history_limit: usize,
@@ -168,6 +170,7 @@ impl Bot {
             crime_generator,
             gateway_bot_ids,
             google_search_enabled,
+            gemini_interjection_prompt,
         }
     }
     
@@ -618,8 +621,8 @@ impl Bot {
         if rand::thread_rng().gen_bool(0.02) {
             info!("Triggered random interjection (1 in 50 chance)");
             
-            // Choose which type of interjection to make (MST3K quote, channel memory, or message pondering)
-            let interjection_type = rand::thread_rng().gen_range(0..3);
+            // Choose which type of interjection to make (MST3K quote, channel memory, message pondering, or AI interjection)
+            let interjection_type = rand::thread_rng().gen_range(0..4);
             
             match interjection_type {
                 0 => {
@@ -699,6 +702,74 @@ impl Bot {
                     let pondering = ponderings.choose(&mut rand::thread_rng()).unwrap_or(&"Hmm, interesting.").to_string();
                     if let Err(e) = msg.channel_id.say(&ctx.http, pondering).await {
                         error!("Error sending random pondering: {:?}", e);
+                    }
+                },
+                3 => {
+                    // AI Interjection (use Gemini API with custom prompt)
+                    if let (Some(gemini_client), Some(interjection_prompt)) = (&self.gemini_client, &self.gemini_interjection_prompt) {
+                        info!("Random interjection: AI Interjection with custom prompt");
+                        
+                        // Start typing indicator
+                        if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
+                            error!("Failed to send typing indicator for AI interjection: {:?}", e);
+                        }
+                        
+                        // Get recent messages for context
+                        let context_messages = if let Some(db) = &self.message_db {
+                            match db_utils::get_recent_messages(db.clone(), 3).await {
+                                Ok(messages) => messages,
+                                Err(e) => {
+                                    error!("Error retrieving recent messages for AI interjection: {:?}", e);
+                                    Vec::new()
+                                }
+                            }
+                        } else {
+                            Vec::new()
+                        };
+                        
+                        // Format context for the prompt
+                        let context_text = if !context_messages.is_empty() {
+                            let formatted_messages: Vec<String> = context_messages.iter()
+                                .map(|(_author, display_name, content)| format!("{}: {}", display_name, content))
+                                .collect();
+                            formatted_messages.join("\n")
+                        } else {
+                            "No recent messages".to_string()
+                        };
+                        
+                        // Replace placeholders in the custom prompt
+                        let prompt = interjection_prompt
+                            .replace("{bot_name}", &self.bot_name)
+                            .replace("{context}", &context_text);
+                        
+                        // Call Gemini API with the custom prompt
+                        match gemini_client.generate_response(&prompt, "").await {
+                            Ok(response) => {
+                                // Apply realistic typing delay
+                                apply_realistic_delay(&response, ctx, msg.channel_id).await;
+                                
+                                // Send the response
+                                if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
+                                    error!("Error sending AI interjection: {:?}", e);
+                                }
+                            },
+                            Err(e) => {
+                                error!("Error generating AI interjection: {:?}", e);
+                            }
+                        }
+                    } else {
+                        // Fall back to message pondering if Gemini is not configured
+                        info!("AI Interjection not available, falling back to Message Pondering");
+                        let ponderings = [
+                            "Hmm, that's an interesting point.",
+                            "I was just thinking about that!",
+                            "That reminds me of something...",
+                        ];
+                        
+                        let pondering = ponderings.choose(&mut rand::thread_rng()).unwrap_or(&"Hmm, interesting.").to_string();
+                        if let Err(e) = msg.channel_id.say(&ctx.http, pondering).await {
+                            error!("Error sending fallback pondering: {:?}", e);
+                        }
                     }
                 },
                 _ => {} // Should never happen
@@ -1470,6 +1541,7 @@ async fn main() -> Result<()> {
         gemini_api_key,
         gemini_api_endpoint,
         gemini_prompt_wrapper,
+        config.gemini_interjection_prompt.clone(),
         bot_name.clone(),
         message_db.clone(),
         message_history_limit,
