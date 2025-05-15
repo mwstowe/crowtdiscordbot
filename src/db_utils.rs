@@ -11,47 +11,21 @@ pub async fn initialize_database(path: &str) -> Result<Arc<Mutex<SqliteConnectio
     // Connect to the database
     let conn = SqliteConnection::open(path).await?;
     
-    // Check if we need to migrate the schema
-    let needs_migration = conn.call(|conn| {
-        let mut stmt = conn.prepare("PRAGMA table_info(messages)")?;
-        let columns = stmt.query_map([], |row| {
-            let name: String = row.get(1)?;
-            Ok(name)
-        })?;
-        
-        let mut has_message_id = false;
-        let mut has_channel_id = false;
-        
-        for column_result in columns {
-            if let Ok(column_name) = column_result {
-                if column_name == "message_id" {
-                    has_message_id = true;
-                } else if column_name == "channel_id" {
-                    has_channel_id = true;
-                }
-            }
-        }
-        
-        Ok::<_, rusqlite::Error>(!has_message_id || !has_channel_id)
+    // First check if the table exists at all
+    let table_exists = conn.call(|conn| {
+        let result: i64 = conn.query_row(
+            "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='messages'",
+            [],
+            |row| row.get(0)
+        )?;
+        Ok::<_, rusqlite::Error>(result > 0)
     }).await?;
     
-    if needs_migration {
-        // Backup the old table
-        conn.call(|conn| {
-            conn.execute("CREATE TABLE IF NOT EXISTS messages_backup AS SELECT * FROM messages", [])?;
-            Ok::<_, rusqlite::Error>(())
-        }).await?;
-        
-        // Drop the old table
-        conn.call(|conn| {
-            conn.execute("DROP TABLE IF EXISTS messages", [])?;
-            Ok::<_, rusqlite::Error>(())
-        }).await?;
-        
-        // Create the new enhanced table
+    if !table_exists {
+        // Table doesn't exist, create it with the full schema
         conn.call(|conn| {
             conn.execute(
-                "CREATE TABLE IF NOT EXISTS messages (
+                "CREATE TABLE messages (
                     id INTEGER PRIMARY KEY,
                     message_id TEXT NOT NULL,
                     channel_id TEXT NOT NULL,
@@ -63,40 +37,78 @@ pub async fn initialize_database(path: &str) -> Result<Arc<Mutex<SqliteConnectio
                     timestamp INTEGER NOT NULL,
                     referenced_message_id TEXT
                 )",
-                [],
-            )?;
-            Ok::<_, rusqlite::Error>(())
-        }).await?;
-        
-        // Migrate data from backup with default values for new columns
-        conn.call(|conn| {
-            conn.execute(
-                "INSERT INTO messages (id, author, display_name, content, timestamp, message_id, channel_id, author_id)
-                 SELECT id, author, display_name, content, timestamp, '0', '0', '0' FROM messages_backup",
                 [],
             )?;
             Ok::<_, rusqlite::Error>(())
         }).await?;
     } else {
-        // Just ensure the table exists with the enhanced schema
-        conn.call(|conn| {
-            conn.execute(
-                "CREATE TABLE IF NOT EXISTS messages (
-                    id INTEGER PRIMARY KEY,
-                    message_id TEXT NOT NULL,
-                    channel_id TEXT NOT NULL,
-                    guild_id TEXT,
-                    author_id TEXT NOT NULL,
-                    author TEXT NOT NULL,
-                    display_name TEXT,
-                    content TEXT NOT NULL,
-                    timestamp INTEGER NOT NULL,
-                    referenced_message_id TEXT
-                )",
-                [],
-            )?;
-            Ok::<_, rusqlite::Error>(())
+        // Table exists, check if migration is needed
+        let needs_migration = conn.call(|conn| {
+            let mut stmt = conn.prepare("PRAGMA table_info(messages)")?;
+            let columns = stmt.query_map([], |row| {
+                let name: String = row.get(1)?;
+                Ok(name)
+            })?;
+            
+            let mut has_message_id = false;
+            let mut has_channel_id = false;
+            
+            for column_result in columns {
+                if let Ok(column_name) = column_result {
+                    if column_name == "message_id" {
+                        has_message_id = true;
+                    } else if column_name == "channel_id" {
+                        has_channel_id = true;
+                    }
+                }
+            }
+            
+            Ok::<_, rusqlite::Error>(!has_message_id || !has_channel_id)
         }).await?;
+        
+        if needs_migration {
+            // Backup the old table
+            conn.call(|conn| {
+                conn.execute("CREATE TABLE IF NOT EXISTS messages_backup AS SELECT * FROM messages", [])?;
+                Ok::<_, rusqlite::Error>(())
+            }).await?;
+            
+            // Drop the old table
+            conn.call(|conn| {
+                conn.execute("DROP TABLE IF EXISTS messages", [])?;
+                Ok::<_, rusqlite::Error>(())
+            }).await?;
+            
+            // Create the new enhanced table
+            conn.call(|conn| {
+                conn.execute(
+                    "CREATE TABLE IF NOT EXISTS messages (
+                        id INTEGER PRIMARY KEY,
+                        message_id TEXT NOT NULL,
+                        channel_id TEXT NOT NULL,
+                        guild_id TEXT,
+                        author_id TEXT NOT NULL,
+                        author TEXT NOT NULL,
+                        display_name TEXT,
+                        content TEXT NOT NULL,
+                        timestamp INTEGER NOT NULL,
+                        referenced_message_id TEXT
+                    )",
+                    [],
+                )?;
+                Ok::<_, rusqlite::Error>(())
+            }).await?;
+            
+            // Migrate data from backup with default values for new columns
+            conn.call(|conn| {
+                conn.execute(
+                    "INSERT INTO messages (id, author, display_name, content, timestamp, message_id, channel_id, author_id)
+                     SELECT id, author, display_name, content, timestamp, '0', '0', '0' FROM messages_backup",
+                    [],
+                )?;
+                Ok::<_, rusqlite::Error>(())
+            }).await?;
+        }
     }
     
     // Return the connection wrapped in an Arc<Mutex>
