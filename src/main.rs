@@ -68,7 +68,6 @@ struct Bot {
     bot_name: String,
     message_db: Option<Arc<tokio::sync::Mutex<Connection>>>,
     message_history_limit: usize,
-    thinking_message: Option<String>,
     commands: HashMap<String, String>,
     keyword_triggers: Vec<(Vec<String>, String)>,
     crime_generator: CrimeFightingGenerator,
@@ -91,7 +90,6 @@ impl Bot {
         bot_name: String,
         message_db: Option<Arc<tokio::sync::Mutex<Connection>>>,
         message_history_limit: usize,
-        thinking_message: Option<String>,
         gateway_bot_ids: Vec<u64>,
         google_search_enabled: bool,
         gemini_rate_limit_minute: u32,
@@ -165,7 +163,6 @@ impl Bot {
             bot_name,
             message_db,
             message_history_limit,
-            thinking_message,
             commands,
             keyword_triggers,
             crime_generator,
@@ -990,111 +987,59 @@ impl Bot {
                     let display_name = get_best_display_name(ctx, msg).await;
                     let clean_display_name = gemini_client.strip_pronouns(&display_name);
                     
-                    // Check if we should use a thinking message
-                    let should_use_thinking = match &self.thinking_message {
-                        Some(message) if message.is_empty() || message == "[none]" => false,
-                        Some(_) => true,
-                        None => true // Default to using thinking message if not specified
-                    };
+                    // Start typing indicator before making API call
+                    if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
+                        error!("Failed to send typing indicator: {:?}", e);
+                    }
                     
-                    if should_use_thinking {
-                        // Send a "thinking" message
-                        let thinking_text = self.thinking_message.as_ref().unwrap_or(&"*thinking...*".to_string()).clone();
-                        let mut thinking_msg = match msg.channel_id.say(&ctx.http, thinking_text).await {
-                            Ok(msg) => msg,
+                    // Get recent messages for context
+                    let context_messages = if let Some(db) = &self.message_db {
+                        // Get the last 5 messages from the database
+                        match db_utils::get_recent_messages(db.clone(), 5).await {
+                            Ok(messages) => messages,
                             Err(e) => {
-                                error!("Error sending thinking message: {:?}", e);
-                                return Ok(());
-                            }
-                        };
-                        
-                        // Get recent messages for context
-                        let context_messages = if let Some(db) = &self.message_db {
-                            // Get the last 5 messages from the database
-                            match db_utils::get_recent_messages(db.clone(), 5).await {
-                                Ok(messages) => messages,
-                                Err(e) => {
-                                    error!("Error retrieving recent messages: {:?}", e);
-                                    Vec::new()
-                                }
-                            }
-                        } else {
-                            Vec::new()
-                        };
-                        
-                        // Start typing indicator before making API call
-                        if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
-                            error!("Failed to send typing indicator: {:?}", e);
-                        }
-                        
-                        // Call the Gemini API with context
-                        match gemini_client.generate_response_with_context(&content, &clean_display_name, &context_messages).await {
-                            Ok(response) => {
-                                // Apply realistic typing delay based on response length
-                                apply_realistic_delay(&response, ctx, msg.channel_id).await;
-                                
-                                // Edit the thinking message with the actual response
-                                if let Err(e) = thinking_msg.edit(&ctx.http, EditMessage::new().content(response.clone())).await {
-                                    error!("Error editing thinking message: {:?}", e);
-                                    // Try sending a new message if editing fails
-                                    if let Err(e) = msg.channel_id.say(&ctx.http, "Sorry, I couldn't edit my message. Here's my response:").await {
-                                        error!("Error sending fallback message: {:?}", e);
-                                    }
-                                    // Apply realistic typing delay based on response length
-                                    apply_realistic_delay(&response, ctx, msg.channel_id).await;
-
-                                    if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
-                                        error!("Error sending Gemini response: {:?}", e);
-                                    }
-                                }
-                            },
-                            Err(e) => {
-                                error!("Error calling Gemini API: {:?}", e);
-                                if let Err(e) = thinking_msg.edit(&ctx.http, EditMessage::new().content(format!("Sorry, I encountered an error: {}", e))).await {
-                                    error!("Error editing thinking message: {:?}", e);
-                                }
+                                error!("Error retrieving recent messages: {:?}", e);
+                                Vec::new()
                             }
                         }
                     } else {
-                        // Direct response without thinking message
-                        let context_messages = if let Some(db) = &self.message_db {
-                            match db_utils::get_recent_messages(db.clone(), 5).await {
-                                Ok(messages) => messages,
-                                Err(e) => {
-                                    error!("Error retrieving recent messages: {:?}", e);
-                                    Vec::new()
+                        Vec::new()
+                    };
+                    
+                    // Call the Gemini API with context
+                    match gemini_client.generate_response_with_context(&content, &clean_display_name, &context_messages).await {
+                        Ok(response) => {
+                            // Apply realistic typing delay based on response length
+                            apply_realistic_delay(&response, ctx, msg.channel_id).await;
+                            
+                            // Create a message reference for replying
+                            let message_reference = MessageReference::from(msg);
+                            let create_message = CreateMessage::new()
+                                .content(response.clone())
+                                .reference_message(message_reference);
+                            
+                            if let Err(e) = msg.channel_id.send_message(&ctx.http, create_message).await {
+                                error!("Error sending Gemini response as reply: {:?}", e);
+                                // Fallback to regular message if reply fails
+                                if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
+                                    error!("Error sending fallback Gemini response: {:?}", e);
                                 }
                             }
-                        } else {
-                            Vec::new()
-                        };
-                        
-                        // Start typing indicator before making API call
-                        if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
-                            error!("Failed to send typing indicator: {:?}", e);
-                        }
-                        
-                        match gemini_client.generate_response_with_context(&content, &clean_display_name, &context_messages).await {
-                            Ok(response) => {
-                                // Apply realistic typing delay based on response length
-                                apply_realistic_delay(&response, ctx, msg.channel_id).await;
-
-                                // Create a message reference for replying
-                                let message_reference = MessageReference::from(msg);
-                                let mut create_message = CreateMessage::new().content(response.clone()).reference_message(message_reference);
-                                
-                                if let Err(e) = msg.channel_id.send_message(&ctx.http, create_message).await {
-                                    error!("Error sending Gemini response as reply: {:?}", e);
-                                    // Fallback to regular message if reply fails
-                                    if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
-                                        error!("Error sending fallback Gemini response: {:?}", e);
-                                    }
-                                }
-                            },
-                            Err(e) => {
-                                error!("Error calling Gemini API: {:?}", e);
+                        },
+                        Err(e) => {
+                            error!("Error calling Gemini API: {:?}", e);
+                            
+                            // Create a message reference for replying
+                            let message_reference = MessageReference::from(msg);
+                            let create_message = CreateMessage::new()
+                                .content(format!("Sorry, I encountered an error: {}", e))
+                                .reference_message(message_reference);
+                            
+                            if let Err(e) = msg.channel_id.send_message(&ctx.http, create_message).await {
+                                error!("Error sending error message as reply: {:?}", e);
+                                // Fallback to regular message if reply fails
                                 if let Err(e) = msg.channel_id.say(&ctx.http, format!("Sorry, I encountered an error: {}", e)).await {
-                                    error!("Error sending error message: {:?}", e);
+                                    error!("Error sending fallback error message: {:?}", e);
                                 }
                             }
                         }
@@ -1167,104 +1112,57 @@ impl Bot {
                     let display_name = get_best_display_name(ctx, msg).await;
                     let clean_display_name = gemini_client.strip_pronouns(&display_name);
                     
-                    // Check if we should use a thinking message
-                    let should_use_thinking = match &self.thinking_message {
-                        Some(message) if message.is_empty() || message == "[none]" => false,
-                        Some(_) => true,
-                        None => true // Default to using thinking message if not specified
-                    };
+                    // Start typing indicator before making API call
+                    if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
+                        error!("Failed to send typing indicator: {:?}", e);
+                    }
                     
-                    if should_use_thinking {
-                        // Send a "thinking" message
-                        let thinking_text = self.thinking_message.as_ref().unwrap_or(&"*thinking...*".to_string()).clone();
-                        let mut thinking_msg = match msg.channel_id.say(&ctx.http, thinking_text).await {
-                            Ok(msg) => msg,
+                    // Get recent messages for context
+                    let context_messages = if let Some(db) = &self.message_db {
+                        match db_utils::get_recent_messages(db.clone(), 5).await {
+                            Ok(messages) => messages,
                             Err(e) => {
-                                error!("Error sending thinking message: {:?}", e);
-                                return Ok(());
+                                error!("Error retrieving recent messages: {:?}", e);
+                                Vec::new()
                             }
-                        };
+                        }
+                    } else {
+                        Vec::new()
+                    };
                         
-                        // Call the Gemini API with user's display name
-                        let context_messages = if let Some(db) = &self.message_db {
-                            match db_utils::get_recent_messages(db.clone(), 5).await {
-                                Ok(messages) => messages,
-                                Err(e) => {
-                                    error!("Error retrieving recent messages: {:?}", e);
-                                    Vec::new()
-                                }
-                            }
-                        } else {
-                            Vec::new()
-                        };
-                        
-                        match gemini_client.generate_response_with_context(&content, &clean_display_name, &context_messages).await {
-                            Ok(response) => {
-                                // Clone the response for editing
-                                let response_clone = response.clone();
-                                
-                                // Apply realistic typing delay based on response length
-                                apply_realistic_delay(&response_clone, ctx, msg.channel_id).await;
-                                
-                                // Edit the thinking message with the actual response
-                                if let Err(e) = thinking_msg.edit(&ctx.http, EditMessage::new().content(response_clone)).await {
-                                error!("Error editing thinking message: {:?}", e);
-                                // Try sending a new message if editing fails
-                                if let Err(e) = msg.channel_id.say(&ctx.http, "Sorry, I couldn't edit my message. Here's my response:").await {
-                                    error!("Error sending fallback message: {:?}", e);
-                                }
+                    match gemini_client.generate_response_with_context(&content, &clean_display_name, &context_messages).await {
+                        Ok(response) => {
+                            // Apply realistic typing delay based on response length
+                            apply_realistic_delay(&response, ctx, msg.channel_id).await;
+                            
+                            // Create a message reference for replying
+                            let message_reference = MessageReference::from(msg);
+                            let create_message = CreateMessage::new()
+                                .content(response.clone())
+                                .reference_message(message_reference);
+                            
+                            if let Err(e) = msg.channel_id.send_message(&ctx.http, create_message).await {
+                                error!("Error sending Gemini response as reply: {:?}", e);
+                                // Fallback to regular message if reply fails
                                 if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
-                                    error!("Error sending Gemini response: {:?}", e);
+                                    error!("Error sending fallback Gemini response: {:?}", e);
                                 }
                             }
                         },
                         Err(e) => {
                             error!("Error calling Gemini API: {:?}", e);
-                            if let Err(e) = thinking_msg.edit(&ctx.http, EditMessage::new().content(format!("Sorry, I encountered an error: {}", e))).await {
-                                error!("Error editing thinking message: {:?}", e);
-                            }
-                        }
-                    }
-                    } else {
-                        // Direct response without thinking message
-                        let context_messages = if let Some(db) = &self.message_db {
-                            match db_utils::get_recent_messages(db.clone(), 5).await {
-                                Ok(messages) => messages,
-                                Err(e) => {
-                                    error!("Error retrieving recent messages: {:?}", e);
-                                    Vec::new()
-                                }
-                            }
-                        } else {
-                            Vec::new()
-                        };
-                        
-                        // Start typing indicator before making API call
-                        if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
-                            error!("Failed to send typing indicator: {:?}", e);
-                        }
-                        
-                        match gemini_client.generate_response_with_context(&content, &clean_display_name, &context_messages).await {
-                            Ok(response) => {
-                                // Apply realistic typing delay based on response length
-                                apply_realistic_delay(&response, ctx, msg.channel_id).await;
-                                
-                                // Create a message reference for replying
-                                let message_reference = MessageReference::from(msg);
-                                let mut create_message = CreateMessage::new().content(response.clone()).reference_message(message_reference);
-                                
-                                if let Err(e) = msg.channel_id.send_message(&ctx.http, create_message).await {
-                                    error!("Error sending Gemini response as reply: {:?}", e);
-                                    // Fallback to regular message if reply fails
-                                    if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
-                                        error!("Error sending fallback Gemini response: {:?}", e);
-                                    }
-                                }
-                            },
-                            Err(e) => {
-                                error!("Error calling Gemini API: {:?}", e);
+                            
+                            // Create a message reference for replying
+                            let message_reference = MessageReference::from(msg);
+                            let create_message = CreateMessage::new()
+                                .content(format!("Sorry, I encountered an error: {}", e))
+                                .reference_message(message_reference);
+                            
+                            if let Err(e) = msg.channel_id.send_message(&ctx.http, create_message).await {
+                                error!("Error sending error message as reply: {:?}", e);
+                                // Fallback to regular message if reply fails
                                 if let Err(e) = msg.channel_id.say(&ctx.http, format!("Sorry, I encountered an error: {}", e)).await {
-                                    error!("Error sending error message: {:?}", e);
+                                    error!("Error sending fallback error message: {:?}", e);
                                 }
                             }
                         }
@@ -1423,10 +1321,6 @@ async fn main() -> Result<()> {
     // Get custom prompt wrapper if available
     let gemini_prompt_wrapper = config.gemini_prompt_wrapper.clone();
     
-    // Set thinking message to None to disable it
-    let thinking_message = None;
-    info!("Thinking message disabled, using typing indicator instead");
-    
     // Get custom Gemini API endpoint if available
     let gemini_api_endpoint = config.gemini_api_endpoint.clone();
     if let Some(endpoint) = &gemini_api_endpoint {
@@ -1579,7 +1473,6 @@ async fn main() -> Result<()> {
         bot_name.clone(),
         message_db.clone(),
         message_history_limit,
-        thinking_message,
         gateway_bot_ids.clone(),
         google_search_enabled,
         gemini_rate_limit_minute,

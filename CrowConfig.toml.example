@@ -1,37 +1,43 @@
-# Discord Bot Configuration
+# Discord bot token
 DISCORD_TOKEN = "your_discord_bot_token_here"
 
-# Channel Configuration
-# You can use either channel ID or name (ID is more reliable)
+# Channel to follow (use either ID or name)
 # For multiple channels, use comma-separated values
-FOLLOWED_CHANNEL_ID = "123456789012345678"
-# FOLLOWED_CHANNEL_NAME = "general"
-# FOLLOWED_CHANNEL_IDS = "123456789012345678,234567890123456789"
+FOLLOWED_CHANNEL_IDS = "123456789012345678,234567890123456789"
 # FOLLOWED_CHANNEL_NAMES = "general,random"
 
-# Optional: Server name to limit channel search
-# FOLLOWED_SERVER_NAME = "My Discord Server"
+# Optional: Specify server name to limit channel search
+# FOLLOWED_SERVER_NAME = "Your Server Name"
 
-# Bot Configuration
+# Bot name (defaults to "Crow" if not specified)
 BOT_NAME = "Crow"
-MESSAGE_HISTORY_LIMIT = "10000"
-DB_TRIM_INTERVAL_SECS = "3600"
 
-# Gemini API Configuration
-GEMINI_API_KEY = "your_gemini_api_key_here"
-GEMINI_RATE_LIMIT_MINUTE = "15"
-GEMINI_RATE_LIMIT_DAY = "1500"
-GEMINI_API_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
-GEMINI_PROMPT_WRAPPER = "You are {bot_name}, a helpful Discord bot. You're responding to {user} who said: {message}\n\nRecent conversation context:\n{context}\n\nRespond in a helpful, friendly way. Keep your response concise."
+# Message history limit (defaults to 10000 if not specified)
+MESSAGE_HISTORY_LIMIT = 10000
 
-# Google Search Configuration
-GOOGLE_SEARCH_ENABLED = "true"
+# Database trim interval in seconds (defaults to 3600 seconds / 1 hour)
+DB_TRIM_INTERVAL_SECS = 3600
 
-# Database Configuration (Optional)
+# MySQL database credentials (optional, for quote/slogan features)
 # DB_HOST = "localhost"
 # DB_NAME = "quotes"
 # DB_USER = "username"
 # DB_PASSWORD = "password"
 
-# Gateway Bot IDs (Optional)
+# Google search feature (defaults to "true" if not specified)
+GOOGLE_SEARCH_ENABLED = "true"
+
+# Gemini API configuration
+GEMINI_API_KEY = "your_gemini_api_key_here"
+# Optional: Custom Gemini API endpoint (defaults to gemini-1.5-flash if not specified)
+# GEMINI_API_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent"
+# Optional: Custom prompt wrapper
+# GEMINI_PROMPT_WRAPPER = "You are {bot_name}, a helpful Discord bot. Here is recent conversation context:\n\n{context}\n\nRespond to {user}: {message}"
+
+# Rate limits for Gemini API (defaults to 15 per minute, 1500 per day)
+GEMINI_RATE_LIMIT_MINUTE = 15
+GEMINI_RATE_LIMIT_DAY = 1500
+
+# Gateway bot IDs (comma-separated, optional)
+# These are bot IDs that Crow will respond to, even though they're bots
 # GATEWAY_BOT_IDS = "123456789012345678,234567890123456789"

@@ -40,3 +40,9 @@
 - Gemini API integration
 - Quote and slogan database support
 - Message history tracking
+
+## [0.3.1] - 2025-05-15
+### Changed
+- Removed "thinking..." message functionality in favor of using only the typing indicator
+- Simplified response flow for better user experience
+- Reduced visual clutter in chat by eliminating temporary messages
