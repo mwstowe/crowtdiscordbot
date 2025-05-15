@@ -11,7 +11,8 @@ message_history.db
 Cargo.lock
 
 # Ignore backup files
-**/*.rs.bk
+**/*.rs.bak
+**/*.bak
 
 # Ignore IDE/editor files
 .idea/

@@ -2,35 +2,36 @@
 DISCORD_TOKEN = "your_discord_bot_token_here"
 
 # Channel Configuration
-# You can use either channel ID or channel name
+# You can use either channel ID or name (ID is more reliable)
 # For multiple channels, use comma-separated values
 FOLLOWED_CHANNEL_ID = "123456789012345678"
 # FOLLOWED_CHANNEL_NAME = "general"
-# FOLLOWED_CHANNEL_IDS = "123456789012345678, 987654321098765432"
-# FOLLOWED_CHANNEL_NAMES = "general, random"
-# FOLLOWED_SERVER_NAME = "My Discord Server"  # Optional: limit channel search to this server
+# FOLLOWED_CHANNEL_IDS = "123456789012345678,234567890123456789"
+# FOLLOWED_CHANNEL_NAMES = "general,random"
+
+# Optional: Server name to limit channel search
+# FOLLOWED_SERVER_NAME = "My Discord Server"
 
 # Bot Configuration
-BOT_NAME = "Crow"  # Default: "Crow"
-MESSAGE_HISTORY_LIMIT = "10000"  # Default: 10000
-DB_TRIM_INTERVAL_SECS = "3600"  # Default: 3600 (1 hour)
+BOT_NAME = "Crow"
+MESSAGE_HISTORY_LIMIT = "10000"
+DB_TRIM_INTERVAL_SECS = "3600"
 
 # Gemini API Configuration
 GEMINI_API_KEY = "your_gemini_api_key_here"
-GEMINI_API_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
-GEMINI_PROMPT_WRAPPER = "You are {bot_name}, a helpful Discord bot. Here is recent conversation context:\n\n{context}\n\n{user} says: {message}"
-THINKING_MESSAGE = "*thinking...*"  # Set to empty string or "[none]" to disable
-GEMINI_RATE_LIMIT_MINUTE = "15"  # Default: 15 calls per minute
-GEMINI_RATE_LIMIT_DAY = "1500"  # Default: 1500 calls per day
+GEMINI_RATE_LIMIT_MINUTE = "15"
+GEMINI_RATE_LIMIT_DAY = "1500"
+GEMINI_API_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+GEMINI_PROMPT_WRAPPER = "You are {bot_name}, a helpful Discord bot. You're responding to {user} who said: {message}\n\nRecent conversation context:\n{context}\n\nRespond in a helpful, friendly way. Keep your response concise."
 
 # Google Search Configuration
-GOOGLE_SEARCH_ENABLED = "true"  # Set to "false" to disable Google search feature
+GOOGLE_SEARCH_ENABLED = "true"
 
 # Database Configuration (Optional)
 # DB_HOST = "localhost"
-# DB_NAME = "crow_db"
-# DB_USER = "crow_user"
-# DB_PASSWORD = "crow_password"
+# DB_NAME = "quotes"
+# DB_USER = "username"
+# DB_PASSWORD = "password"
 
-# Gateway Bot Configuration (Optional)
-# GATEWAY_BOT_IDS = "123456789012345678, 987654321098765432"
+# Gateway Bot IDs (Optional)
+# GATEWAY_BOT_IDS = "123456789012345678,234567890123456789"

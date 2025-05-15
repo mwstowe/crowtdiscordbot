@@ -51,7 +51,7 @@ pub struct Config {
     pub gemini_api_key: Option<String>,
     pub gemini_api_endpoint: Option<String>,
     pub gemini_prompt_wrapper: Option<String>,
-    pub thinking_message: Option<String>,
+    // thinking_message removed - only using typing indicator
     pub google_search_enabled: Option<String>,
     pub db_host: Option<String>,
     pub db_name: Option<String>,
