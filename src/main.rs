@@ -1058,6 +1058,9 @@ impl Bot {
                     let display_name = get_best_display_name(ctx, msg).await;
                     let clean_display_name = gemini_client.strip_pronouns(&display_name);
                     
+                    // Extract pronouns from the display name if present
+                    let user_pronouns = crate::display_name::extract_pronouns(&display_name);
+                    
                     // Start typing indicator before making API call
                     if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
                         error!("Failed to send typing indicator: {:?}", e);
@@ -1077,8 +1080,13 @@ impl Bot {
                         Vec::new()
                     };
                     
-                    // Call the Gemini API with context
-                    match gemini_client.generate_response_with_context(&content, &clean_display_name, &context_messages).await {
+                    // Call the Gemini API with context and pronouns
+                    match gemini_client.generate_response_with_context(
+                        &content, 
+                        &clean_display_name, 
+                        &context_messages,
+                        user_pronouns.as_deref()
+                    ).await {
                         Ok(response) => {
                             // Apply realistic typing delay based on response length
                             apply_realistic_delay(&response, ctx, msg.channel_id).await;
@@ -1118,7 +1126,19 @@ impl Bot {
                 } else {
                     // Fallback if Gemini API is not configured
                     let display_name = get_best_display_name(ctx, msg).await;
-                    if let Err(e) = msg.channel_id.say(&ctx.http, format!("Hello {}, you called my name! I'm {}! (Gemini API is not configured)", display_name, self.bot_name)).await {
+                    
+                    // Extract pronouns from the display name if present
+                    let pronouns_info = if let Some(pronouns) = crate::display_name::extract_pronouns(&display_name) {
+                        format!(" (I see you use {} pronouns)", pronouns)
+                    } else {
+                        String::new()
+                    };
+                    
+                    if let Err(e) = msg.channel_id.say(&ctx.http, format!("Hello {}, you called my name! I'm {}!{} (Gemini API is not configured)", 
+                        gemini_api::GeminiClient::strip_pronouns_static(&display_name), 
+                        self.bot_name,
+                        pronouns_info
+                    )).await {
                         error!("Error sending name response: {:?}", e);
                     }
                 }
@@ -1183,6 +1203,9 @@ impl Bot {
                     let display_name = get_best_display_name(ctx, msg).await;
                     let clean_display_name = gemini_client.strip_pronouns(&display_name);
                     
+                    // Extract pronouns from the display name if present
+                    let user_pronouns = crate::display_name::extract_pronouns(&display_name);
+                    
                     // Start typing indicator before making API call
                     if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
                         error!("Failed to send typing indicator: {:?}", e);
@@ -1201,7 +1224,12 @@ impl Bot {
                         Vec::new()
                     };
                         
-                    match gemini_client.generate_response_with_context(&content, &clean_display_name, &context_messages).await {
+                    match gemini_client.generate_response_with_context(
+                        &content, 
+                        &clean_display_name, 
+                        &context_messages,
+                        user_pronouns.as_deref()
+                    ).await {
                         Ok(response) => {
                             // Apply realistic typing delay based on response length
                             apply_realistic_delay(&response, ctx, msg.channel_id).await;

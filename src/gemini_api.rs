@@ -41,8 +41,8 @@ impl GeminiClient {
         }
     }
     
-    // Function to strip pronouns from display names
-    pub fn strip_pronouns(&self, display_name: &str) -> String {
+    // Static version of strip_pronouns for use without an instance
+    pub fn strip_pronouns_static(display_name: &str) -> String {
         // Remove content in parentheses (they/them)
         let without_parentheses = Regex::new(r"\s*\([^)]*\)").unwrap_or_else(|_| Regex::new(r"").unwrap())
             .replace_all(display_name, "").to_string();
@@ -61,6 +61,11 @@ impl GeminiClient {
             without_pipe
         }
     }
+    
+    // Function to strip pronouns from display names
+    pub fn strip_pronouns(&self, display_name: &str) -> String {
+        Self::strip_pronouns_static(display_name)
+    }
 
     pub async fn generate_response(&self, prompt: &str, user_name: &str) -> Result<String> {
         // Format the prompt using the wrapper, including the user's name
@@ -78,7 +83,8 @@ impl GeminiClient {
         &self, 
         prompt: &str, 
         user_name: &str, 
-        context_messages: &[(String, String, String)]
+        context_messages: &[(String, String, String)],
+        user_pronouns: Option<&str>
     ) -> Result<String> {
         // Format the context messages
         let context = if context_messages.is_empty() {
@@ -92,11 +98,17 @@ impl GeminiClient {
         };
         
         // Format the prompt using the wrapper, including the user's name and context
-        let formatted_prompt = self.prompt_wrapper
+        let mut formatted_prompt = self.prompt_wrapper
             .replace("{message}", prompt)
             .replace("{bot_name}", &self.bot_name)
             .replace("{user}", user_name)
             .replace("{context}", &context);
+            
+        // Add pronouns information if available
+        if let Some(pronouns) = user_pronouns {
+            formatted_prompt = format!("{}\n\nNote: {} uses {} pronouns.", 
+                formatted_prompt, user_name, pronouns);
+        }
         
         self.call_gemini_api(&formatted_prompt).await
     }
@@ -104,85 +116,56 @@ impl GeminiClient {
     async fn call_gemini_api(&self, formatted_prompt: &str) -> Result<String> {
         // First, try to acquire a rate limit token
         match self.rate_limiter.acquire().await {
-            Ok(()) => {
-                // We've acquired the token, proceed with the API call
-                info!("Rate limit check passed, proceeding with Gemini API call");
+            Ok(_) => {
+                // Rate limit token acquired, proceed with API call
+                info!("Rate limit token acquired, making API call");
             },
             Err(e) => {
-                // If it's a daily limit error, return it directly
-                if e.to_string().contains("Daily rate limit reached") {
-                    return Err(e);
-                }
-                // For other errors (which shouldn't happen with acquire()), return them
-                return Err(e);
+                // Rate limit exceeded
+                return Err(anyhow::anyhow!("Rate limit exceeded: {}", e));
             }
         }
         
-        info!("Calling Gemini API with prompt: {}", formatted_prompt);
-        
-        // Create the request body
-        let request_body = serde_json::json!({
+        // Prepare the request payload
+        let payload = serde_json::json!({
             "contents": [{
                 "parts": [{
                     "text": formatted_prompt
                 }]
-            }],
-            "generationConfig": {
-                "temperature": 0.7,
-                "topK": 40,
-                "topP": 0.95,
-                "maxOutputTokens": 1024
-            }
+            }]
         });
         
-        // Create the client
+        // Create the client and make the request
         let client = reqwest::Client::new();
+        let response = client
+            .post(&self.api_endpoint)
+            .query(&[("key", &self.api_key)])
+            .json(&payload)
+            .timeout(Duration::from_secs(30))
+            .send()
+            .await?;
         
-        // Implement retry logic for 503 errors
-        let max_retries = 5;
-        let retry_delay_secs = 15;
-        let mut attempts = 0;
-        
-        loop {
-            attempts += 1;
-            info!("Attempt {} of {} to call Gemini API", attempts, max_retries);
-            
-            // Make the request
-            let response = client.post(format!("{}?key={}", self.api_endpoint, self.api_key))
-                .header("Content-Type", "application/json")
-                .body(request_body.to_string())
-                .send()
-                .await?;
-            
+        // Check if the request was successful
+        if !response.status().is_success() {
             let status = response.status();
-            
-            // Check if the request was successful
-            if status.is_success() {
-                // Parse the response
-                let response_json: serde_json::Value = response.json().await?;
-                
-                // Extract the generated text
-                let generated_text = response_json["candidates"][0]["content"]["parts"][0]["text"]
-                    .as_str()
-                    .ok_or_else(|| anyhow::anyhow!("Failed to extract text from Gemini API response"))?
-                    .to_string();
-                
-                return Ok(generated_text);
-            } else if status == reqwest::StatusCode::SERVICE_UNAVAILABLE && attempts < max_retries {
-                // If we get a 503 and haven't exceeded max retries, wait and try again
-                let error_text = response.text().await?;
-                info!("Received 503 error from Gemini API: {}. Retrying in {} seconds...", error_text, retry_delay_secs);
-                tokio::time::sleep(Duration::from_secs(retry_delay_secs)).await;
-                continue;
-            } else {
-                // For other errors or if we've exceeded max retries, return an error
-                let error_text = response.text().await?;
-                if status == reqwest::StatusCode::SERVICE_UNAVAILABLE {
-                    return Err(anyhow::anyhow!("Gemini API unavailable after {} attempts: {}", max_retries, error_text));
-                } else {
-                    return Err(anyhow::anyhow!("Gemini API request failed with status {}: {}", status, error_text));
-                }
-            }
+            let error_text = response.text().await?;
+            return Err(anyhow::anyhow!("API request failed with status {}: {}", status, error_text));
         }
+        
+        // Parse the response
+        let response_json: serde_json::Value = response.json().await?;
+        
+        // Extract the generated text
+        let generated_text = response_json
+            .get("candidates")
+            .and_then(|candidates| candidates.get(0))
+            .and_then(|candidate| candidate.get("content"))
+            .and_then(|content| content.get("parts"))
+            .and_then(|parts| parts.get(0))
+            .and_then(|part| part.get("text"))
+            .and_then(|text| text.as_str())
+            .ok_or_else(|| anyhow::anyhow!("Failed to extract text from API response"))?;
+        
+        Ok(generated_text.to_string())
     }
 }
