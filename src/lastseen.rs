@@ -106,6 +106,18 @@ pub async fn handle_lastseen_command(
         return Ok(());
     }
     
+    // Check if the user is asking about themselves
+    let author_name = msg.author.name.to_lowercase();
+    let author_display_name = msg.author_nick(http).await.unwrap_or_else(|| msg.author.global_name.clone().unwrap_or_default()).to_lowercase();
+    
+    if name_lower.contains(&author_name) || author_name.contains(&name_lower) || 
+       (!author_display_name.is_empty() && (name_lower.contains(&author_display_name) || author_display_name.contains(&name_lower))) {
+        if let Err(e) = msg.channel_id.say(http, "You're right here!").await {
+            error!("Error sending self-reference message: {:?}", e);
+        }
+        return Ok(());
+    }
+    
     // Check if we have a database connection
     if let Some(conn) = db_conn {
         let finder = LastSeenFinder::new();
