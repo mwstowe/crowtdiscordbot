@@ -83,6 +83,29 @@ pub async fn handle_lastseen_command(
         return Ok(());
     }
     
+    // Get the bot's current user information
+    let current_user = match http.get_current_user().await {
+        Ok(user) => user,
+        Err(e) => {
+            error!("Error getting current user: {:?}", e);
+            if let Err(e) = msg.channel_id.say(http, "Error retrieving bot information").await {
+                error!("Error sending error message: {:?}", e);
+            }
+            return Ok(());
+        }
+    };
+    
+    // Check if the user is asking about the bot itself
+    let bot_name = current_user.name.to_lowercase();
+    let name_lower = name.to_lowercase();
+    
+    if name_lower.contains(&bot_name) || bot_name.contains(&name_lower) {
+        if let Err(e) = msg.channel_id.say(http, "I'm right here!").await {
+            error!("Error sending bot presence message: {:?}", e);
+        }
+        return Ok(());
+    }
+    
     // Check if we have a database connection
     if let Some(conn) = db_conn {
         let finder = LastSeenFinder::new();
