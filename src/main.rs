@@ -1140,6 +1140,8 @@ impl Bot {
                         },
                         Err(e) => {
                             error!("Error calling Gemini API: {:?}", e);
+                            // Check if this is our special silent failure code for 503 errors
+                            if e.to_string() != "SILENT_FAILURE_503" {
                             
                             // Create a message reference for replying
                             let message_reference = MessageReference::from(msg);
@@ -1154,6 +1156,9 @@ impl Bot {
                                     error!("Error sending fallback error message: {:?}", e);
                                 }
                             }
+                            }
+                            // For 503 errors that have been retried and failed, we just silently stop
+                            // No message is sent to the user
                         }
                     }
                 } else {
@@ -1283,6 +1288,8 @@ impl Bot {
                         },
                         Err(e) => {
                             error!("Error calling Gemini API: {:?}", e);
+                            // Check if this is our special silent failure code for 503 errors
+                            if e.to_string() != "SILENT_FAILURE_503" {
                             
                             // Create a message reference for replying
                             let message_reference = MessageReference::from(msg);
@@ -1297,6 +1304,9 @@ impl Bot {
                                     error!("Error sending fallback error message: {:?}", e);
                                 }
                             }
+                            }
+                            // For 503 errors that have been retried and failed, we just silently stop
+                            // No message is sent to the user
                         }
                     }
                 } else {
