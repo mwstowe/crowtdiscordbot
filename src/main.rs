@@ -229,6 +229,9 @@ impl Bot {
                             debug!("All speakers before filtering: {:?}", all_speakers);
                         }
                         
+                        // Log the raw speakers list to help debug
+                        info!("Raw speakers list: {:?}", recent_speakers.iter().map(|(name, display)| format!("{}:{}", name, display)).collect::<Vec<String>>());
+                        
                         // Filter out the invoker from the list of potential speakers
                         let filtered_speakers: Vec<(String, String)> = recent_speakers
                             .iter()
