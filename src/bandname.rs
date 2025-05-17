@@ -159,6 +159,6 @@ impl BandGenreGenerator {
             }
         };
         
-        format!("What kind of music does {} play? They're pioneers of {}.", band_name, genre)
+        format!("What kind of music does {} play? {}", band_name, genre)
     }
 }
