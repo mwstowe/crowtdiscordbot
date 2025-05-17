@@ -223,32 +223,63 @@ pub async fn trim_database(
 // Get recent messages from the database
 pub async fn get_recent_messages(
     conn: Arc<Mutex<SqliteConnection>>,
-    limit: usize
+    limit: usize,
+    channel_id: Option<&str>
 ) -> Result<Vec<(String, String, String)>, Box<dyn std::error::Error>> {
     let conn_guard = conn.lock().await;
     
-    let messages = conn_guard.call(move |conn| {
-        let mut stmt = conn.prepare(
-            "SELECT author, display_name, content FROM messages ORDER BY timestamp DESC LIMIT ?"
-        )?;
-        
-        let rows = stmt.query_map([limit], |row| {
-            Ok((
-                row.get::<_, String>(0)?, // author
-                row.get::<_, String>(1).unwrap_or_else(|_| "".to_string()), // display_name
-                row.get::<_, String>(2)?, // content
-            ))
-        })?;
-        
-        let mut result = Vec::new();
-        for row_result in rows {
-            if let Ok(row) = row_result {
-                result.push(row);
+    // If channel_id is provided, filter by it
+    let messages = if let Some(channel) = channel_id {
+        let channel = channel.to_string();
+        conn_guard.call(move |conn| {
+            let mut stmt = conn.prepare(
+                "SELECT author, display_name, content FROM messages 
+                 WHERE channel_id = ? 
+                 ORDER BY timestamp DESC LIMIT ?"
+            )?;
+            
+            let rows = stmt.query_map([&channel, &limit.to_string()], |row| {
+                Ok((
+                    row.get::<_, String>(0)?, // author
+                    row.get::<_, String>(1).unwrap_or_else(|_| "".to_string()), // display_name
+                    row.get::<_, String>(2)?, // content
+                ))
+            })?;
+            
+            let mut result = Vec::new();
+            for row_result in rows {
+                if let Ok(row) = row_result {
+                    result.push(row);
+                }
             }
-        }
-        
-        Ok::<_, rusqlite::Error>(result)
-    }).await?;
+            
+            Ok::<_, rusqlite::Error>(result)
+        }).await?
+    } else {
+        // If no channel_id is provided, get messages from all channels
+        conn_guard.call(move |conn| {
+            let mut stmt = conn.prepare(
+                "SELECT author, display_name, content FROM messages ORDER BY timestamp DESC LIMIT ?"
+            )?;
+            
+            let rows = stmt.query_map([limit], |row| {
+                Ok((
+                    row.get::<_, String>(0)?, // author
+                    row.get::<_, String>(1).unwrap_or_else(|_| "".to_string()), // display_name
+                    row.get::<_, String>(2)?, // content
+                ))
+            })?;
+            
+            let mut result = Vec::new();
+            for row_result in rows {
+                if let Ok(row) = row_result {
+                    result.push(row);
+                }
+            }
+            
+            Ok::<_, rusqlite::Error>(result)
+        }).await?
+    };
     
     Ok(messages)
 }
@@ -266,39 +297,75 @@ pub async fn trim_message_history(
 pub async fn load_message_history(
     conn: Arc<tokio::sync::Mutex<SqliteConnection>>,
     history: &mut std::collections::VecDeque<serenity::model::channel::Message>,
-    limit: usize
+    limit: usize,
+    channel_id: Option<&str>
 ) -> Result<(), Box<dyn std::error::Error>> {
     let conn_guard = conn.lock().await;
     
-    // Get messages from the database
-    let db_messages = conn_guard.call(move |conn| {
-        let mut stmt = conn.prepare(
-            "SELECT message_id, channel_id, guild_id, author_id, author, content, timestamp, referenced_message_id 
-             FROM messages ORDER BY timestamp DESC LIMIT ?"
-        )?;
-        
-        let rows = stmt.query_map([limit], |row| {
-            Ok((
-                row.get::<_, String>(0)?, // message_id
-                row.get::<_, String>(1)?, // channel_id
-                row.get::<_, Option<String>>(2)?, // guild_id
-                row.get::<_, String>(3)?, // author_id
-                row.get::<_, String>(4)?, // author
-                row.get::<_, String>(5)?, // content
-                row.get::<_, i64>(6)?, // timestamp
-                row.get::<_, Option<String>>(7)?, // referenced_message_id
-            ))
-        })?;
-        
-        let mut result = Vec::new();
-        for row_result in rows {
-            if let Ok(row) = row_result {
-                result.push(row);
+    // Get messages from the database, filtered by channel_id if provided
+    let db_messages = if let Some(channel) = channel_id {
+        let channel = channel.to_string();
+        conn_guard.call(move |conn| {
+            let mut stmt = conn.prepare(
+                "SELECT message_id, channel_id, guild_id, author_id, author, content, timestamp, referenced_message_id 
+                 FROM messages 
+                 WHERE channel_id = ?
+                 ORDER BY timestamp DESC LIMIT ?"
+            )?;
+            
+            let rows = stmt.query_map([&channel, &limit.to_string()], |row| {
+                Ok((
+                    row.get::<_, String>(0)?, // message_id
+                    row.get::<_, String>(1)?, // channel_id
+                    row.get::<_, Option<String>>(2)?, // guild_id
+                    row.get::<_, String>(3)?, // author_id
+                    row.get::<_, String>(4)?, // author
+                    row.get::<_, String>(5)?, // content
+                    row.get::<_, i64>(6)?, // timestamp
+                    row.get::<_, Option<String>>(7)?, // referenced_message_id
+                ))
+            })?;
+            
+            let mut result = Vec::new();
+            for row_result in rows {
+                if let Ok(row) = row_result {
+                    result.push(row);
+                }
             }
-        }
-        
-        Ok::<_, rusqlite::Error>(result)
-    }).await?;
+            
+            Ok::<_, rusqlite::Error>(result)
+        }).await?
+    } else {
+        // If no channel_id is provided, get messages from all channels
+        conn_guard.call(move |conn| {
+            let mut stmt = conn.prepare(
+                "SELECT message_id, channel_id, guild_id, author_id, author, content, timestamp, referenced_message_id 
+                 FROM messages ORDER BY timestamp DESC LIMIT ?"
+            )?;
+            
+            let rows = stmt.query_map([limit], |row| {
+                Ok((
+                    row.get::<_, String>(0)?, // message_id
+                    row.get::<_, String>(1)?, // channel_id
+                    row.get::<_, Option<String>>(2)?, // guild_id
+                    row.get::<_, String>(3)?, // author_id
+                    row.get::<_, String>(4)?, // author
+                    row.get::<_, String>(5)?, // content
+                    row.get::<_, i64>(6)?, // timestamp
+                    row.get::<_, Option<String>>(7)?, // referenced_message_id
+                ))
+            })?;
+            
+            let mut result = Vec::new();
+            for row_result in rows {
+                if let Ok(row) = row_result {
+                    result.push(row);
+                }
+            }
+            
+            Ok::<_, rusqlite::Error>(result)
+        }).await?
+    };
     
     // Try to convert database records to Message objects
     for (msg_id_str, channel_id_str, guild_id_opt, author_id_str, author_name, content, _timestamp, _ref_msg_id) in db_messages {
@@ -331,6 +398,7 @@ pub async fn load_message_history(
     
     Ok(())
 }
+
 // Update an existing message in the database when it's edited
 pub async fn update_message(
     conn: Arc<Mutex<SqliteConnection>>,

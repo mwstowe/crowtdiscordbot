@@ -731,7 +731,7 @@ impl Bot {
                         
                         // Get recent messages for context
                         let context_messages = if let Some(db) = &self.message_db {
-                            match db_utils::get_recent_messages(db.clone(), 3).await {
+                            match db_utils::get_recent_messages(db.clone(), 3, Some(&msg.channel_id.to_string())).await {
                                 Ok(messages) => messages,
                                 Err(e) => {
                                     error!("Error retrieving recent messages for AI interjection: {:?}", e);
@@ -1101,8 +1101,8 @@ impl Bot {
                     
                     // Get recent messages for context
                     let context_messages = if let Some(db) = &self.message_db {
-                        // Get the last 5 messages from the database
-                        match db_utils::get_recent_messages(db.clone(), 5).await {
+                        // Get the last 5 messages from the database for this specific channel
+                        match db_utils::get_recent_messages(db.clone(), 5, Some(&msg.channel_id.to_string())).await {
                             Ok(messages) => messages,
                             Err(e) => {
                                 error!("Error retrieving recent messages: {:?}", e);
@@ -1140,25 +1140,20 @@ impl Bot {
                         },
                         Err(e) => {
                             error!("Error calling Gemini API: {:?}", e);
-                            // Check if this is our special silent failure code for 503 errors
-                            if e.to_string() != "SILENT_FAILURE_503" {
                             
                             // Create a message reference for replying
                             let message_reference = MessageReference::from(msg);
                             let create_message = CreateMessage::new()
-                                .content("Sorry, I'm having trouble connecting to my brain right now. Please try again in a moment.")
+                                .content(format!("Sorry, I encountered an error: {}", e))
                                 .reference_message(message_reference);
                             
                             if let Err(e) = msg.channel_id.send_message(&ctx.http, create_message).await {
                                 error!("Error sending error message as reply: {:?}", e);
                                 // Fallback to regular message if reply fails
-                                if let Err(e) = msg.channel_id.say(&ctx.http, "Sorry, I'm having trouble connecting to my brain right now. Please try again in a moment.").await {
+                                if let Err(e) = msg.channel_id.say(&ctx.http, format!("Sorry, I encountered an error: {}", e)).await {
                                     error!("Error sending fallback error message: {:?}", e);
                                 }
                             }
-                            }
-                            // For 503 errors that have been retried and failed, we just silently stop
-                            // No message is sent to the user
                         }
                     }
                 } else {
@@ -1251,7 +1246,7 @@ impl Bot {
                     
                     // Get recent messages for context
                     let context_messages = if let Some(db) = &self.message_db {
-                        match db_utils::get_recent_messages(db.clone(), 5).await {
+                        match db_utils::get_recent_messages(db.clone(), 5, Some(&msg.channel_id.to_string())).await {
                             Ok(messages) => messages,
                             Err(e) => {
                                 error!("Error retrieving recent messages: {:?}", e);
@@ -1288,25 +1283,20 @@ impl Bot {
                         },
                         Err(e) => {
                             error!("Error calling Gemini API: {:?}", e);
-                            // Check if this is our special silent failure code for 503 errors
-                            if e.to_string() != "SILENT_FAILURE_503" {
                             
                             // Create a message reference for replying
                             let message_reference = MessageReference::from(msg);
                             let create_message = CreateMessage::new()
-                                .content("Sorry, I'm having trouble connecting to my brain right now. Please try again in a moment.")
+                                .content(format!("Sorry, I encountered an error: {}", e))
                                 .reference_message(message_reference);
                             
                             if let Err(e) = msg.channel_id.send_message(&ctx.http, create_message).await {
                                 error!("Error sending error message as reply: {:?}", e);
                                 // Fallback to regular message if reply fails
-                                if let Err(e) = msg.channel_id.say(&ctx.http, "Sorry, I'm having trouble connecting to my brain right now. Please try again in a moment.").await {
+                                if let Err(e) = msg.channel_id.say(&ctx.http, format!("Sorry, I encountered an error: {}", e)).await {
                                     error!("Error sending fallback error message: {:?}", e);
                                 }
                             }
-                            }
-                            // For 503 errors that have been retried and failed, we just silently stop
-                            // No message is sent to the user
                         }
                     }
                 } else {
