@@ -1146,13 +1146,13 @@ impl Bot {
                             // Create a message reference for replying
                             let message_reference = MessageReference::from(msg);
                             let create_message = CreateMessage::new()
-                                .content(format!("Sorry, I encountered an error: {}", e))
+                                .content("Sorry, I'm having trouble connecting to my brain right now. Please try again in a moment.")
                                 .reference_message(message_reference);
                             
                             if let Err(e) = msg.channel_id.send_message(&ctx.http, create_message).await {
                                 error!("Error sending error message as reply: {:?}", e);
                                 // Fallback to regular message if reply fails
-                                if let Err(e) = msg.channel_id.say(&ctx.http, format!("Sorry, I encountered an error: {}", e)).await {
+                                if let Err(e) = msg.channel_id.say(&ctx.http, "Sorry, I'm having trouble connecting to my brain right now. Please try again in a moment.").await {
                                     error!("Error sending fallback error message: {:?}", e);
                                 }
                             }
@@ -1294,13 +1294,13 @@ impl Bot {
                             // Create a message reference for replying
                             let message_reference = MessageReference::from(msg);
                             let create_message = CreateMessage::new()
-                                .content(format!("Sorry, I encountered an error: {}", e))
+                                .content("Sorry, I'm having trouble connecting to my brain right now. Please try again in a moment.")
                                 .reference_message(message_reference);
                             
                             if let Err(e) = msg.channel_id.send_message(&ctx.http, create_message).await {
                                 error!("Error sending error message as reply: {:?}", e);
                                 // Fallback to regular message if reply fails
-                                if let Err(e) = msg.channel_id.say(&ctx.http, format!("Sorry, I encountered an error: {}", e)).await {
+                                if let Err(e) = msg.channel_id.say(&ctx.http, "Sorry, I'm having trouble connecting to my brain right now. Please try again in a moment.").await {
                                     error!("Error sending fallback error message: {:?}", e);
                                 }
                             }
