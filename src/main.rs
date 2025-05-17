@@ -32,6 +32,7 @@ mod trump_insult;
 mod display_name;
 mod buzz;
 mod lastseen;
+mod bandname;
 
 // Use our modules
 use config::{load_config, parse_config};
@@ -73,6 +74,7 @@ struct Bot {
     keyword_triggers: Vec<(Vec<String>, String)>,
     crime_generator: CrimeFightingGenerator,
     trump_insult_generator: trump_insult::TrumpInsultGenerator,
+    band_genre_generator: bandname::BandGenreGenerator,
     gateway_bot_ids: Vec<u64>,
     google_search_enabled: bool,
     gemini_interjection_prompt: Option<String>,
@@ -104,7 +106,7 @@ impl Bot {
         commands.insert("hello".to_string(), "world!".to_string());
         
         // Generate a comprehensive help message with all commands
-        let help_message = "Available commands:\n!help - Show this help message\n!hello - Say hello\n!buzz - Generate a corporate buzzword phrase\n!fightcrime - Generate a crime fighting duo\n!trump - Generate a Trump insult\n!lastseen [name] - Find when a user was last active\n!quote [search_term] - Get a random quote\n!quote -show [show_name] - Get a random quote from a specific show\n!quote -dud [username] - Get a random message from a user\n!slogan [search_term] - Get a random advertising slogan\n!frinkiac [search_term] - Get a Simpsons screenshot from Frinkiac (or random if no term provided)\n!morbotron [search_term] - Get a Futurama screenshot from Morbotron (or random if no term provided)\n!masterofallscience [search_term] - Get a Rick and Morty screenshot from Master of All Science (or random if no term provided)";
+        let help_message = "Available commands:\n!help - Show this help message\n!hello - Say hello\n!buzz - Generate a corporate buzzword phrase\n!fightcrime - Generate a crime fighting duo\n!trump - Generate a Trump insult\n!bandname [band name] - Generate an absurd music genre for a band\n!lastseen [name] - Find when a user was last active\n!quote [search_term] - Get a random quote\n!quote -show [show_name] - Get a random quote from a specific show\n!quote -dud [username] - Get a random message from a user\n!slogan [search_term] - Get a random advertising slogan\n!frinkiac [search_term] - Get a Simpsons screenshot from Frinkiac (or random if no term provided)\n!morbotron [search_term] - Get a Futurama screenshot from Morbotron (or random if no term provided)\n!masterofallscience [search_term] - Get a Rick and Morty screenshot from Master of All Science (or random if no term provided)";
         commands.insert("help".to_string(), help_message.to_string());
         
         // Define keyword triggers - empty but we keep the structure for future additions
@@ -159,6 +161,9 @@ impl Bot {
         // Create Trump insult generator
         let trump_insult_generator = trump_insult::TrumpInsultGenerator::new();
         
+        // Create Band genre generator
+        let band_genre_generator = bandname::BandGenreGenerator::new();
+        
         Self {
             followed_channels,
             db_manager,
@@ -174,6 +179,7 @@ impl Bot {
             keyword_triggers,
             crime_generator,
             trump_insult_generator,
+            band_genre_generator,
             gateway_bot_ids,
             google_search_enabled,
             gemini_interjection_prompt,
@@ -854,6 +860,18 @@ impl Bot {
                     let insult = self.trump_insult_generator.generate_insult();
                     if let Err(e) = msg.channel_id.say(&ctx.http, insult).await {
                         error!("Error sending Trump insult: {:?}", e);
+                    }
+                } else if command == "bandname" {
+                    // Generate a band genre
+                    let band_name = if parts.len() > 1 {
+                        parts[1..].join(" ")
+                    } else {
+                        "Your Band".to_string()
+                    };
+                    
+                    let genre = self.band_genre_generator.generate_genre(&band_name);
+                    if let Err(e) = msg.channel_id.say(&ctx.http, genre).await {
+                        error!("Error sending band genre: {:?}", e);
                     }
                 } else if command == "help" {
                     // Help command - use the help message from our commands HashMap
