@@ -1101,7 +1101,7 @@ impl Bot {
                     
                     // Get recent messages for context
                     let context_messages = if let Some(db) = &self.message_db {
-                        // Get the last 5 messages from the database for this specific channel
+                        // Get the last 5 messages from the database
                         match db_utils::get_recent_messages(db.clone(), 5, Some(&msg.channel_id.to_string())).await {
                             Ok(messages) => messages,
                             Err(e) => {
@@ -1658,7 +1658,7 @@ async fn main() -> Result<()> {
             let mut temp_history = VecDeque::new();
             let db_clone = db.clone();
             
-            if let Err(e) = db_utils::load_message_history(db_clone, &mut temp_history, message_history_limit).await {
+            if let Err(e) = db_utils::load_message_history(db_clone, &mut temp_history, message_history_limit, None).await {
                 error!("Failed to load message history: {:?}", e);
             } else {
                 info!("Loaded {} messages from database", temp_history.len());
@@ -1687,7 +1687,7 @@ async fn main() -> Result<()> {
             let mut temp_history = VecDeque::new();
             let db_clone = db.clone();
             
-            if let Err(e) = db_utils::load_message_history(db_clone, &mut temp_history, message_history_limit).await {
+            if let Err(e) = db_utils::load_message_history(db_clone, &mut temp_history, message_history_limit, None).await {
                 error!("Failed to load message history: {:?}", e);
             } else {
                 info!("Loaded {} messages from database", temp_history.len());
