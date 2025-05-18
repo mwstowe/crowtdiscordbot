@@ -1,34 +1,33 @@
-# Discord Bot Configuration
-DISCORD_TOKEN = "your_discord_bot_token_here"
+# Discord Bot Token
+DISCORD_TOKEN = "your_discord_token_here"
 
-# Channel Configuration
-# You can use either channel ID or name, and follow multiple channels
-FOLLOWED_CHANNEL_ID = "123456789012345678"  # Single channel ID
-# FOLLOWED_CHANNEL_NAME = "general"  # Single channel name
-# FOLLOWED_CHANNEL_IDS = "123456789012345678, 987654321098765432"  # Multiple channel IDs
-# FOLLOWED_CHANNEL_NAMES = "general, random, bot-testing"  # Multiple channel names
-# FOLLOWED_SERVER_NAME = "My Discord Server"  # Optional: limit channel search to this server
+# Bot Name (defaults to "Crow" if not specified)
+BOT_NAME = "Crow"
 
-# Bot Configuration
-BOT_NAME = "Crow"  # The name of your bot
-MESSAGE_HISTORY_LIMIT = "10000"  # Maximum number of messages to store
-DB_TRIM_INTERVAL_SECS = "3600"  # How often to trim the database (1 hour)
+# Channel to follow - specify either by ID or name
+# For multiple channels, use comma-separated values
+# FOLLOWED_CHANNEL_ID = "123456789012345678"
+FOLLOWED_CHANNEL_NAME = "general"
+# FOLLOWED_CHANNEL_IDS = "123456789012345678,234567890123456789"
+# FOLLOWED_CHANNEL_NAMES = "general,random,bot-testing"
 
-# Gateway Bot IDs - Messages from these bots will be processed
-# This is useful for bridge bots that relay messages from other platforms
-# GATEWAY_BOT_IDS = "123456789012345678, 987654321098765432"
+# Optional: Server name to limit channel search to a specific server
+# FOLLOWED_SERVER_NAME = "My Discord Server"
 
-# Google Search Configuration
-GOOGLE_SEARCH_ENABLED = "true"  # Set to "false" to disable Google search
+# Message history limit (defaults to 10000 if not specified)
+MESSAGE_HISTORY_LIMIT = "10000"
 
-# Gemini API Configuration
+# Database trim interval in seconds (defaults to 3600 seconds / 1 hour if not specified)
+DB_TRIM_INTERVAL_SECS = "3600"
+
+# Gemini API settings
 GEMINI_API_KEY = "your_gemini_api_key_here"
-GEMINI_API_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
-GEMINI_PROMPT_WRAPPER = "You are {bot_name}, a helpful Discord bot. Here is recent conversation context:\n\n{context}\n\n{user} says: {message}"
-GEMINI_INTERJECTION_PROMPT = "You are {bot_name}, a Discord bot with a sarcastic personality. Look at this recent conversation and make a brief, witty comment about it (max 1-2 sentences):\n\n{context}"
-GEMINI_RATE_LIMIT_MINUTE = "15"  # Default: 15 calls per minute
-GEMINI_RATE_LIMIT_DAY = "1500"  # Default: 1500 calls per day
-GEMINI_CONTEXT_MESSAGES = "5"  # Number of previous messages to include as context for AI responses
+GEMINI_API_ENDPOINT = "gemini-1.0-pro" # or "gemini-1.5-pro", "gemini-1.5-flash", etc.
+GEMINI_RATE_LIMIT_MINUTE = "15"  # Maximum API calls per minute (defaults to 15)
+GEMINI_RATE_LIMIT_DAY = "1500"   # Maximum API calls per day (defaults to 1500)
+
+# Number of previous messages to include as context for AI responses
+GEMINI_CONTEXT_MESSAGES = "5"
 
 # Random Interjection Probabilities (chance per message)
 # Each type has its own probability - set to 0 to disable
@@ -37,8 +36,41 @@ INTERJECTION_MEMORY_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
 INTERJECTION_PONDERING_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
 INTERJECTION_AI_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
 
-# Database Configuration (for quotes and slogans)
-# DB_HOST = "localhost"
-# DB_NAME = "quotes_db"
-# DB_USER = "username"
-# DB_PASSWORD = "password"
+# Custom prompt wrapper for Gemini API calls
+# Available placeholders:
+# {message} - The user's message
+# {bot_name} - The bot's name
+# {user} - The user's display name
+# {context} - Recent conversation history
+GEMINI_PROMPT_WRAPPER = """
+You are {bot_name}, a sarcastic and witty Discord bot with a dark sense of humor.
+Respond to {user}'s message: "{message}"
+
+Recent conversation context:
+{context}
+
+Keep your response concise and entertaining. Don't use markdown formatting.
+"""
+
+# Custom prompt for random AI interjections
+GEMINI_INTERJECTION_PROMPT = """
+You are {bot_name}, a sarcastic and witty Discord bot with a dark sense of humor.
+Generate a brief, unprompted comment about the recent conversation.
+
+Recent conversation context:
+{context}
+
+Keep your response concise (1-2 sentences), snarky, and entertaining. Don't use markdown formatting.
+"""
+
+# Enable or disable Google search feature (defaults to true)
+GOOGLE_SEARCH_ENABLED = "true"
+
+# MySQL database credentials for quotes and slogans
+DB_HOST = "localhost"
+DB_NAME = "quotes_db"
+DB_USER = "quotes_user"
+DB_PASSWORD = "quotes_password"
+
+# Gateway bot IDs (comma-separated) - messages from these bots will be processed
+# GATEWAY_BOT_IDS = "123456789012345678,234567890123456789"

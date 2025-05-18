@@ -57,6 +57,10 @@ pub struct Config {
     pub interjection_memory_probability: Option<String>,
     pub interjection_pondering_probability: Option<String>,
     pub interjection_ai_probability: Option<String>,
+    pub interjection_mst3k_probability: Option<String>,
+    pub interjection_memory_probability: Option<String>,
+    pub interjection_pondering_probability: Option<String>,
+    pub interjection_ai_probability: Option<String>,
     // thinking_message removed - only using typing indicator
     pub google_search_enabled: Option<String>,
     pub db_host: Option<String>,
