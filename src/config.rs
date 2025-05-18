@@ -52,6 +52,7 @@ pub struct Config {
     pub gemini_api_endpoint: Option<String>,
     pub gemini_prompt_wrapper: Option<String>,
     pub gemini_interjection_prompt: Option<String>,
+    pub gemini_context_messages: Option<String>,
     // thinking_message removed - only using typing indicator
     pub google_search_enabled: Option<String>,
     pub db_host: Option<String>,
@@ -121,7 +122,8 @@ pub fn parse_config(config: &Config) -> (
     u32,                    // gemini_rate_limit_minute
     u32,                    // gemini_rate_limit_day
     Vec<u64>,               // gateway_bot_ids
-    bool                    // google_search_enabled
+    bool,                   // google_search_enabled
+    usize                   // gemini_context_messages
 ) {
     // Get the bot name
     let bot_name = config.bot_name.clone().unwrap_or_else(|| "Crow".to_string());
@@ -195,6 +197,14 @@ pub fn parse_config(config: &Config) -> (
             }
         })
         .unwrap_or(true); // Default to enabled for backward compatibility
+        
+    // Parse number of context messages to include in Gemini API calls
+    let gemini_context_messages = config.gemini_context_messages
+        .as_ref()
+        .and_then(|count| count.parse::<usize>().ok())
+        .unwrap_or(5); // Default: 5 messages
+        
+    info!("Gemini API context messages set to {}", gemini_context_messages);
     
     info!("Google search feature is {}", if google_search_enabled { "enabled" } else { "disabled" });
           
@@ -205,6 +215,7 @@ pub fn parse_config(config: &Config) -> (
         gemini_rate_limit_minute,
         gemini_rate_limit_day,
         gateway_bot_ids,
-        google_search_enabled
+        google_search_enabled,
+        gemini_context_messages
     )
 }

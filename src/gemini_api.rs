@@ -11,6 +11,7 @@ pub struct GeminiClient {
     prompt_wrapper: String,
     bot_name: String,
     rate_limiter: RateLimiter,
+    context_messages: usize,
 }
 
 impl GeminiClient {
@@ -20,7 +21,8 @@ impl GeminiClient {
         prompt_wrapper: Option<String>,
         bot_name: String,
         rate_limit_minute: u32,
-        rate_limit_day: u32
+        rate_limit_day: u32,
+        context_messages: usize
     ) -> Self {
         // Default endpoint for Gemini API
         let default_endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent".to_string();
@@ -41,6 +43,7 @@ impl GeminiClient {
             prompt_wrapper,
             bot_name,
             rate_limiter,
+            context_messages,
         }
     }
     
@@ -87,11 +90,24 @@ impl GeminiClient {
         context_messages: &Vec<(String, String, String)>,
         user_pronouns: Option<&str>
     ) -> Result<String> {
-        // Format the context messages
+        // Format the context messages - limit to configured number and reverse to get chronological order
         let context = if !context_messages.is_empty() {
-            let formatted_messages: Vec<String> = context_messages.iter()
+            // Take only the configured number of messages
+            let limited_messages = if context_messages.len() > self.context_messages {
+                &context_messages[0..self.context_messages]
+            } else {
+                context_messages
+            };
+            
+            // Reverse the messages to get chronological order (oldest first)
+            let mut chronological_messages = limited_messages.to_vec();
+            chronological_messages.reverse();
+            
+            // Format the messages
+            let formatted_messages: Vec<String> = chronological_messages.iter()
                 .map(|(_author, display_name, content)| format!("{}: {}", display_name, content))
                 .collect();
+                
             formatted_messages.join("\n")
         } else {
             "No recent messages".to_string()

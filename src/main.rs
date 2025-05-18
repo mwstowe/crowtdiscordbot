@@ -100,6 +100,7 @@ impl Bot {
         google_search_enabled: bool,
         gemini_rate_limit_minute: u32,
         gemini_rate_limit_day: u32,
+        gemini_context_messages: usize,
     ) -> Self {
         // Define the commands the bot will respond to
         let mut commands = HashMap::new();
@@ -137,7 +138,8 @@ impl Bot {
                     gemini_prompt_wrapper,
                     bot_name.clone(),
                     gemini_rate_limit_minute,
-                    gemini_rate_limit_day
+                    gemini_rate_limit_day,
+                    gemini_context_messages
                 ))
             },
             None => {
@@ -1439,7 +1441,7 @@ async fn main() -> Result<()> {
     let token = &config.discord_token;
     
     // Parse config values
-    let (bot_name, message_history_limit, db_trim_interval, gemini_rate_limit_minute, gemini_rate_limit_day, gateway_bot_ids, google_search_enabled) = 
+    let (bot_name, message_history_limit, db_trim_interval, gemini_rate_limit_minute, gemini_rate_limit_day, gateway_bot_ids, google_search_enabled, gemini_context_messages) = 
         parse_config(&config);
     
     // Get Gemini API key
@@ -1609,7 +1611,8 @@ async fn main() -> Result<()> {
         gateway_bot_ids.clone(),
         google_search_enabled,
         gemini_rate_limit_minute,
-        gemini_rate_limit_day
+        gemini_rate_limit_day,
+        gemini_context_messages
     );
     
     // Check database connection
