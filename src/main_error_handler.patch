@@ -1,0 +1,40 @@
+--- src/main.rs.orig	2025-05-17 07:00:00.000000000 +0000
++++ src/main.rs	2025-05-17 07:00:00.000000000 +0000
+@@ -1142,6 +1142,8 @@
+                         },
+                         Err(e) => {
+                             error!("Error calling Gemini API: {:?}", e);
++                            // Check if this is our special silent failure code for 503 errors
++                            if e.to_string() != "SILENT_FAILURE_503" {
+                             
+                             // Create a message reference for replying
+                             let message_reference = MessageReference::from(msg);
+@@ -1156,6 +1158,9 @@
+                                     error!("Error sending fallback error message: {:?}", e);
+                                 }
+                             }
++                            }
++                            // For 503 errors that have been retried and failed, we just silently stop
++                            // No message is sent to the user
+                         }
+                     }
+                 } else {
+@@ -1285,6 +1290,8 @@
+                         },
+                         Err(e) => {
+                             error!("Error calling Gemini API: {:?}", e);
++                            // Check if this is our special silent failure code for 503 errors
++                            if e.to_string() != "SILENT_FAILURE_503" {
+                             
+                             // Create a message reference for replying
+                             let message_reference = MessageReference::from(msg);
+@@ -1299,6 +1306,9 @@
+                                     error!("Error sending fallback error message: {:?}", e);
+                                 }
+                             }
++                            }
++                            // For 503 errors that have been retried and failed, we just silently stop
++                            // No message is sent to the user
+                         }
+                     }
+                 } else {

@@ -1,0 +1,236 @@
+--- src/main.rs.orig	2025-05-18 00:00:00.000000000 +0000
++++ src/main.rs	2025-05-18 00:00:00.000000000 +0000
+@@ -60,6 +60,10 @@
+     band_genre_generator: bandname::BandGenreGenerator,
+     gateway_bot_ids: Vec<u64>,
+     google_search_enabled: bool,
++    interjection_mst3k_probability: f64,
++    interjection_memory_probability: f64,
++    interjection_pondering_probability: f64,
++    interjection_ai_probability: f64,
+     gemini_interjection_prompt: Option<String>,
+ }
+ 
+@@ -79,6 +83,10 @@
+         google_search_enabled: bool,
+         gemini_rate_limit_minute: u32,
+         gemini_rate_limit_day: u32,
++        gemini_context_messages: usize,
++        interjection_mst3k_probability: f64,
++        interjection_memory_probability: f64,
++        interjection_pondering_probability: f64,
++        interjection_ai_probability: f64,
+     ) -> Self {
+         // Define the commands the bot will respond to
+         let mut commands = HashMap::new();
+@@ -169,6 +177,10 @@
+             band_genre_generator,
+             gateway_bot_ids,
+             google_search_enabled,
++            interjection_mst3k_probability,
++            interjection_memory_probability,
++            interjection_pondering_probability,
++            interjection_ai_probability,
+             gemini_interjection_prompt,
+         }
+     }
+@@ -625,13 +637,13 @@
+     
+     // Process a message
+     async fn process_message(&self, ctx: &Context, msg: &Message) -> Result<()> {
+-        // Random interjection (2% chance - 1 in 50)
+-        if rand::thread_rng().gen_bool(0.02) {
+-            info!("Triggered random interjection (1 in 50 chance)");
++        // Check for each type of interjection with its own probability
++        
++        // MST3K Quote interjection
++        if rand::thread_rng().gen_bool(self.interjection_mst3k_probability) {
++            info!("Triggered MST3K Quote interjection (probability: {})", self.interjection_mst3k_probability);
+             
+-            // Choose which type of interjection to make (MST3K quote, channel memory, message pondering, or AI interjection)
+-            let interjection_type = rand::thread_rng().gen_range(0..4);
+-            
+-            match interjection_type {
+-                0 => {
+-                    // MST3K Quote
+-                    info!("Random interjection: MST3K Quote");
+-                    let mst3k_quotes = [
+-                        "Watch out for snakes!",
++            let mst3k_quotes = [
++                "Watch out for snakes!",
++                "It's the amazing Rando!",
++                "Normal view... Normal view... NORMAL VIEW!",
++                "Hi-keeba!",
++                "I'm different!",
++                "Rowsdower!",
++                "Mitchell!",
++                "Deep hurting...",
++                "Trumpy, you can do magic things!",
++                "Torgo's theme intensifies",
++            ];
++            
++            let quote = mst3k_quotes.choose(&mut rand::thread_rng()).unwrap_or(&"I'm different!").to_string();
++            if let Err(e) = msg.channel_id.say(&ctx.http, quote).await {
++                error!("Error sending random MST3K quote: {:?}", e);
++            }
++            
++            // Return early to avoid multiple interjections for the same message
++            return Ok(());
++        }
++        
++        // Channel Memory interjection
++        if rand::thread_rng().gen_bool(self.interjection_memory_probability) {
++            info!("Triggered Channel Memory interjection (probability: {})", self.interjection_memory_probability);
++            
++            if let Some(db) = &self.message_db {
++                let db_clone = Arc::clone(db);
++                
++                // Query the database for a random message
++                let result = db_clone.lock().await.call(|conn| {
++                    let query = "SELECT content FROM messages ORDER BY RANDOM() LIMIT 1";
++                    let mut stmt = conn.prepare(query)?;
++                    
++                    let rows = stmt.query_map([], |row| {
++                        Ok(row.get::<_, String>(0)?)
++                    })?;
++                    
++                    let mut result = Vec::new();
++                    for row in rows {
++                        result.push(row?);
++                    }
++                    
++                    Ok::<_, rusqlite::Error>(result)
++                }).await;
++                
++                match result {
++                    Ok(messages) => {
++                        if let Some(content) = messages.first() {
++                            if let Err(e) = msg.channel_id.say(&ctx.http, content).await {
++                                error!("Error sending random channel memory: {:?}", e);
++                            }
++                        }
++                    },
++                    Err(e) => {
++                        error!("Error querying database for random message: {:?}", e);
++                    }
++                }
++            }
++            
++            // Return early to avoid multiple interjections for the same message
++            return Ok(());
++        }
++        
++        // Message Pondering interjection
++        if rand::thread_rng().gen_bool(self.interjection_pondering_probability) {
++            info!("Triggered Message Pondering interjection (probability: {})", self.interjection_pondering_probability);
++            
++            let ponderings = [
++                "Hmm, that's an interesting point.",
++                "I was just thinking about that!",
++                "That reminds me of something...",
++                "I'm not sure I agree with that.",
++                "Fascinating perspective.",
++                "I've been pondering that very question.",
++                "That's what I've been saying all along!",
++                "I never thought of it that way before.",
++                "You know, that's actually quite profound.",
++                "Wait, what?",
++            ];
++            
++            let pondering = ponderings.choose(&mut rand::thread_rng()).unwrap_or(&"Hmm, interesting.").to_string();
++            if let Err(e) = msg.channel_id.say(&ctx.http, pondering).await {
++                error!("Error sending random pondering: {:?}", e);
++            }
++            
++            // Return early to avoid multiple interjections for the same message
++            return Ok(());
++        }
++        
++        // AI Interjection
++        if rand::thread_rng().gen_bool(self.interjection_ai_probability) {
++            info!("Triggered AI Interjection (probability: {})", self.interjection_ai_probability);
++            
++            if let (Some(gemini_client), Some(interjection_prompt)) = (&self.gemini_client, &self.gemini_interjection_prompt) {
++                // Start typing indicator
++                if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
++                    error!("Failed to send typing indicator for AI interjection: {:?}", e);
++                }
++                
++                // Get recent messages for context
++                let context_messages = if let Some(db) = &self.message_db {
++                    match db_utils::get_recent_messages(db.clone(), 3, Some(&msg.channel_id.to_string())).await {
++                        Ok(messages) => messages,
++                        Err(e) => {
++                            error!("Error retrieving recent messages for AI interjection: {:?}", e);
++                            Vec::new()
++                        }
++                    }
++                } else {
++                    Vec::new()
++                };
++                
++                // Format context for the prompt
++                let context_text = if !context_messages.is_empty() {
++                    let formatted_messages: Vec<String> = context_messages.iter()
++                        .map(|(_author, display_name, content)| format!("{}: {}", display_name, content))
++                        .collect();
++                    formatted_messages.join("\n")
++                } else {
++                    "No recent messages".to_string()
++                };
++                
++                // Format the prompt
++                let formatted_prompt = interjection_prompt
++                    .replace("{bot_name}", &self.bot_name)
++                    .replace("{context}", &context_text);
++                
++                // Call the Gemini API
++                match gemini_client.call_gemini_api(&formatted_prompt).await {
++                    Ok(response) => {
++                        // Apply a realistic typing delay
++                        let word_count = response.split_whitespace().count();
++                        let typing_delay = apply_realistic_delay(word_count);
++                        tokio::time::sleep(typing_delay).await;
++                        
++                        // Send the response
++                        if let Err(e) = msg.channel_id.say(&ctx.http, &response).await {
++                            error!("Error sending AI interjection: {:?}", e);
++                        }
++                    },
++                    Err(e) => {
++                        // Only log the error if it's not a silent failure
++                        if !e.to_string().contains("SILENT_FAILURE") {
++                            error!("Error generating AI interjection: {:?}", e);
++                        }
++                    }
++                }
++            }
++            
++            // Return early to avoid multiple interjections for the same message
++            return Ok(());
++        }
+@@ -1437,7 +1637,9 @@
+     let token = &config.discord_token;
+     
+     // Parse config values
+-    let (bot_name, message_history_limit, db_trim_interval, gemini_rate_limit_minute, gemini_rate_limit_day, gateway_bot_ids, google_search_enabled, gemini_context_messages) = 
++    let (bot_name, message_history_limit, db_trim_interval, gemini_rate_limit_minute, gemini_rate_limit_day, 
++         gateway_bot_ids, google_search_enabled, gemini_context_messages, interjection_mst3k_probability,
++         interjection_memory_probability, interjection_pondering_probability, interjection_ai_probability) = 
+         parse_config(&config);
+     
+     // Get Gemini API key
+@@ -1613,7 +1815,11 @@
+         gateway_bot_ids.clone(),
+         google_search_enabled,
+         gemini_rate_limit_minute,
+-        gemini_rate_limit_day
++        gemini_rate_limit_day,
++        gemini_context_messages,
++        interjection_mst3k_probability,
++        interjection_memory_probability,
++        interjection_pondering_probability,
++        interjection_ai_probability
+     );
+     
+     // Check database connection

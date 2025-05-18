@@ -1,0 +1,21 @@
+--- src/main.rs.orig	2025-05-18 00:00:00.000000000 +0000
++++ src/main.rs	2025-05-18 00:00:00.000000000 +0000
+@@ -727,7 +727,7 @@
+                         
+                         // Get recent messages for context
+                         let context_messages = if let Some(db) = &self.message_db {
+-                            match db_utils::get_recent_messages(db.clone(), 3).await {
++                            match db_utils::get_recent_messages(db.clone(), 3, Some(&msg.channel_id.to_string())).await {
+                                 Ok(messages) => messages,
+                                 Err(e) => {
+                                     error!("Error retrieving recent messages for AI interjection: {:?}", e);
+@@ -1107,7 +1107,7 @@
+                     
+                     // Get recent messages for context
+                     let context_messages = if let Some(db) = &self.message_db {
+-                        // Get the last 5 messages from the database
+-                        match db_utils::get_recent_messages(db.clone(), 5).await {
++                        // Get the last 5 messages from the database for this specific channel
++                        match db_utils::get_recent_messages(db.clone(), 5, Some(&msg.channel_id.to_string())).await {
+                             Ok(messages) => messages,
+                             Err(e) => {
