@@ -28,6 +28,7 @@ GEMINI_PROMPT_WRAPPER = "You are {bot_name}, a helpful Discord bot. Here is rece
 GEMINI_INTERJECTION_PROMPT = "You are {bot_name}, a Discord bot with a sarcastic personality. Look at this recent conversation and make a brief, witty comment about it (max 1-2 sentences):\n\n{context}"
 GEMINI_RATE_LIMIT_MINUTE = "15"  # Default: 15 calls per minute
 GEMINI_RATE_LIMIT_DAY = "1500"  # Default: 1500 calls per day
+GEMINI_CONTEXT_MESSAGES = "5"  # Number of previous messages to include as context for AI responses
 
 # Database Configuration (for quotes and slogans)
 # DB_HOST = "localhost"
