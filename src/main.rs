@@ -1439,7 +1439,7 @@ async fn main() -> Result<()> {
     let token = &config.discord_token;
     
     // Parse config values
-    let (bot_name, message_history_limit, db_trim_interval, gemini_rate_limit_minute, gemini_rate_limit_day, gateway_bot_ids, google_search_enabled) = 
+    let (bot_name, message_history_limit, db_trim_interval, gemini_rate_limit_minute, gemini_rate_limit_day, gateway_bot_ids, google_search_enabled, gemini_context_messages, interjection_mst3k_probability, interjection_memory_probability, interjection_pondering_probability, interjection_ai_probability) = 
         parse_config(&config);
     
     // Get Gemini API key
@@ -1458,6 +1458,12 @@ async fn main() -> Result<()> {
     if let Some(endpoint) = &gemini_api_endpoint {
         info!("Using custom Gemini API endpoint: {}", endpoint);
     }
+    
+    // Log interjection probabilities
+    info!("MST3K interjection probability: {}%", interjection_mst3k_probability * 100.0);
+    info!("Memory interjection probability: {}%", interjection_memory_probability * 100.0);
+    info!("Pondering interjection probability: {}%", interjection_pondering_probability * 100.0);
+    info!("AI interjection probability: {}%", interjection_ai_probability * 100.0);
 
     // Log database configuration
     info!("Database configuration: host={:?}, db={:?}, user={:?}, password={}", 
