@@ -747,9 +747,9 @@ impl Bot {
                             error!("Failed to send typing indicator for AI interjection: {:?}", e);
                         }
                         
-                        // Get recent messages for context
+                        // Get recent messages for context - use more messages for better context
                         let context_messages = if let Some(db) = &self.message_db {
-                            match db_utils::get_recent_messages(db.clone(), 3, Some(msg.channel_id.to_string().as_str())).await {
+                            match db_utils::get_recent_messages(db.clone(), 5, Some(msg.channel_id.to_string().as_str())).await {
                                 Ok(messages) => messages,
                                 Err(e) => {
                                     error!("Error retrieving recent messages for AI interjection: {:?}", e);
@@ -762,7 +762,11 @@ impl Bot {
                         
                         // Format context for the prompt
                         let context_text = if !context_messages.is_empty() {
-                            let formatted_messages: Vec<String> = context_messages.iter()
+                            // Reverse the messages to get chronological order (oldest first)
+                            let mut chronological_messages = context_messages.clone();
+                            chronological_messages.reverse();
+                            
+                            let formatted_messages: Vec<String> = chronological_messages.iter()
                                 .map(|(_author, display_name, content)| format!("{}: {}", display_name, content))
                                 .collect();
                             formatted_messages.join("\n")
@@ -778,6 +782,12 @@ impl Bot {
                         // Call Gemini API with the custom prompt
                         match gemini_client.generate_response(&prompt, "").await {
                             Ok(response) => {
+                                // Check if the response is "pass" - if so, don't send anything
+                                if response.trim().to_lowercase() == "pass" {
+                                    info!("AI Interjection decided to pass - no response sent");
+                                    return Ok(());
+                                }
+                                
                                 // Apply realistic typing delay
                                 apply_realistic_delay(&response, ctx, msg.channel_id).await;
                                 
