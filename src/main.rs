@@ -78,6 +78,11 @@ struct Bot {
     gateway_bot_ids: Vec<u64>,
     google_search_enabled: bool,
     gemini_interjection_prompt: Option<String>,
+    gemini_context_messages: usize,
+    interjection_mst3k_probability: f64,
+    interjection_memory_probability: f64,
+    interjection_pondering_probability: f64,
+    interjection_ai_probability: f64,
 }
 
 impl Bot {
@@ -100,6 +105,11 @@ impl Bot {
         google_search_enabled: bool,
         gemini_rate_limit_minute: u32,
         gemini_rate_limit_day: u32,
+        gemini_context_messages: usize,
+        interjection_mst3k_probability: f64,
+        interjection_memory_probability: f64,
+        interjection_pondering_probability: f64,
+        interjection_ai_probability: f64,
     ) -> Self {
         // Define the commands the bot will respond to
         let mut commands = HashMap::new();
@@ -137,7 +147,8 @@ impl Bot {
                     gemini_prompt_wrapper,
                     bot_name.clone(),
                     gemini_rate_limit_minute,
-                    gemini_rate_limit_day
+                    gemini_rate_limit_day,
+                    gemini_context_messages
                 ))
             },
             None => {
@@ -183,6 +194,11 @@ impl Bot {
             gateway_bot_ids,
             google_search_enabled,
             gemini_interjection_prompt,
+            gemini_context_messages,
+            interjection_mst3k_probability,
+            interjection_memory_probability,
+            interjection_pondering_probability,
+            interjection_ai_probability,
         }
     }
     
@@ -731,7 +747,7 @@ impl Bot {
                         
                         // Get recent messages for context
                         let context_messages = if let Some(db) = &self.message_db {
-                            match db_utils::get_recent_messages(db.clone(), 3).await {
+                            match db_utils::get_recent_messages(db.clone(), 3, Some(msg.channel_id.to_string().as_str())).await {
                                 Ok(messages) => messages,
                                 Err(e) => {
                                     error!("Error retrieving recent messages for AI interjection: {:?}", e);
@@ -1102,7 +1118,7 @@ impl Bot {
                     // Get recent messages for context
                     let context_messages = if let Some(db) = &self.message_db {
                         // Get the last 5 messages from the database
-                        match db_utils::get_recent_messages(db.clone(), 5).await {
+                        match db_utils::get_recent_messages(db.clone(), 5, Some(msg.channel_id.to_string().as_str())).await {
                             Ok(messages) => messages,
                             Err(e) => {
                                 error!("Error retrieving recent messages: {:?}", e);
@@ -1246,7 +1262,7 @@ impl Bot {
                     
                     // Get recent messages for context
                     let context_messages = if let Some(db) = &self.message_db {
-                        match db_utils::get_recent_messages(db.clone(), 5).await {
+                        match db_utils::get_recent_messages(db.clone(), 5, Some(msg.channel_id.to_string().as_str())).await {
                             Ok(messages) => messages,
                             Err(e) => {
                                 error!("Error retrieving recent messages: {:?}", e);
@@ -1615,7 +1631,12 @@ async fn main() -> Result<()> {
         gateway_bot_ids.clone(),
         google_search_enabled,
         gemini_rate_limit_minute,
-        gemini_rate_limit_day
+        gemini_rate_limit_day,
+        gemini_context_messages,
+        interjection_mst3k_probability,
+        interjection_memory_probability,
+        interjection_pondering_probability,
+        interjection_ai_probability
     );
     
     // Check database connection
@@ -1664,7 +1685,7 @@ async fn main() -> Result<()> {
             let mut temp_history = VecDeque::new();
             let db_clone = db.clone();
             
-            if let Err(e) = db_utils::load_message_history(db_clone, &mut temp_history, message_history_limit).await {
+            if let Err(e) = db_utils::load_message_history(db_clone, &mut temp_history, message_history_limit, None).await {
                 error!("Failed to load message history: {:?}", e);
             } else {
                 info!("Loaded {} messages from database", temp_history.len());
@@ -1693,7 +1714,7 @@ async fn main() -> Result<()> {
             let mut temp_history = VecDeque::new();
             let db_clone = db.clone();
             
-            if let Err(e) = db_utils::load_message_history(db_clone, &mut temp_history, message_history_limit).await {
+            if let Err(e) = db_utils::load_message_history(db_clone, &mut temp_history, message_history_limit, None).await {
                 error!("Failed to load message history: {:?}", e);
             } else {
                 info!("Loaded {} messages from database", temp_history.len());
