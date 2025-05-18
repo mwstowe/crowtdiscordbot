@@ -618,6 +618,8 @@ impl Bot {
                     format!(r"{} please", bot_name),   // "Crow please"
                     format!(r"ask {}", bot_name),      // "ask Crow"
                     format!(r"tell {}", bot_name),     // "tell Crow"
+                    format!(r", {}", bot_name),        // ", Crow" - for cases like "No you weren't, Crow"
+                    format!(r" {}\.", bot_name),       // " Crow." - for cases ending with the bot's name
                 ];
                 
                 for pattern in &positive_patterns {
