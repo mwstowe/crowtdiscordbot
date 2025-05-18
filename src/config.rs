@@ -53,6 +53,10 @@ pub struct Config {
     pub gemini_prompt_wrapper: Option<String>,
     pub gemini_interjection_prompt: Option<String>,
     pub gemini_context_messages: Option<String>,
+    pub interjection_mst3k_probability: Option<String>,
+    pub interjection_memory_probability: Option<String>,
+    pub interjection_pondering_probability: Option<String>,
+    pub interjection_ai_probability: Option<String>,
     // thinking_message removed - only using typing indicator
     pub google_search_enabled: Option<String>,
     pub db_host: Option<String>,
@@ -123,7 +127,11 @@ pub fn parse_config(config: &Config) -> (
     u32,                    // gemini_rate_limit_day
     Vec<u64>,               // gateway_bot_ids
     bool,                   // google_search_enabled
-    usize                   // gemini_context_messages
+    usize,                  // gemini_context_messages
+    f64,                    // interjection_mst3k_probability
+    f64,                    // interjection_memory_probability
+    f64,                    // interjection_pondering_probability
+    f64                     // interjection_ai_probability
 ) {
     // Get the bot name
     let bot_name = config.bot_name.clone().unwrap_or_else(|| "Crow".to_string());
@@ -206,6 +214,33 @@ pub fn parse_config(config: &Config) -> (
         
     info!("Gemini API context messages set to {}", gemini_context_messages);
     
+    // Parse interjection probabilities
+    let interjection_mst3k_probability = config.interjection_mst3k_probability
+        .as_ref()
+        .and_then(|prob| prob.parse::<f64>().ok())
+        .unwrap_or(0.005); // Default: 0.5% chance (1 in 200)
+        
+    let interjection_memory_probability = config.interjection_memory_probability
+        .as_ref()
+        .and_then(|prob| prob.parse::<f64>().ok())
+        .unwrap_or(0.005); // Default: 0.5% chance (1 in 200)
+        
+    let interjection_pondering_probability = config.interjection_pondering_probability
+        .as_ref()
+        .and_then(|prob| prob.parse::<f64>().ok())
+        .unwrap_or(0.005); // Default: 0.5% chance (1 in 200)
+        
+    let interjection_ai_probability = config.interjection_ai_probability
+        .as_ref()
+        .and_then(|prob| prob.parse::<f64>().ok())
+        .unwrap_or(0.005); // Default: 0.5% chance (1 in 200)
+        
+    info!("Interjection probabilities: MST3K: {}, Memory: {}, Pondering: {}, AI: {}", 
+          interjection_mst3k_probability, 
+          interjection_memory_probability,
+          interjection_pondering_probability,
+          interjection_ai_probability);
+    
     info!("Google search feature is {}", if google_search_enabled { "enabled" } else { "disabled" });
           
     (
@@ -216,6 +251,10 @@ pub fn parse_config(config: &Config) -> (
         gemini_rate_limit_day,
         gateway_bot_ids,
         google_search_enabled,
-        gemini_context_messages
+        gemini_context_messages,
+        interjection_mst3k_probability,
+        interjection_memory_probability,
+        interjection_pondering_probability,
+        interjection_ai_probability
     )
 }

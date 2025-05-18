@@ -30,6 +30,13 @@ GEMINI_RATE_LIMIT_MINUTE = "15"  # Default: 15 calls per minute
 GEMINI_RATE_LIMIT_DAY = "1500"  # Default: 1500 calls per day
 GEMINI_CONTEXT_MESSAGES = "5"  # Number of previous messages to include as context for AI responses
 
+# Random Interjection Probabilities (chance per message)
+# Each type has its own probability - set to 0 to disable
+INTERJECTION_MST3K_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
+INTERJECTION_MEMORY_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
+INTERJECTION_PONDERING_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
+INTERJECTION_AI_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
+
 # Database Configuration (for quotes and slogans)
 # DB_HOST = "localhost"
 # DB_NAME = "quotes_db"
