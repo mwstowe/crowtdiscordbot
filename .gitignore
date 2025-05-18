@@ -36,3 +36,7 @@ Thumbs.db
 /coverage/
 debug/
 *.profraw
+
+# Ignore work in progress docs and patch files
+*.md
+*.patch
