@@ -13,6 +13,8 @@ A Discord bot that follows specific channels and responds to various triggers in
 - Stores message history in a SQLite database
 - Automatically trims the database to prevent excessive growth
 - **Can follow multiple channels simultaneously**
+- Maintains channel-specific conversation contexts
+- Configurable random interjections with separate probability controls
 
 ## Setup Instructions
 
@@ -28,6 +30,8 @@ A Discord bot that follows specific channels and responds to various triggers in
 6. Set the message history limit with the `MESSAGE_HISTORY_LIMIT` field (defaults to 10000)
 7. Set how often to trim the database with `DB_TRIM_INTERVAL_SECS` (defaults to 3600 seconds / 1 hour)
 8. Configure Gemini API rate limits with `GEMINI_RATE_LIMIT_MINUTE` and `GEMINI_RATE_LIMIT_DAY` fields
+9. Configure the number of context messages with `GEMINI_CONTEXT_MESSAGES` (defaults to 5)
+10. Configure interjection probabilities with the `INTERJECTION_*_PROBABILITY` fields
 9. For database functionality, add MySQL credentials
 10. To enable/disable Google search, set `GOOGLE_SEARCH_ENABLED` to "true" or "false" (defaults to "true")
 11. For AI responses, add Gemini API key
@@ -236,3 +240,25 @@ The bot now includes conversation context when making API calls to Gemini. This 
 4. The bot appears more coherent and can maintain conversation threads
 
 This feature makes the bot feel more natural in conversations and helps it remember what was previously discussed.
+
+## Random Interjections
+
+The bot occasionally makes random interjections in the conversation. There are four types of interjections, each with its own configurable probability:
+
+1. **MST3K Quotes** - Random quotes from Mystery Science Theater 3000
+2. **Channel Memory** - Quotes something someone previously said in the channel
+3. **Message Pondering** - Thoughtful comments about the conversation
+4. **AI Interjection** - AI-generated comments using the Gemini API
+
+Each interjection type can be configured separately in the `CrowConfig.toml` file:
+
+```toml
+# Random Interjection Probabilities (chance per message)
+# Each type has its own probability - set to 0 to disable
+INTERJECTION_MST3K_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
+INTERJECTION_MEMORY_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
+INTERJECTION_PONDERING_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
+INTERJECTION_AI_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
+```
+
+Setting any probability to 0 will disable that type of interjection completely.
