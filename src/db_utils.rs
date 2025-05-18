@@ -110,6 +110,20 @@ pub async fn initialize_database(path: &str) -> Result<Arc<Mutex<SqliteConnectio
             }).await?;
         }
     }
+
+    // Create indexes for faster queries
+    let indexes = vec![
+        ("idx_message_timestamp", "messages (timestamp)"),
+        ("idx_message_author_id", "messages (author, id)")
+    ];
+
+    for (name, sql) in indexes {
+        let sql = format!("CREATE INDEX IF NOT EXISTS {} ON {}", name, sql);
+        conn.call(move |conn| {
+            conn.execute(&sql, []).map(|_| ())?;
+            Ok::<_, rusqlite::Error>(())
+        }).await?;
+    }
     
     // Return the connection wrapped in an Arc<Mutex>
     Ok(Arc::new(Mutex::new(conn)))
