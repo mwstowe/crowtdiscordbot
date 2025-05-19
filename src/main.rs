@@ -675,8 +675,11 @@ impl Bot {
                     ];
                     
                     let quote = mst3k_quotes.choose(&mut rand::thread_rng()).unwrap_or(&"I'm different!").to_string();
+                    let quote_text = quote.clone(); // Clone for logging
                     if let Err(e) = msg.channel_id.say(&ctx.http, quote).await {
                         error!("Error sending random MST3K quote: {:?}", e);
+                    } else {
+                        info!("MST3K interjection sent: {}", quote_text);
                     }
                 },
                 1 => {
@@ -705,8 +708,11 @@ impl Bot {
                         match result {
                             Ok(messages) => {
                                 if let Some(content) = messages.first() {
+                                    let content_text = content.clone(); // Clone for logging
                                     if let Err(e) = msg.channel_id.say(&ctx.http, content).await {
                                         error!("Error sending random channel memory: {:?}", e);
+                                    } else {
+                                        info!("Memory interjection sent: {}", content_text);
                                     }
                                 }
                             },
@@ -733,8 +739,11 @@ impl Bot {
                     ];
                     
                     let pondering = ponderings.choose(&mut rand::thread_rng()).unwrap_or(&"Hmm, interesting.").to_string();
+                    let pondering_text = pondering.clone(); // Clone for logging
                     if let Err(e) = msg.channel_id.say(&ctx.http, pondering).await {
                         error!("Error sending random pondering: {:?}", e);
+                    } else {
+                        info!("Pondering interjection sent: {}", pondering_text);
                     }
                 },
                 3 => {
@@ -792,8 +801,11 @@ impl Bot {
                                 apply_realistic_delay(&response, ctx, msg.channel_id).await;
                                 
                                 // Send the response
+                                let response_text = response.clone(); // Clone for logging
                                 if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
                                     error!("Error sending AI interjection: {:?}", e);
+                                } else {
+                                    info!("AI interjection sent: {}", response_text);
                                 }
                             },
                             Err(e) => {
@@ -810,8 +822,11 @@ impl Bot {
                         ];
                         
                         let pondering = ponderings.choose(&mut rand::thread_rng()).unwrap_or(&"Hmm, interesting.").to_string();
+                        let pondering_text = pondering.clone(); // Clone for logging
                         if let Err(e) = msg.channel_id.say(&ctx.http, pondering).await {
                             error!("Error sending fallback pondering: {:?}", e);
+                        } else {
+                            info!("Fallback pondering interjection sent: {}", pondering_text);
                         }
                     }
                 },
