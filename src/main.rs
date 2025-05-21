@@ -1482,11 +1482,52 @@ async fn main() -> Result<()> {
     
     // Get custom prompt wrapper if available
     let gemini_prompt_wrapper = config.gemini_prompt_wrapper.clone();
+    if gemini_prompt_wrapper.is_some() {
+        info!("Using custom Gemini prompt wrapper");
+    } else {
+        info!("Using default Gemini prompt wrapper");
+    }
+    
+    // Get custom interjection prompt if available
+    let gemini_interjection_prompt = config.gemini_interjection_prompt.clone();
+    if gemini_interjection_prompt.is_some() {
+        info!("Using custom Gemini interjection prompt");
+    } else {
+        info!("Using default Gemini interjection prompt");
+    }
     
     // Get custom Gemini API endpoint if available
     let gemini_api_endpoint = config.gemini_api_endpoint.clone();
     if let Some(endpoint) = &gemini_api_endpoint {
         info!("Using custom Gemini API endpoint: {}", endpoint);
+    } else {
+        info!("Using default Gemini API endpoint");
+    }
+    
+    // Log configuration values
+    info!("Configuration loaded:");
+    info!("Bot name: {}", bot_name);
+    info!("Message history limit: {}", message_history_limit);
+    info!("Database trim interval: {} seconds", db_trim_interval);
+    info!("Gemini rate limits: {} per minute, {} per day", gemini_rate_limit_minute, gemini_rate_limit_day);
+    info!("Gemini context messages: {}", gemini_context_messages);
+    info!("Google search enabled: {}", google_search_enabled);
+    
+    // Log channel configuration
+    if let Some(channel_id) = &config.followed_channel_id {
+        info!("Following channel ID: {}", channel_id);
+    }
+    if let Some(channel_name) = &config.followed_channel_name {
+        info!("Following channel name: {}", channel_name);
+    }
+    if let Some(channel_ids) = &config.followed_channel_ids {
+        info!("Following channel IDs: {}", channel_ids);
+    }
+    if let Some(channel_names) = &config.followed_channel_names {
+        info!("Following channel names: {}", channel_names);
+    }
+    if let Some(server_name) = &config.followed_server_name {
+        info!("Limiting to server: {}", server_name);
     }
     
     // Log interjection probabilities

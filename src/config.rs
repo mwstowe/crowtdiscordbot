@@ -135,6 +135,7 @@ pub fn parse_config(config: &Config) -> (
 ) {
     // Get the bot name
     let bot_name = config.bot_name.clone().unwrap_or_else(|| "Crow".to_string());
+    info!("Bot name set to: {}", bot_name);
     
     // Get the message history limit
     let message_history_limit = config.message_history_limit
