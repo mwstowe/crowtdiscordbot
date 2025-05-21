@@ -793,7 +793,7 @@ impl Bot {
                             Ok(response) => {
                                 // Check if the response is "pass" - if so, don't send anything
                                 if response.trim().to_lowercase() == "pass" {
-                                    info!("AI Interjection decided to pass - no response sent");
+                                    info!("AI interjection evaluation: decided to PASS - no response sent");
                                     return Ok(());
                                 }
                                 
@@ -805,29 +805,16 @@ impl Bot {
                                 if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
                                     error!("Error sending AI interjection: {:?}", e);
                                 } else {
-                                    info!("AI interjection sent: {}", response_text);
+                                    info!("AI interjection evaluation: SENT response - {}", response_text);
                                 }
                             },
                             Err(e) => {
-                                error!("Error generating AI interjection: {:?}", e);
+                                error!("AI interjection evaluation: ERROR - {:?}", e);
                             }
                         }
                     } else {
-                        // Fall back to message pondering if Gemini is not configured
-                        info!("AI Interjection not available, falling back to Message Pondering");
-                        let ponderings = [
-                            "Hmm, that's an interesting point.",
-                            "I was just thinking about that!",
-                            "That reminds me of something...",
-                        ];
-                        
-                        let pondering = ponderings.choose(&mut rand::thread_rng()).unwrap_or(&"Hmm, interesting.").to_string();
-                        let pondering_text = pondering.clone(); // Clone for logging
-                        if let Err(e) = msg.channel_id.say(&ctx.http, pondering).await {
-                            error!("Error sending fallback pondering: {:?}", e);
-                        } else {
-                            info!("Fallback pondering interjection sent: {}", pondering_text);
-                        }
+                        // If Gemini API is not configured, just say nothing
+                        info!("AI Interjection not available (Gemini not configured) - no response sent");
                     }
                 },
                 _ => {} // Should never happen
