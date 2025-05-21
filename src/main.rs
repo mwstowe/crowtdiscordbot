@@ -1435,7 +1435,7 @@ async fn find_channels_by_name(http: &Http, name: &str, server_name: Option<&str
             
             // Find the channel with the matching name
             for channel in channels {
-                if channel.name.to_lowercase() == name.to_lowercase() {
+                if channel.name == name {
                     info!("✅ Found matching channel '{}' (ID: {}) in server", channel.name, channel.id);
                     found_channels.push(channel.id);
                 }
