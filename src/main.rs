@@ -1388,8 +1388,9 @@ impl EventHandler for Bot {
             return;
         }
         
-        // Check for regex substitution (!s/ or .s/)
-        if msg.content.starts_with("!s/") || msg.content.starts_with(".s/") {
+        // Check for regex substitution (!s/, .s/, !/, ./)
+        if msg.content.starts_with("!s/") || msg.content.starts_with(".s/") || 
+           msg.content.starts_with("!/") || msg.content.starts_with("./") {
             if let Err(e) = handle_regex_substitution(&ctx, &msg).await {
                 error!("Error handling regex substitution: {:?}", e);
             }

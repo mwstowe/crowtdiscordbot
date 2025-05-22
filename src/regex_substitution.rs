@@ -4,12 +4,12 @@ use serenity::prelude::*;
 use tracing::{error, info};
 use crate::display_name::get_best_display_name;
 
-// Handle regex substitution for messages starting with !s/ or .s/
+// Handle regex substitution for messages starting with !s/, .s/, !/, or ./
 pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<()> {
     // Extract the regex pattern and replacement
     let content = &msg.content;
     
-    // Parse the substitution command: s/pattern/replacement/flags
+    // Parse the substitution command: s/pattern/replacement/flags or /pattern/replacement/flags
     // First, find the second and third forward slashes
     let parts: Vec<&str> = content.splitn(4, '/').collect();
     
