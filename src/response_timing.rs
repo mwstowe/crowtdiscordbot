@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 use tokio::time::sleep;
 use tracing::info;
 use serenity::prelude::*;
-use serenity::model::channel::Channel;
+// Removed unused import
 use serenity::model::id::ChannelId;
 
 /// Calculates and applies a realistic typing delay based on response length

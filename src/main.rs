@@ -78,10 +78,15 @@ struct Bot {
     gateway_bot_ids: Vec<u64>,
     google_search_enabled: bool,
     gemini_interjection_prompt: Option<String>,
+    #[allow(dead_code)]
     gemini_context_messages: usize,
+    #[allow(dead_code)]
     interjection_mst3k_probability: f64,
+    #[allow(dead_code)]
     interjection_memory_probability: f64,
+    #[allow(dead_code)]
     interjection_pondering_probability: f64,
+    #[allow(dead_code)]
     interjection_ai_probability: f64,
 }
 

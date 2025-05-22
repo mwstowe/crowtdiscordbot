@@ -2,7 +2,7 @@ use anyhow::Result;
 use reqwest;
 use serde_json;
 use std::time::Duration;
-use tracing::{info, error};
+use tracing::info;
 use crate::rate_limiter::RateLimiter;
 
 pub struct GeminiClient {

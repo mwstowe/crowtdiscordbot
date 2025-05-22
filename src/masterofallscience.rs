@@ -30,6 +30,7 @@ pub struct MasterOfAllScienceClient {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct MasterOfAllScienceSearchResult {
     #[serde(rename = "Id")]
     id: Option<u64>,
@@ -39,6 +40,7 @@ struct MasterOfAllScienceSearchResult {
     timestamp: u64,
 }
 
+#[allow(dead_code)]
 pub struct MasterOfAllScienceResult {
     pub episode: String,
     pub episode_title: String,

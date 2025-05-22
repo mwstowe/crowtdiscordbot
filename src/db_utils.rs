@@ -3,8 +3,7 @@ use tokio::sync::Mutex;
 use tokio_rusqlite::Connection as SqliteConnection;
 use serenity::model::channel::Message;
 use serenity::model::id::{MessageId, ChannelId, GuildId, UserId};
-use std::collections::VecDeque;
-use tracing::error;
+// Removed unused imports
 
 // Initialize the SQLite database with enhanced schema
 pub async fn initialize_database(path: &str) -> Result<Arc<Mutex<SqliteConnection>>, Box<dyn std::error::Error>> {
@@ -414,6 +413,7 @@ pub async fn load_message_history(
 }
 
 // Update an existing message in the database when it's edited
+#[allow(dead_code)]
 pub async fn update_message(
     conn: Arc<Mutex<SqliteConnection>>,
     message_id: String,

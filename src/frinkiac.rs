@@ -30,6 +30,7 @@ pub struct FrinkiacClient {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct FrinkiacSearchResult {
     #[serde(rename = "Id")]
     id: Option<u64>,
@@ -40,6 +41,7 @@ struct FrinkiacSearchResult {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct FrinkiacCaptionResult {
     #[serde(rename = "Episode")]
     episode: Option<FrinkiacEpisode>,
@@ -50,6 +52,7 @@ struct FrinkiacCaptionResult {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct FrinkiacEpisode {
     #[serde(rename = "Key")]
     key: String,
@@ -62,6 +65,7 @@ struct FrinkiacEpisode {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct FrinkiacSubtitle {
     #[serde(rename = "Id")]
     id: Option<u64>,
@@ -77,6 +81,7 @@ struct FrinkiacSubtitle {
     content: String,
 }
 
+#[allow(dead_code)]
 pub struct FrinkiacResult {
     pub episode: String,
     pub episode_title: String,
