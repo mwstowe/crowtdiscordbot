@@ -33,6 +33,7 @@ mod display_name;
 mod buzz;
 mod lastseen;
 mod bandname;
+mod regex_substitution;
 
 // Use our modules
 use config::{load_config, parse_config};
@@ -47,6 +48,7 @@ use masterofallscience::{MasterOfAllScienceClient, handle_masterofallscience_com
 use display_name::get_best_display_name;
 use buzz::handle_buzz_command;
 use lastseen::handle_lastseen_command;
+use regex_substitution::handle_regex_substitution;
 
 // Define keys for the client data
 struct RecentSpeakersKey;
@@ -1383,6 +1385,14 @@ impl EventHandler for Bot {
         
         // Only process messages in the followed channels
         if !self.followed_channels.contains(&msg.channel_id) {
+            return;
+        }
+        
+        // Check for regex substitution (!s/ or .s/)
+        if msg.content.starts_with("!s/") || msg.content.starts_with(".s/") {
+            if let Err(e) = handle_regex_substitution(&ctx, &msg).await {
+                error!("Error handling regex substitution: {:?}", e);
+            }
             return;
         }
         
