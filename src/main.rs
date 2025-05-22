@@ -552,12 +552,9 @@ impl Bot {
             }
         }
         
-        // Check for direct mentions using Discord's mention format
-        // This is a more reliable way to check if the bot is being addressed
-        if content_lower.contains(&format!("<@{}>", self.bot_id)) {
-            info!("Bot addressed: direct mention with Discord mention format");
-            return true;
-        }
+        // We don't have direct access to the bot's ID here, so we'll rely on other methods
+        // to detect mentions. The actual mention detection happens in the message handler
+        // where we check if the bot is mentioned in the message.
         
         // Use regex with word boundaries to avoid false positives
         // This prevents matching when the bot name is part of another word
