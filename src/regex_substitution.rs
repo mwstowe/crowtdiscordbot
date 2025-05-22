@@ -81,9 +81,10 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
                 if new_content != prev_msg.content {
                     // Get the display name of the original message author
                     let display_name = get_best_display_name(ctx, prev_msg).await;
+                    let clean_display_name = crate::display_name::clean_display_name(&display_name);
                     
                     // Format and send the response
-                    let response = format!("{} meant: {}", display_name, new_content);
+                    let response = format!("{} meant: {}", clean_display_name, new_content);
                     
                     if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
                         error!("Error sending regex substitution response: {:?}", e);
