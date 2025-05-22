@@ -9,7 +9,7 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
     // Extract the regex pattern and replacement
     let content = &msg.content;
     
-    // Parse the substitution command: s/pattern/replacement/flags or /pattern/replacement/flags
+    // Parse the substitution command: s/pattern/replacement[/flags] or /pattern/replacement[/flags]
     // First, find the second and third forward slashes
     let parts: Vec<&str> = content.splitn(4, '/').collect();
     
@@ -20,7 +20,23 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
     
     // Extract pattern and replacement
     let pattern = parts[1];
-    let replacement = parts[2];
+    
+    // The replacement might have a trailing slash that we need to handle
+    let replacement = if parts.len() > 3 {
+        // If we have flags, the replacement is just parts[2]
+        parts[2]
+    } else {
+        // If we don't have flags, the replacement might have a trailing slash
+        // that got included in parts[2]
+        let replacement_part = parts[2];
+        if replacement_part.ends_with('/') {
+            // Remove the trailing slash
+            &replacement_part[0..replacement_part.len()-1]
+        } else {
+            // No trailing slash
+            replacement_part
+        }
+    };
     
     // Extract flags if present
     let flags = if parts.len() > 3 { parts[3] } else { "" };
