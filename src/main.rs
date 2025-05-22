@@ -552,6 +552,13 @@ impl Bot {
             }
         }
         
+        // Check for direct mentions using Discord's mention format
+        // This is a more reliable way to check if the bot is being addressed
+        if content_lower.contains(&format!("<@{}>", self.bot_id)) {
+            info!("Bot addressed: direct mention with Discord mention format");
+            return true;
+        }
+        
         // Use regex with word boundaries to avoid false positives
         // This prevents matching when the bot name is part of another word
         let name_with_word_boundary = format!(r"\b{}\b", regex::escape(bot_name));
@@ -594,6 +601,15 @@ impl Bot {
                     format!(r"{} didn't\b", bot_name), // "Crow didn't"
                     format!(r"{} won't\b", bot_name),  // "Crow won't"
                     format!(r"{} can't\b", bot_name),  // "Crow can't"
+                    // Additional negative patterns for rhyming and comparison cases
+                    format!(r"{} rhymes", bot_name),   // "Crow rhymes"
+                    format!(r"rhymes with {}", bot_name), // "rhymes with Crow"
+                    format!(r"{} and", bot_name),      // "Crow and"
+                    format!(r"more of a {}", bot_name), // "more of a Crow"
+                    format!(r"less of a {}", bot_name), // "less of a Crow"
+                    format!(r"kind of {}", bot_name),  // "kind of Crow"
+                    format!(r"sort of {}", bot_name),  // "sort of Crow"
+                    format!(r"type of {}", bot_name),  // "type of Crow"
                 ];
                 
                 for pattern in &negative_patterns {
