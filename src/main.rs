@@ -703,18 +703,27 @@ impl Bot {
                     }
                 },
                 1 => {
-                    // Channel Memory (quote something someone previously said)
-                    info!("Random interjection: Channel Memory");
-                    if let Some(db) = &self.message_db {
+                    // Enhanced Channel Memory (quote something someone previously said)
+                    info!("Random interjection: Enhanced Channel Memory");
+                    if let (Some(db), Some(gemini_client)) = (&self.message_db, &self.gemini_client) {
                         let db_clone = Arc::clone(db);
                         
-                        // Query the database for a random message
+                        // Start typing indicator
+                        if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
+                            error!("Failed to send typing indicator for memory interjection: {:?}", e);
+                        }
+                        
+                        // Query the database for a random message with minimum length of 20 characters
                         let result = db_clone.lock().await.call(|conn| {
-                            let query = "SELECT content FROM messages ORDER BY RANDOM() LIMIT 1";
+                            let query = "SELECT content, author, display_name FROM messages WHERE length(content) >= 20 ORDER BY RANDOM() LIMIT 1";
                             let mut stmt = conn.prepare(query)?;
                             
                             let rows = stmt.query_map([], |row| {
-                                Ok(row.get::<_, String>(0)?)
+                                Ok((
+                                    row.get::<_, String>(0)?,
+                                    row.get::<_, String>(1)?,
+                                    row.get::<_, String>(2)?
+                                ))
                             })?;
                             
                             let mut result = Vec::new();
@@ -725,14 +734,59 @@ impl Bot {
                             Ok::<_, rusqlite::Error>(result)
                         }).await;
                         
+                        // Get recent context from the channel
+                        let builder = serenity::builder::GetMessages::default().limit(3);
+                        let context = match msg.channel_id.messages(&ctx.http, builder).await {
+                            Ok(messages) => messages,
+                            Err(e) => {
+                                error!("Error retrieving recent messages for memory context: {:?}", e);
+                                Vec::new()
+                            }
+                        };
+                        
+                        let context_text = context.iter()
+                            .map(|m| format!("{}: {}", m.author.name, m.content))
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        
                         match result {
                             Ok(messages) => {
-                                if let Some(content) = messages.first() {
-                                    let content_text = content.clone(); // Clone for logging
-                                    if let Err(e) = msg.channel_id.say(&ctx.http, content).await {
-                                        error!("Error sending random channel memory: {:?}", e);
-                                    } else {
-                                        info!("Memory interjection sent: {}", content_text);
+                                if let Some((content, _, display_name)) = messages.first() {
+                                    let memory_prompt = format!(
+                                        "You are {}, a witty Discord bot based on MST3K's humor style. \
+                                        You've found this message from the channel history: \"{}\", originally said by {}. \
+                                        Here's the recent context of what's being discussed:\n{}\n\n\
+                                        Please process this historical message by:\n\
+                                        1. Correcting any typos, grammar, or spelling errors\n\
+                                        2. If possible, relate it to the current conversation context\n\
+                                        3. If it can't be related, just share the corrected quote\n\
+                                        4. Format it as a quote, attributing it to the original author\n\
+                                        Remember to maintain your MST3K-style wit and charm in how you present it. \
+                                        If you can't process the message or it's inappropriate, respond with 'pass'.",
+                                        self.bot_name, content, display_name, context_text
+                                    );
+                                    
+                                    // Process with Gemini API
+                                    match gemini_client.generate_content(&memory_prompt).await {
+                                        Ok(response) => {
+                                            let response = response.trim();
+                                            
+                                            // Check if we should skip this one
+                                            if response.to_lowercase() == "pass" {
+                                                info!("Memory interjection evaluation: decided to PASS");
+                                                return Ok(());
+                                            }
+                                            
+                                            // Send the processed memory
+                                            if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
+                                                error!("Error sending enhanced memory interjection: {:?}", e);
+                                            } else {
+                                                info!("Enhanced memory interjection sent: {}", response);
+                                            }
+                                        },
+                                        Err(e) => {
+                                            error!("Error processing memory with Gemini API: {:?}", e);
+                                        }
                                     }
                                 }
                             },

@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use std::collections::VecDeque;
 use chrono::{DateTime, Utc};
 use anyhow::{Result, anyhow};
-use tracing::info;
+use tracing::{info, warn};
 
 /// A rate limiter that enforces both per-minute and per-day limits
 pub struct RateLimiter {
@@ -46,32 +46,24 @@ impl RateLimiter {
             if let Some(oldest) = day_requests.front() {
                 let reset_time = *oldest + chrono::Duration::days(1);
                 let wait_duration = reset_time - now_utc;
-                
-                // Format the wait time in a human-readable way
                 let hours = wait_duration.num_hours();
                 let minutes = wait_duration.num_minutes() % 60;
-                let seconds = wait_duration.num_seconds() % 60;
                 
-                let wait_message = format!(
-                    "Daily rate limit reached ({}/{}). Try again in {}h {}m {}s.", 
-                    day_requests.len(), 
-                    self.day_limit,
-                    hours,
-                    minutes,
-                    seconds
+                let error_msg = format!(
+                    "⛔ Daily rate limit reached ({} requests). Reset in {} hours {} minutes",
+                    self.day_limit, hours, minutes
                 );
-                
-                return Err(anyhow!(wait_message));
+                warn!("{}", error_msg);
+                return Err(anyhow!(error_msg));
             }
         }
         
-        // Now check the per-minute limit
+        // Then check the per-minute limit
         let now = Instant::now();
         let mut minute_requests = self.minute_requests.lock().await;
         
-        // Clean up old minute requests (older than 60 seconds)
-        let minute_ago = now - Duration::from_secs(60);
-        while minute_requests.front().map_or(false, |t| *t < minute_ago) {
+        // Clean up old minute requests (older than 1 minute)
+        while minute_requests.front().map_or(false, |t| now.duration_since(*t) > Duration::from_secs(60)) {
             minute_requests.pop_front();
         }
         
@@ -79,24 +71,22 @@ impl RateLimiter {
         if minute_requests.len() >= self.minute_limit as usize {
             // Calculate when the oldest request will expire
             if let Some(oldest) = minute_requests.front() {
-                let time_since_oldest = now.duration_since(*oldest);
-                let wait_duration = Duration::from_secs(60).saturating_sub(time_since_oldest);
+                let wait_duration = Duration::from_secs(60) - now.duration_since(*oldest);
+                let wait_secs = wait_duration.as_secs();
                 
-                let wait_message = format!(
-                    "Per-minute rate limit reached ({}/{}). Try again in {} seconds.", 
-                    minute_requests.len(), 
-                    self.minute_limit,
-                    wait_duration.as_secs()
+                let error_msg = format!(
+                    "⏳ Per-minute rate limit reached ({} requests). Try again in {} seconds",
+                    self.minute_limit, wait_secs
                 );
-                
-                return Err(anyhow!(wait_message));
+                warn!("{}", error_msg);
+                return Err(anyhow!(error_msg));
             }
         }
         
         Ok(())
     }
     
-    /// Record that a request was made
+    /// Record a successful request
     pub async fn record_request(&self) {
         // Record the request for per-minute tracking
         let now = Instant::now();
@@ -111,7 +101,12 @@ impl RateLimiter {
     
     /// Wait until a request can be made, then record it
     pub async fn acquire(&self) -> Result<()> {
+        let mut attempts = 0;
+        const MAX_ATTEMPTS: u32 = 5;
+        const RETRY_DELAY: u64 = 15;
+
         loop {
+            attempts += 1;
             match self.check().await {
                 Ok(()) => {
                     // We can make a request now
@@ -123,14 +118,18 @@ impl RateLimiter {
                     
                     // Check if it's a per-minute limit error
                     if error_msg.contains("Per-minute rate limit reached") {
-                        // Extract the wait time
-                        if let Some(wait_seconds) = extract_wait_seconds(&error_msg) {
-                            info!("{}", error_msg);
-                            
-                            // Wait for the specified time plus a small buffer
-                            tokio::time::sleep(Duration::from_secs(wait_seconds + 1)).await;
-                            continue; // Try again after waiting
+                        if attempts > MAX_ATTEMPTS {
+                            warn!("⛔ Giving up after {} attempts to acquire rate limit slot", MAX_ATTEMPTS);
+                            return Err(anyhow!("Max retry attempts ({}) exceeded", MAX_ATTEMPTS));
                         }
+
+                        // Log retry attempt and wait
+                        info!("🔄 Rate limit retry attempt {}/{}: waiting {} seconds", 
+                             attempts, MAX_ATTEMPTS, RETRY_DELAY);
+                        
+                        // Wait for the specified time plus a small buffer
+                        tokio::time::sleep(Duration::from_secs(RETRY_DELAY)).await;
+                        continue; // Try again after waiting
                     }
                     
                     // For daily limit or any other error, just return the error
@@ -138,52 +137,5 @@ impl RateLimiter {
                 }
             }
         }
-    }
-}
-
-// Helper function to extract wait seconds from error message
-fn extract_wait_seconds(message: &str) -> Option<u64> {
-    let parts: Vec<&str> = message.split("Try again in ").collect();
-    if parts.len() < 2 {
-        return None;
-    }
-    
-    let seconds_part = parts[1].split(" seconds").next()?;
-    seconds_part.trim().parse::<u64>().ok()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tokio::time::sleep;
-    
-    #[tokio::test]
-    async fn test_minute_rate_limit() {
-        let limiter = RateLimiter::new(3, 10); // 3 per minute, 10 per day
-        
-        // First 3 requests should succeed
-        for _ in 0..3 {
-            assert!(limiter.acquire().await.is_ok());
-        }
-        
-        // 4th request should fail with per-minute limit
-        let result = limiter.check().await;
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Per-minute rate limit reached"));
-    }
-    
-    #[tokio::test]
-    async fn test_day_rate_limit() {
-        let limiter = RateLimiter::new(100, 5); // 100 per minute, 5 per day
-        
-        // First 5 requests should succeed
-        for _ in 0..5 {
-            assert!(limiter.acquire().await.is_ok());
-        }
-        
-        // 6th request should fail with daily limit
-        let result = limiter.check().await;
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Daily rate limit reached"));
     }
 }

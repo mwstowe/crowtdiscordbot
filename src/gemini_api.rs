@@ -2,7 +2,7 @@ use anyhow::Result;
 use reqwest;
 use serde_json;
 use std::time::Duration;
-use tracing::info;
+use tracing::{error, info};
 use crate::rate_limiter::RateLimiter;
 
 pub struct GeminiClient {
@@ -79,7 +79,7 @@ impl GeminiClient {
             .replace("{user}", user_name)
             .replace("{context}", "No context available.");
             
-        self.call_gemini_api(&formatted_prompt).await
+        self.generate_content(&formatted_prompt).await
     }
     
     // Generate a response with conversation context
@@ -88,7 +88,7 @@ impl GeminiClient {
         prompt: &str, 
         user_name: &str,
         context_messages: &Vec<(String, String, String)>,
-        user_pronouns: Option<&str>
+        _user_pronouns: Option<&str>
     ) -> Result<String> {
         // Format the context messages - limit to configured number and reverse to get chronological order
         let context = if !context_messages.is_empty() {
@@ -99,116 +99,68 @@ impl GeminiClient {
                 context_messages
             };
             
-            // Reverse the messages to get chronological order (oldest first)
-            let mut chronological_messages = limited_messages.to_vec();
-            chronological_messages.reverse();
-            
-            // Format the messages
-            let formatted_messages: Vec<String> = chronological_messages.iter()
-                .map(|(_author, display_name, content)| format!("{}: {}", display_name, content))
-                .collect();
-                
-            formatted_messages.join("\n")
+            // Format each message as "User: Message"
+            limited_messages.iter()
+                .map(|(user, _, msg)| format!("{}: {}", user, msg))
+                .collect::<Vec<_>>()
+                .join("\n")
         } else {
-            "No recent messages".to_string()
+            "No context available.".to_string()
         };
         
-        // Format the prompt using the wrapper, including the user's name and context
-        let mut formatted_prompt = self.prompt_wrapper
+        // Format the prompt using the wrapper
+        let formatted_prompt = self.prompt_wrapper
             .replace("{message}", prompt)
             .replace("{bot_name}", &self.bot_name)
             .replace("{user}", user_name)
             .replace("{context}", &context);
             
-        // Add pronouns information if available
-        if let Some(pronouns) = user_pronouns {
-            formatted_prompt = format!("{}\n\nNote: {} uses {} pronouns.", 
-                formatted_prompt, user_name, pronouns);
-        }
-        
-        self.call_gemini_api(&formatted_prompt).await
+        self.generate_content(&formatted_prompt).await
     }
     
-    async fn call_gemini_api(&self, formatted_prompt: &str) -> Result<String> {
-        // First, try to acquire a rate limit token
-        match self.rate_limiter.acquire().await {
-            Ok(_) => {
-                // Rate limit token acquired, proceed with API call
-                info!("Rate limit token acquired, making API call");
-            },
-            Err(e) => {
-                // Rate limit exceeded
-                return Err(anyhow::anyhow!("Rate limit exceeded: {}", e));
-            }
-        }
+    // Generate content with a raw prompt
+    pub async fn generate_content(&self, prompt: &str) -> Result<String> {
+        // Use acquire() which includes retry logic and request recording
+        self.rate_limiter.acquire().await?;
         
-        // Prepare the request payload
-        let payload = serde_json::json!({
+        // Prepare the request body
+        let request_body = serde_json::json!({
             "contents": [{
                 "parts": [{
-                    "text": formatted_prompt
+                    "text": prompt
                 }]
             }]
         });
         
-        // Create the client for reuse in retries
+        // Build the URL with API key
+        let url = format!("{}?key={}", self.api_endpoint, self.api_key);
+        
+        // Make the API call
         let client = reqwest::Client::new();
-        
-        // Implement retry logic with backoff
-        let max_retries = 5;
-        let retry_delay = Duration::from_secs(15);
-        
-        for attempt in 1..=max_retries {
-            // Make the request
-            let response = client
-                .post(&self.api_endpoint)
-                .query(&[("key", &self.api_key)])
-                .json(&payload)
-                .timeout(Duration::from_secs(30))
-                .send()
-                .await?;
+        let response = client
+            .post(&url)
+            .json(&request_body)
+            .timeout(Duration::from_secs(30))
+            .send()
+            .await?;
             
-            // Check if the request was successful
-            if response.status().is_success() {
-                // Parse the response
-                let response_json: serde_json::Value = response.json().await?;
-                
-                // Extract the generated text
-                let generated_text = response_json
-                    .get("candidates")
-                    .and_then(|candidates| candidates.get(0))
-                    .and_then(|candidate| candidate.get("content"))
-                    .and_then(|content| content.get("parts"))
-                    .and_then(|parts| parts.get(0))
-                    .and_then(|part| part.get("text"))
-                    .and_then(|text| text.as_str())
-                    .ok_or_else(|| anyhow::anyhow!("Failed to extract text from API response"))?;
-                
-                return Ok(generated_text.to_string());
-            } else {
-                let status = response.status();
-                let error_text = response.text().await?;
-                
-                // Check if it's a 503 Service Unavailable error
-                if status == reqwest::StatusCode::SERVICE_UNAVAILABLE {
-                    if attempt < max_retries {
-                        info!("Received 503 error from Gemini API (attempt {}/{}), retrying in {} seconds: {}", 
-                              attempt, max_retries, retry_delay.as_secs(), error_text);
-                        tokio::time::sleep(retry_delay).await;
-                        continue;
-                    } else {
-                        // We've exhausted our retries for 503 errors
-                        // Return a special error that the caller can recognize to avoid showing an error message
-                        return Err(anyhow::anyhow!("SILENT_FAILURE_503"));
-                    }
-                } else {
-                    // For other errors, return the error immediately
-                    return Err(anyhow::anyhow!("API request failed with status {}: {}", status, error_text));
-                }
-            }
-        }
+        // Parse the response
+        let response_json: serde_json::Value = response.json().await?;
         
-        // This should never be reached due to the loop structure, but Rust requires a return value
-        Err(anyhow::anyhow!("SILENT_FAILURE_503"))
+        // Extract the generated text
+        if let Some(text) = response_json
+            .get("candidates")
+            .and_then(|c| c.get(0))
+            .and_then(|c| c.get("content"))
+            .and_then(|c| c.get("parts"))
+            .and_then(|p| p.get(0))
+            .and_then(|p| p.get("text"))
+            .and_then(|t| t.as_str()) {
+            info!("Successfully generated content from Gemini API");
+            Ok(text.to_string())
+        } else {
+            error!("Failed to extract text from Gemini API response");
+            Err(anyhow::anyhow!("Failed to extract text from Gemini API response"))
+        }
     }
 }
