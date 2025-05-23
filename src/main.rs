@@ -753,16 +753,15 @@ impl Bot {
                             Ok(messages) => {
                                 if let Some((content, _, _)) = messages.first() {
                                     let memory_prompt = format!(
-                                        "You are {}, a witty Discord bot based on MST3K's humor style. \
-                                        You've found this message in your memory: \"{}\". \
+                                        "You are {}, a witty Discord bot. You've found this message in your memory: \"{}\". \
                                         Here's what's currently being discussed:\n{}\n\n\
-                                        Please use this memory to contribute to the conversation:\n\
-                                        1. Keep it short and snappy\n\
-                                        2. Present it as your own thought, not as someone else's quote\n\
-                                        3. Only add MST3K-style commentary if it's particularly clever\n\
-                                        4. If you can't make it work naturally in the conversation, respond with 'pass'\n\
+                                        Please contribute to the conversation:\n\
+                                        1. Keep it short and natural\n\
+                                        2. Don't quote or reference the memory - just say what you want to say\n\
+                                        3. Don't identify yourself or explain what you're doing\n\
+                                        4. If you can't make it work naturally, respond with 'pass'\n\
                                         5. Correct any obvious typos but preserve the message's character\n\n\
-                                        Remember: Being concise and genuine is better than forced humor. \
+                                        Remember: Be natural and direct - no meta-commentary. \
                                         If you can't make it feel natural, just pass.",
                                         self.bot_name, content, context_text
                                     );
