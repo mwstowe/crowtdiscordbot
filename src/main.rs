@@ -751,19 +751,20 @@ impl Bot {
                         
                         match result {
                             Ok(messages) => {
-                                if let Some((content, _, display_name)) = messages.first() {
+                                if let Some((content, _, _)) = messages.first() {
                                     let memory_prompt = format!(
                                         "You are {}, a witty Discord bot based on MST3K's humor style. \
-                                        You've found this message from the channel history: \"{}\", originally said by {}. \
-                                        Here's the recent context of what's being discussed:\n{}\n\n\
-                                        Please process this historical message by:\n\
-                                        1. Correcting any typos, grammar, or spelling errors\n\
-                                        2. If possible, relate it to the current conversation context\n\
-                                        3. If it can't be related, just share the corrected quote\n\
-                                        4. Format it as a quote, attributing it to the original author\n\
-                                        Remember to maintain your MST3K-style wit and charm in how you present it. \
-                                        If you can't process the message or it's inappropriate, respond with 'pass'.",
-                                        self.bot_name, content, display_name, context_text
+                                        You've found this message in your memory: \"{}\". \
+                                        Here's what's currently being discussed:\n{}\n\n\
+                                        Please use this memory to contribute to the conversation:\n\
+                                        1. Keep it short and snappy\n\
+                                        2. Present it as your own thought, not as someone else's quote\n\
+                                        3. Only add MST3K-style commentary if it's particularly clever\n\
+                                        4. If you can't make it work naturally in the conversation, respond with 'pass'\n\
+                                        5. Correct any obvious typos but preserve the message's character\n\n\
+                                        Remember: Being concise and genuine is better than forced humor. \
+                                        If you can't make it feel natural, just pass.",
+                                        self.bot_name, content, context_text
                                     );
                                     
                                     // Process with Gemini API
