@@ -2,6 +2,30 @@
 
 A Discord bot that follows specific channels and responds to various triggers including commands, mentions, and keywords.
 
+## Discord Bot Setup
+
+1. Go to the [Discord Developer Portal](https://discord.com/developers/applications)
+2. Click "New Application" and give your bot a name
+3. Go to the "Bot" section in the left sidebar
+4. Click "Add Bot" to create a bot user
+5. Under the bot's username, find and copy your bot token (you'll need this for `DISCORD_TOKEN` in config)
+6. Enable the "Message Content Intent" under "Privileged Gateway Intents"
+7. Go to the "OAuth2" section in the left sidebar
+8. Under "Scopes", select:
+   - `bot`
+   - `messages.read`
+   - `applications.commands`
+9. Under "Bot Permissions", select the permissions your bot needs:
+   - Read Messages/View Channels
+   - Send Messages
+   - Read Message History
+   - Add Reactions
+   - View Channel
+   - Send Messages in Threads
+10. Copy the generated OAuth2 URL at the bottom of the "Scopes" section
+11. Open this URL in a browser to invite the bot to your server
+    - You must have "Manage Server" permission in the Discord server
+
 ## Features
 
 - Responds to commands starting with `!`
