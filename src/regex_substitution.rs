@@ -50,20 +50,30 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
     info!("Regex substitution attempt: pattern='{}', replacement='{}', flags='{}'", 
           pattern, replacement, flags);
     
-    // Get the last two messages from the channel
-    let builder = serenity::builder::GetMessages::new().before(msg.id).limit(2);
+    // Get the last four messages from the channel
+    let builder = serenity::builder::GetMessages::new().before(msg.id).limit(4);
     let messages = msg.channel_id.messages(&ctx.http, builder).await?;
     
     // Get the bot's user ID
     let bot_id = ctx.http.get_current_user().await?.id;
     
-    // Filter out commands and bot messages
-    let valid_messages: Vec<&Message> = messages.iter()
-        .filter(|m| {
-            !m.content.starts_with('!') && 
-            !m.content.starts_with('.') && 
-            m.author.id != bot_id
+    // Check if the most recent message is a bot regex response
+    let is_bot_regex_response = messages.first()
+        .map(|m| {
+            m.author.id == bot_id && 
+            m.content.contains(" meant: ")
         })
+        .unwrap_or(false);
+    
+    // Filter out commands and bot messages (except regex responses if they're the most recent)
+    let valid_messages: Vec<&Message> = messages.iter()
+        .enumerate()
+        .filter(|(i, m)| {
+            (!m.content.starts_with('!') && 
+             !m.content.starts_with('.')) ||
+            (*i == 0 && is_bot_regex_response) // Allow the most recent message if it's a bot regex response
+        })
+        .map(|(_, m)| m)
         .collect();
     
     // Try to build the regex
@@ -82,7 +92,7 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
     match regex_result {
         Ok(re) => {
             // Try each message in order from most recent to least recent
-            for prev_msg in valid_messages {
+            for (i, prev_msg) in valid_messages.iter().enumerate() {
                 // Apply the substitution
                 let new_content = re.replace_all(&prev_msg.content, replacement);
                 
@@ -105,11 +115,25 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
                     }
                     
                     // Get the display name of the original message author
-                    let display_name = get_best_display_name(ctx, prev_msg).await;
+                    let display_name = if i == 0 && is_bot_regex_response {
+                        // If this is a bot regex response, extract the original author's name
+                        if let Some(name_end) = prev_msg.content.find(" meant: ") {
+                            prev_msg.content[0..name_end].to_string()
+                        } else {
+                            get_best_display_name(ctx, prev_msg).await
+                        }
+                    } else {
+                        get_best_display_name(ctx, prev_msg).await
+                    };
+                    
                     let clean_display_name = crate::display_name::clean_display_name(&display_name).trim().to_string();
                     
                     // Format and send the response
-                    let response = format!("{} meant: {}", clean_display_name, new_content);
+                    let response = if i == 0 && is_bot_regex_response {
+                        format!("{} *really* meant: {}", clean_display_name, new_content)
+                    } else {
+                        format!("{} meant: {}", clean_display_name, new_content)
+                    };
                     
                     if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
                         error!("Error sending regex substitution response: {:?}", e);
