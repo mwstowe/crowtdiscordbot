@@ -46,38 +46,40 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
     info!("Regex substitution attempt: pattern='{}', replacement='{}', flags='{}'", 
           pattern, replacement, flags);
     
-    // Get the previous message from the channel
-    let builder = serenity::builder::GetMessages::new().before(msg.id).limit(10);
+    // Get the last two messages from the channel
+    let builder = serenity::builder::GetMessages::new().before(msg.id).limit(2);
     let messages = msg.channel_id.messages(&ctx.http, builder).await?;
     
     // Get the bot's user ID
     let bot_id = ctx.http.get_current_user().await?.id;
     
-    // Find the first non-command message (not starting with ! or .)
-    let previous_msg = messages.iter().find(|m| {
-        !m.content.starts_with('!') && 
-        !m.content.starts_with('.') && 
-        // Skip messages from the bot itself
-        m.author.id != bot_id
-    });
+    // Filter out commands and bot messages
+    let valid_messages: Vec<&Message> = messages.iter()
+        .filter(|m| {
+            !m.content.starts_with('!') && 
+            !m.content.starts_with('.') && 
+            m.author.id != bot_id
+        })
+        .collect();
     
-    if let Some(prev_msg) = previous_msg {
-        // Try to apply the regex
-        let regex_result = if case_insensitive {
-            regex::RegexBuilder::new(pattern)
-                .case_insensitive(true)
-                .build()
-        } else {
-            regex::RegexBuilder::new(pattern)
-                .build()
-        };
-        
-        match regex_result {
-            Ok(re) => {
+    // Try to build the regex
+    let regex_result = if case_insensitive {
+        regex::RegexBuilder::new(pattern)
+            .case_insensitive(true)
+            .build()
+    } else {
+        regex::RegexBuilder::new(pattern)
+            .build()
+    };
+    
+    match regex_result {
+        Ok(re) => {
+            // Try each message in order from most recent to least recent
+            for prev_msg in valid_messages {
                 // Apply the substitution
                 let new_content = re.replace_all(&prev_msg.content, replacement);
                 
-                // If the content changed, send the modified message
+                // If the content changed, send the modified message and stop
                 if new_content != prev_msg.content {
                     // Get the display name of the original message author
                     let display_name = get_best_display_name(ctx, prev_msg).await;
@@ -89,13 +91,16 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
                     if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
                         error!("Error sending regex substitution response: {:?}", e);
                     }
+                    
+                    // Stop after first successful substitution
+                    return Ok(());
                 }
-                // If no change, say nothing as requested
-            },
-            Err(e) => {
-                error!("Invalid regex pattern: {:?}", e);
-                // Silently fail - don't notify the user of regex errors
             }
+            // If we get here, no substitutions worked - silently give up
+        },
+        Err(e) => {
+            error!("Invalid regex pattern: {:?}", e);
+            // Silently fail - don't notify the user of regex errors
         }
     }
     
