@@ -1,8 +1,12 @@
 use anyhow::Result;
 use serenity::model::channel::Message;
 use serenity::prelude::*;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use crate::display_name::get_best_display_name;
+use regex::Regex;
+
+// URL pattern for detecting URLs in text
+const URL_PATTERN: &str = r"https?://[^\s/$.?#].[^\s]*";
 
 // Handle regex substitution for messages starting with !s/, .s/, !/, or ./
 pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<()> {
@@ -72,6 +76,9 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
             .build()
     };
     
+    // Compile URL detection regex
+    let url_regex = Regex::new(URL_PATTERN).expect("Invalid URL pattern regex");
+    
     match regex_result {
         Ok(re) => {
             // Try each message in order from most recent to least recent
@@ -79,8 +86,24 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
                 // Apply the substitution
                 let new_content = re.replace_all(&prev_msg.content, replacement);
                 
-                // If the content changed, send the modified message and stop
+                // If the content changed, check if we modified any URLs
                 if new_content != prev_msg.content {
+                    // Get all URLs from original message
+                    let original_urls: Vec<&str> = url_regex.find_iter(&prev_msg.content)
+                        .map(|m| m.as_str())
+                        .collect();
+                        
+                    // Get all URLs from new message
+                    let new_urls: Vec<&str> = url_regex.find_iter(&new_content)
+                        .map(|m| m.as_str())
+                        .collect();
+                    
+                    // Check if any URLs were modified
+                    if original_urls != new_urls {
+                        warn!("Regex substitution would modify URLs - skipping");
+                        continue;  // Try next message
+                    }
+                    
                     // Get the display name of the original message author
                     let display_name = get_best_display_name(ctx, prev_msg).await;
                     let clean_display_name = crate::display_name::clean_display_name(&display_name);
