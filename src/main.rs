@@ -45,7 +45,7 @@ use frinkiac::{FrinkiacClient, handle_frinkiac_command};
 use morbotron::{MorbotronClient, handle_morbotron_command};
 use response_timing::apply_realistic_delay;
 use masterofallscience::{MasterOfAllScienceClient, handle_masterofallscience_command};
-use display_name::get_best_display_name;
+use display_name::{get_best_display_name, clean_display_name, get_clean_display_name};
 use buzz::handle_buzz_command;
 use lastseen::handle_lastseen_command;
 use regex_substitution::handle_regex_substitution;
@@ -1191,11 +1191,11 @@ impl Bot {
             
             if !content.is_empty() {
                 if let Some(gemini_client) = &self.gemini_client {
-                    // Get the display name
-                    let display_name = get_best_display_name(ctx, msg).await;
-                    let clean_display_name = gemini_client.strip_pronouns(&display_name);
+                    // Get and clean the display name
+                    let clean_display_name = get_clean_display_name(ctx, msg).await;
                     
-                    // Extract pronouns from the display name if present
+                    // Extract pronouns from the original display name
+                    let display_name = get_best_display_name(ctx, msg).await;
                     let user_pronouns = crate::display_name::extract_pronouns(&display_name);
                     
                     // Start typing indicator before making API call
@@ -1272,7 +1272,7 @@ impl Bot {
                     };
                     
                     if let Err(e) = msg.channel_id.say(&ctx.http, format!("Hello {}, you called my name! I'm {}!{} (Gemini API is not configured)", 
-                        gemini_api::GeminiClient::strip_pronouns_static(&display_name), 
+                        clean_display_name(&display_name), 
                         self.bot_name,
                         pronouns_info
                     )).await {
@@ -1336,11 +1336,11 @@ impl Bot {
             
             if !content.is_empty() {
                 if let Some(gemini_client) = &self.gemini_client {
-                    // Get the display name
-                    let display_name = get_best_display_name(ctx, msg).await;
-                    let clean_display_name = gemini_client.strip_pronouns(&display_name);
+                    // Get and clean the display name
+                    let clean_display_name = get_clean_display_name(ctx, msg).await;
                     
-                    // Extract pronouns from the display name if present
+                    // Extract pronouns from the original display name
+                    let display_name = get_best_display_name(ctx, msg).await;
                     let user_pronouns = crate::display_name::extract_pronouns(&display_name);
                     
                     // Start typing indicator before making API call
@@ -1405,8 +1405,8 @@ impl Bot {
                     }
                 } else {
                     // Fallback if Gemini API is not configured
-                    let display_name = get_best_display_name(ctx, msg).await;
-                    if let Err(e) = msg.channel_id.say(&ctx.http, format!("Hello {}, you mentioned me! I'm {}! (Gemini API is not configured)", display_name, self.bot_name)).await {
+                    let clean_display_name = get_clean_display_name(ctx, msg).await;
+                    if let Err(e) = msg.channel_id.say(&ctx.http, format!("Hello {}, you mentioned me! I'm {}! (Gemini API is not configured)", clean_display_name, self.bot_name)).await {
                         error!("Error sending mention response: {:?}", e);
                     }
                 }

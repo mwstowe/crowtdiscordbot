@@ -70,7 +70,7 @@ pub fn clean_display_name(name: &str) -> String {
         }
     }
     
-    clean_name
+    clean_name.trim().to_string()
 }
 
 // Extract pronouns from a display name
@@ -109,4 +109,10 @@ pub fn extract_pronouns(name: &str) -> Option<String> {
     }
     
     None
+}
+
+// Get a clean display name with all formatting and pronouns removed
+pub async fn get_clean_display_name(ctx: &Context, msg: &Message) -> String {
+    let display_name = get_best_display_name(ctx, msg).await;
+    clean_display_name(&display_name)
 }

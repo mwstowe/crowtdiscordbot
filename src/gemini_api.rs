@@ -4,6 +4,7 @@ use serde_json;
 use std::time::Duration;
 use tracing::{error, info};
 use crate::rate_limiter::RateLimiter;
+use crate::display_name::clean_display_name;
 
 pub struct GeminiClient {
     api_key: String,
@@ -47,29 +48,6 @@ impl GeminiClient {
         }
     }
     
-    // Helper function to strip pronouns from display names
-    pub fn strip_pronouns(&self, display_name: &str) -> String {
-        Self::strip_pronouns_static(display_name)
-    }
-    
-    // Static version of the strip_pronouns function
-    pub fn strip_pronouns_static(display_name: &str) -> String {
-        // Check for common pronoun formats like (he/him), [she/her], etc.
-        if let Some(idx) = display_name.find(|c| c == '(' || c == '[' || c == '<') {
-            if display_name[idx..].contains("he/") || 
-               display_name[idx..].contains("she/") || 
-               display_name[idx..].contains("they/") ||
-               display_name[idx..].contains("xe/") ||
-               display_name[idx..].contains("ze/") ||
-               display_name[idx..].contains("any/") ||
-               display_name[idx..].contains("it/") {
-                return display_name[0..idx].trim().to_string();
-            }
-        }
-        
-        display_name.to_string()
-    }
-    
     // Generate a response using the Gemini API
     pub async fn generate_response(&self, prompt: &str, user_name: &str) -> Result<String> {
         // Format the prompt using the wrapper
@@ -101,7 +79,7 @@ impl GeminiClient {
             
             // Format each message as "User: Message"
             limited_messages.iter()
-                .map(|(user, _, msg)| format!("{}: {}", user, msg))
+                .map(|(user, _, msg)| format!("{}: {}", clean_display_name(user), msg))
                 .collect::<Vec<_>>()
                 .join("\n")
         } else {
