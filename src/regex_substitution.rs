@@ -106,7 +106,7 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
                     
                     // Get the display name of the original message author
                     let display_name = get_best_display_name(ctx, prev_msg).await;
-                    let clean_display_name = crate::display_name::clean_display_name(&display_name);
+                    let clean_display_name = crate::display_name::clean_display_name(&display_name).trim().to_string();
                     
                     // Format and send the response
                     let response = format!("{} meant: {}", clean_display_name, new_content);
