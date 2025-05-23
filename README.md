@@ -32,9 +32,9 @@ A Discord bot that follows specific channels and responds to various triggers in
 8. Configure Gemini API rate limits with `GEMINI_RATE_LIMIT_MINUTE` and `GEMINI_RATE_LIMIT_DAY` fields
 9. Configure the number of context messages with `GEMINI_CONTEXT_MESSAGES` (defaults to 5)
 10. Configure interjection probabilities with the `INTERJECTION_*_PROBABILITY` fields
-9. For database functionality, add MySQL credentials
-10. To enable/disable Google search, set `GOOGLE_SEARCH_ENABLED` to "true" or "false" (defaults to "true")
-11. For AI responses, add Gemini API key
+11. For database functionality, add MySQL credentials
+12. To enable/disable Google search, set `GOOGLE_SEARCH_ENABLED` to "true" or "false" (defaults to "true")
+13. For AI responses, add Gemini API key
 
 ## Available Commands
 
@@ -51,13 +51,11 @@ A Discord bot that follows specific channels and responds to various triggers in
 - `!morbotron [search_term]` - Get a Futurama screenshot from Morbotron (or random if no term provided)
 - `!masterofallscience [search_term]` - Get a Rick and Morty screenshot from Master of All Science (or random if no term provided)
 
-## Message History Database
+## Database Structure
 
-The bot stores message history in a SQLite database to enable features like `!quote -dud`, provide context for AI responses, and maintain persistence across bot restarts.
+### Message History Database
 
-### Enhanced Database Schema
-
-The messages table has the following structure:
+The bot maintains a comprehensive SQLite database to store user message history with all Discord metadata:
 
 ```sql
 CREATE TABLE IF NOT EXISTS messages (
@@ -71,28 +69,67 @@ CREATE TABLE IF NOT EXISTS messages (
     content TEXT NOT NULL,
     timestamp INTEGER NOT NULL,
     referenced_message_id TEXT
-)
+);
 ```
 
-This enhanced schema stores all necessary fields from Discord messages, allowing the bot to:
-
-1. Reconstruct complete message objects from the database
+This enhanced schema allows the bot to:
+1. Store complete message objects with all Discord metadata
 2. Provide rich context for AI responses
-3. Track message references and relationships
-4. Support advanced message history features
+3. Support the `!quote -dud` command to retrieve random messages from users
+4. Maintain conversation threads and references
 5. Track edited messages to maintain accurate conversation context
 
-### Database Management
-
-The bot automatically manages its message history database:
-
+The bot automatically manages its message history:
 1. New messages are stored as they arrive with all metadata
-2. Edited messages are updated in the database to maintain accurate conversation context
-3. The database is periodically trimmed to keep only the most recent messages (up to the `MESSAGE_HISTORY_LIMIT`)
+2. Edited messages are updated to maintain accurate conversation context
+3. The database is periodically trimmed to keep only the most recent messages (up to `MESSAGE_HISTORY_LIMIT`)
 4. The trim interval can be configured with `DB_TRIM_INTERVAL_SECS` (defaults to 3600 seconds / 1 hour)
 5. Existing databases are automatically migrated to the enhanced schema
 
-This ensures that the bot's memory usage remains stable over time while still maintaining enough history for features like `!quote -dud` and context-aware AI responses.
+### Quote Database Tables
+
+The quote system uses MySQL and requires three related tables:
+
+1. **masterlist_shows** - Contains information about TV shows
+   ```sql
+   CREATE TABLE masterlist_shows (
+       show_id INT PRIMARY KEY,
+       show_title VARCHAR(255) NOT NULL
+   );
+   ```
+
+2. **masterlist_episodes** - Contains information about episodes
+   ```sql
+   CREATE TABLE masterlist_episodes (
+       show_id INT,
+       show_ep VARCHAR(10),
+       title VARCHAR(255) NOT NULL,
+       PRIMARY KEY (show_id, show_ep),
+       FOREIGN KEY (show_id) REFERENCES masterlist_shows(show_id)
+   );
+   ```
+
+3. **masterlist_quotes** - Contains the actual quotes
+   ```sql
+   CREATE TABLE masterlist_quotes (
+       quote_id INT PRIMARY KEY AUTO_INCREMENT,
+       show_id INT,
+       show_ep VARCHAR(10),
+       quote TEXT NOT NULL,
+       FOREIGN KEY (show_id, show_ep) REFERENCES masterlist_episodes(show_id, show_ep)
+   );
+   ```
+
+### Slogan Database Table
+
+The slogan system uses a single MySQL table:
+
+```sql
+CREATE TABLE nuke_quotes (
+    pn_id INT PRIMARY KEY AUTO_INCREMENT,
+    pn_quote TEXT NOT NULL
+);
+```
 
 ## Configuration Options
 
@@ -115,86 +152,6 @@ The bot can be configured through the `CrowConfig.toml` file:
 - `GOOGLE_SEARCH_ENABLED` - Enable or disable Google search feature (defaults to "true")
 - `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` - MySQL database credentials
 
-## Quote and Slogan Database Structure
-
-The bot uses a MySQL database to store and retrieve quotes and slogans. Here's the expected database structure:
-
-### Quote Database Tables
-
-The quote system requires three related tables:
-
-1. **masterlist_shows** - Contains information about TV shows
-
-   ```sql
-   CREATE TABLE masterlist_shows (
-       show_id INT PRIMARY KEY,
-       show_title VARCHAR(255) NOT NULL
-   );
-   ```
-
-2. **masterlist_episodes** - Contains information about episodes
-
-   ```sql
-   CREATE TABLE masterlist_episodes (
-       show_id INT,
-       show_ep VARCHAR(10),
-       title VARCHAR(255) NOT NULL,
-       PRIMARY KEY (show_id, show_ep),
-       FOREIGN KEY (show_id) REFERENCES masterlist_shows(show_id)
-   );
-   ```
-
-3. **masterlist_quotes** - Contains the actual quotes
-
-   ```sql
-   CREATE TABLE masterlist_quotes (
-       quote_id INT PRIMARY KEY AUTO_INCREMENT,
-       show_id INT,
-       show_ep VARCHAR(10),
-       quote TEXT NOT NULL,
-       FOREIGN KEY (show_id, show_ep) REFERENCES masterlist_episodes(show_id, show_ep)
-   );
-   ```
-
-### Slogan Database Table
-
-The slogan system uses a single table:
-
-```sql
-CREATE TABLE nuke_quotes (
-    pn_id INT PRIMARY KEY AUTO_INCREMENT,
-    pn_quote TEXT NOT NULL
-);
-```
-
-### User Message History
-
-The bot maintains a comprehensive SQLite database to store user message history with all Discord metadata:
-
-```sql
-CREATE TABLE IF NOT EXISTS messages (
-    id INTEGER PRIMARY KEY,
-    message_id TEXT NOT NULL,
-    channel_id TEXT NOT NULL,
-    guild_id TEXT,
-    author_id TEXT NOT NULL,
-    author TEXT NOT NULL,
-    display_name TEXT,
-    content TEXT NOT NULL,
-    timestamp INTEGER NOT NULL,
-    referenced_message_id TEXT
-);
-```
-
-This enhanced schema allows the bot to:
-
-1. Store complete message objects with all Discord metadata
-2. Provide rich context for AI responses
-3. Support the `!quote -dud` command to retrieve random messages from users
-4. Maintain conversation threads and references
-
-The database is automatically migrated from older versions, preserving existing message history.
-
 ## Display Name Handling
 
 The bot uses a sophisticated approach to determine the best display name for users:
@@ -206,7 +163,6 @@ The bot uses a sophisticated approach to determine the best display name for use
 This ensures that users are addressed by their preferred name in the server context, improving the personalization of the bot's responses.
 
 The display name is used in various features:
-
 - When addressing users in AI responses
 - When storing messages in the database for `!quote -dud` command
 - When generating crime fighting duos
@@ -232,7 +188,7 @@ You can also configure which Gemini model to use by setting the `GEMINI_API_ENDP
 
 ## Conversation Context
 
-The bot now includes conversation context when making API calls to Gemini. This means:
+The bot includes conversation context when making API calls to Gemini. This means:
 
 1. The bot retrieves the last 5 messages from the conversation history
 2. These messages are included in the prompt sent to Gemini
