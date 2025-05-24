@@ -94,12 +94,26 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
             // Try each message in order from most recent to least recent
             for (i, prev_msg) in valid_messages.iter().enumerate() {
                 // Apply the substitution
-                let new_content = re.replace_all(&prev_msg.content, replacement);
+                let content_to_modify = if i == 0 && is_bot_regex_response {
+                    // If this is a bot regex response, extract just the message content without the prefix
+                    if let Some(content_start) = prev_msg.content.find(" meant: ") {
+                        prev_msg.content[(content_start + " meant: ".len())..].to_string()
+                    } else if let Some(content_start) = prev_msg.content.find(" *really* meant: ") {
+                        prev_msg.content[(content_start + " *really* meant: ".len())..].to_string()
+                    } else {
+                        prev_msg.content.clone()
+                    }
+                } else {
+                    prev_msg.content.clone()
+                };
+                
+                // Apply regex to the cleaned content
+                let new_content = re.replace_all(&content_to_modify, replacement);
                 
                 // If the content changed, check if we modified any URLs
-                if new_content != prev_msg.content {
+                if new_content != content_to_modify {
                     // Get all URLs from original message
-                    let original_urls: Vec<&str> = url_regex.find_iter(&prev_msg.content)
+                    let original_urls: Vec<&str> = url_regex.find_iter(&content_to_modify)
                         .map(|m| m.as_str())
                         .collect();
                         
