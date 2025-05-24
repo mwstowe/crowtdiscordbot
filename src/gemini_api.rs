@@ -179,8 +179,26 @@ impl GeminiClient {
         // Parse the response
         let response_json: serde_json::Value = response.json().await?;
         
-        // Log the full response for debugging
-        info!("Image generation API response: {}", serde_json::to_string_pretty(&response_json)?);
+        // Create a copy of the response for logging, but remove the image data to avoid huge logs
+        let mut log_json = response_json.clone();
+        if let Some(candidates) = log_json.get_mut("candidates") {
+            if let Some(candidate) = candidates.get_mut(0) {
+                if let Some(content) = candidate.get_mut("content") {
+                    if let Some(parts) = content.get_mut("parts") {
+                        if let Some(part) = parts.get_mut(1) {
+                            if let Some(inline_data) = part.get_mut("inlineData") {
+                                if let Some(data) = inline_data.get_mut("data") {
+                                    *data = serde_json::Value::String("[IMAGE DATA REDACTED]".to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Log the redacted response
+        info!("Image generation API response: {}", serde_json::to_string_pretty(&log_json)?);
         
         // Extract the text description
         let text_description = response_json
