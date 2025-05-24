@@ -16,7 +16,7 @@ pub async fn handle_showme_command(ctx: &Context, msg: &Message, gemini_client: 
 
     // Generate the image
     match gemini_client.generate_image(prompt).await {
-        Ok(image_data) => {
+        Ok((image_data, description)) => {
             // Create a temporary file for the image
             let temp_dir = std::env::temp_dir();
             let file_path = temp_dir.join(format!("gemini_image_{}.png", chrono::Utc::now().timestamp()));
@@ -27,9 +27,16 @@ pub async fn handle_showme_command(ctx: &Context, msg: &Message, gemini_client: 
             // Create the attachment
             let files = vec![CreateAttachment::path(&file_path).await?];
 
-            // Send the image file
+            // Format the message with both the prompt and the AI's description
+            let message_content = if description.is_empty() {
+                format!("Here's what I imagine for: {}", prompt)
+            } else {
+                format!("Here's what I imagine for: {}\n\n{}", prompt, description)
+            };
+
+            // Send the image file with the description
             let builder = files.into_iter().fold(
-                CreateMessage::default().content(format!("Here's what I imagine for: {}", prompt)),
+                CreateMessage::default().content(message_content),
                 |b, f| b.add_file(f)
             );
 

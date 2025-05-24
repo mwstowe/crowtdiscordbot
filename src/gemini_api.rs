@@ -147,7 +147,7 @@ impl GeminiClient {
     }
 
     // Generate an image from a text prompt
-    pub async fn generate_image(&self, prompt: &str) -> Result<Vec<u8>> {
+    pub async fn generate_image(&self, prompt: &str) -> Result<(Vec<u8>, String)> {
         // Use acquire() which includes retry logic and request recording
         self.rate_limiter.acquire().await?;
         
@@ -182,6 +182,17 @@ impl GeminiClient {
         // Log the full response for debugging
         info!("Image generation API response: {}", serde_json::to_string_pretty(&response_json)?);
         
+        // Extract the text description
+        let text_description = response_json
+            .get("candidates")
+            .and_then(|c| c.get(0))
+            .and_then(|c| c.get("content"))
+            .and_then(|c| c.get("parts"))
+            .and_then(|p| p.get(0))
+            .and_then(|p| p.get("text"))
+            .and_then(|t| t.as_str())
+            .unwrap_or("").to_string();
+        
         // Extract the generated image data
         if let Some(image_data) = response_json
             .get("candidates")
@@ -196,7 +207,7 @@ impl GeminiClient {
             
             // Decode base64 image data
             match base64::engine::general_purpose::STANDARD.decode(image_data) {
-                Ok(bytes) => Ok(bytes),
+                Ok(bytes) => Ok((bytes, text_description)),
                 Err(e) => {
                     error!("Failed to decode base64 image data: {:?}", e);
                     Err(anyhow::anyhow!("Failed to decode base64 image data"))
