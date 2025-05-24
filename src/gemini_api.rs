@@ -152,15 +152,15 @@ impl GeminiClient {
         self.rate_limiter.acquire().await?;
         
         // Prepare the request body for the gemini-2.0-flash-preview-image-generation model
-        // Based on the working example using response_modality
+        // Based on the working example using responseModalities
         let request_body = serde_json::json!({
             "contents": [{
                 "parts": [{
                     "text": prompt
                 }]
             }],
-            "generation_config": {
-                "response_modality": "IMAGE"
+            "generationConfig": {
+                "responseModalities": ["TEXT", "IMAGE"]
             }
         });
         
