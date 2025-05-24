@@ -6,7 +6,7 @@ use crate::gemini_api::GeminiClient;
 use serenity::builder::CreateAttachment;
 use serenity::all::CreateMessage;
 
-pub async fn handle_showme_command(ctx: &Context, msg: &Message, gemini_client: &GeminiClient, prompt: &str) -> Result<()> {
+pub async fn handle_imagine_command(ctx: &Context, msg: &Message, gemini_client: &GeminiClient, prompt: &str) -> Result<()> {
     // Start typing indicator
     if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
         error!("Failed to send typing indicator for image generation: {:?}", e);
