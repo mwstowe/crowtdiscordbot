@@ -152,18 +152,13 @@ impl GeminiClient {
         self.rate_limiter.acquire().await?;
         
         // Prepare the request body for the gemini-2.0-flash-preview-image-generation model
-        // Fix the field name: system_instructions -> systemInstruction (camelCase)
+        // Remove systemInstruction as it's not supported by this model
         let request_body = serde_json::json!({
             "contents": [{
                 "parts": [{
-                    "text": prompt
+                    "text": format!("Generate an image of: {}", prompt)
                 }]
-            }],
-            "systemInstruction": {
-                "parts": [{
-                    "text": "You are an image generation model. Generate an image based on the user's description. Return both the image and a brief text description of what you generated."
-                }]
-            }
+            }]
         });
         
         // Build the URL with API key
