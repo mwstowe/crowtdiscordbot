@@ -29,7 +29,7 @@ impl GeminiClient {
     ) -> Self {
         // Default endpoint for Gemini API
         let default_endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent".to_string();
-        let image_endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro-vision:generateContent".to_string();
+        let image_endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent".to_string();
         
         // Default prompt wrapper
         let default_prompt_wrapper = "You are {bot_name}, a helpful Discord bot. You are responding to {user}. Be concise, helpful, and friendly. Here is their message: {message}\n\nRecent conversation context:\n{context}".to_string();
@@ -151,15 +151,15 @@ impl GeminiClient {
         // Use acquire() which includes retry logic and request recording
         self.rate_limiter.acquire().await?;
         
-        // Prepare the request body
+        // Prepare the request body with specific instructions for image generation
         let request_body = serde_json::json!({
             "contents": [{
                 "parts": [{
-                    "text": prompt
+                    "text": format!("Generate a detailed image based on this description: {}. Return only the image, no text.", prompt)
                 }]
             }],
             "generationConfig": {
-                "temperature": 0.4,
+                "temperature": 0.9,
                 "topK": 32,
                 "topP": 1,
                 "maxOutputTokens": 2048,
