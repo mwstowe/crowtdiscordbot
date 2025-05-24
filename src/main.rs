@@ -824,73 +824,78 @@ impl Bot {
                 },
                 3 => {
                     // AI Interjection (use Gemini API with custom prompt)
-                    if let (Some(gemini_client), Some(interjection_prompt)) = (&self.gemini_client, &self.gemini_interjection_prompt) {
-                        info!("Random interjection: AI Interjection with custom prompt");
-                        
-                        // Start typing indicator
-                        if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
-                            error!("Failed to send typing indicator for AI interjection: {:?}", e);
-                        }
-                        
-                        // Get recent messages for context - use more messages for better context
-                        let context_messages = if let Some(db) = &self.message_db {
-                            match db_utils::get_recent_messages(db.clone(), 5, Some(msg.channel_id.to_string().as_str())).await {
-                                Ok(messages) => messages,
-                                Err(e) => {
-                                    error!("Error retrieving recent messages for AI interjection: {:?}", e);
-                                    Vec::new()
-                                }
-                            }
-                        } else {
-                            Vec::new()
-                        };
-                        
-                        // Format context for the prompt
-                        let context_text = if !context_messages.is_empty() {
-                            // Reverse the messages to get chronological order (oldest first)
-                            let mut chronological_messages = context_messages.clone();
-                            chronological_messages.reverse();
+                    if let Some(gemini_client) = &self.gemini_client {
+                        if let Some(interjection_prompt) = &self.gemini_interjection_prompt {
+                            info!("Random interjection: AI Interjection with custom prompt");
                             
-                            let formatted_messages: Vec<String> = chronological_messages.iter()
-                                .map(|(_author, display_name, content)| format!("{}: {}", display_name, content))
-                                .collect();
-                            formatted_messages.join("\n")
-                        } else {
-                            "No recent messages".to_string()
-                        };
-                        
-                        // Replace placeholders in the custom prompt
-                        let prompt = interjection_prompt
-                            .replace("{bot_name}", &self.bot_name)
-                            .replace("{context}", &context_text);
-                        
-                        // Call Gemini API with the custom prompt
-                        match gemini_client.generate_response(&prompt, "").await {
-                            Ok(response) => {
-                                // Check if the response is "pass" - if so, don't send anything
-                                if response.trim().to_lowercase() == "pass" {
-                                    info!("AI interjection evaluation: decided to PASS - no response sent");
-                                    return Ok(());
-                                }
-                                
-                                // Apply realistic typing delay
-                                apply_realistic_delay(&response, ctx, msg.channel_id).await;
-                                
-                                // Send the response
-                                let response_text = response.clone(); // Clone for logging
-                                if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
-                                    error!("Error sending AI interjection: {:?}", e);
-                                } else {
-                                    info!("AI interjection evaluation: SENT response - {}", response_text);
-                                }
-                            },
-                            Err(e) => {
-                                error!("AI interjection evaluation: ERROR - {:?}", e);
+                            // Start typing indicator
+                            if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
+                                error!("Failed to send typing indicator for AI interjection: {:?}", e);
                             }
+                            
+                            // Get recent messages for context - use more messages for better context
+                            let context_messages = if let Some(db) = &self.message_db {
+                                match db_utils::get_recent_messages(db.clone(), 5, Some(msg.channel_id.to_string().as_str())).await {
+                                    Ok(messages) => messages,
+                                    Err(e) => {
+                                        error!("Error retrieving recent messages for AI interjection: {:?}", e);
+                                        Vec::new()
+                                    }
+                                }
+                            } else {
+                                Vec::new()
+                            };
+                            
+                            // Format context for the prompt
+                            let context_text = if !context_messages.is_empty() {
+                                // Reverse the messages to get chronological order (oldest first)
+                                let mut chronological_messages = context_messages.clone();
+                                chronological_messages.reverse();
+                                
+                                let formatted_messages: Vec<String> = chronological_messages.iter()
+                                    .map(|(_author, display_name, content)| format!("{}: {}", display_name, content))
+                                    .collect();
+                                formatted_messages.join("\n")
+                            } else {
+                                "No recent messages".to_string()
+                            };
+                            
+                            // Replace placeholders in the custom prompt
+                            let prompt = interjection_prompt
+                                .replace("{bot_name}", &self.bot_name)
+                                .replace("{context}", &context_text);
+                            
+                            // Call Gemini API with the custom prompt
+                            match gemini_client.generate_response(&prompt, "").await {
+                                Ok(response) => {
+                                    // Check if the response is "pass" - if so, don't send anything
+                                    if response.trim().to_lowercase() == "pass" {
+                                        info!("AI interjection evaluation: decided to PASS - no response sent");
+                                        return Ok(());
+                                    }
+                                    
+                                    // Apply realistic typing delay
+                                    apply_realistic_delay(&response, ctx, msg.channel_id).await;
+                                    
+                                    // Send the response
+                                    let response_text = response.clone(); // Clone for logging
+                                    if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
+                                        error!("Error sending AI interjection: {:?}", e);
+                                    } else {
+                                        info!("AI interjection evaluation: SENT response - {}", response_text);
+                                    }
+                                },
+                                Err(e) => {
+                                    error!("AI interjection evaluation: ERROR - {:?}", e);
+                                }
+                            }
+                        } else {
+                            // If Gemini API is configured but interjection prompt is missing
+                            info!("AI Interjection not available (GEMINI_INTERJECTION_PROMPT not configured) - no response sent");
                         }
                     } else {
-                        // If Gemini API is not configured, just say nothing
-                        info!("AI Interjection not available (Gemini not configured) - no response sent");
+                        // If Gemini API is not configured
+                        info!("AI Interjection not available (Gemini API not configured) - no response sent");
                     }
                 },
                 _ => {} // Should never happen
@@ -1593,12 +1598,28 @@ async fn main() -> Result<()> {
     }
     
     // Get custom interjection prompt if available
-    let gemini_interjection_prompt = config.gemini_interjection_prompt.clone();
-    if gemini_interjection_prompt.is_some() {
-        info!("Using custom Gemini interjection prompt");
-    } else {
-        info!("Using default Gemini interjection prompt");
-    }
+    let gemini_interjection_prompt = config.gemini_interjection_prompt.clone().unwrap_or_else(|| {
+        info!("No custom Gemini interjection prompt provided, using default");
+        String::from(r#"You are {bot_name}, a sarcastic and witty Discord bot with a dark sense of humor.
+Review the recent conversation context and determine if you can make a relevant interjection.
+
+Recent conversation context:
+{context}
+
+You should ONLY respond with an interjection if ONE of the following criteria is met:
+1. You can complete a song lyric, movie quote, or television quote that someone has started
+2. You can come up with a clever punchline or riff on the conversation
+3. You can correct someone's grammar or spelling (do this sparingly and with humor)
+
+For criterion #2 (punchlines/riffs), rate your response on a scale of 1-10 for humor and cleverness.
+ONLY return the punchline/riff if you rate it 9 or higher.
+
+If none of these criteria are met, respond with exactly "pass" and nothing else.
+
+Keep your response concise (1-2 sentences), snarky, and entertaining. Don't use markdown formatting.
+Don't explain your reasoning or include your rating in the response."#)
+    });
+    info!("Using Gemini interjection prompt");
     
     // Get custom Gemini API endpoint if available
     let gemini_api_endpoint = config.gemini_api_endpoint.clone();
@@ -1783,7 +1804,7 @@ async fn main() -> Result<()> {
         gemini_api_key,
         gemini_api_endpoint,
         gemini_prompt_wrapper,
-        config.gemini_interjection_prompt.clone(),
+        Some(gemini_interjection_prompt),
         bot_name.clone(),
         message_db.clone(),
         message_history_limit,
