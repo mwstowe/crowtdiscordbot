@@ -29,7 +29,7 @@ impl GeminiClient {
     ) -> Self {
         // Default endpoint for Gemini API
         let default_endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent".to_string();
-        let image_endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-latest:generateContent".to_string();
+        let image_endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-preview-image-generation:generateContent".to_string();
         
         // Default prompt wrapper
         let default_prompt_wrapper = "You are {bot_name}, a helpful Discord bot. You are responding to {user}. Be concise, helpful, and friendly. Here is their message: {message}\n\nRecent conversation context:\n{context}".to_string();
@@ -151,30 +151,13 @@ impl GeminiClient {
         // Use acquire() which includes retry logic and request recording
         self.rate_limiter.acquire().await?;
         
-        // Prepare the request body according to the gemini-2.0 image generation format
+        // Prepare the request body for the gemini-2.0-flash-preview-image-generation model
         let request_body = serde_json::json!({
-            "contents": [
-                {
-                    "parts": [
-                        {
-                            "text": "Generate an image of the following:"
-                        },
-                        {
-                            "text": prompt
-                        }
-                    ]
-                }
-            ],
-            "generation_config": {
-                "temperature": 1.0
-            },
-            "system_instruction": {
-                "parts": [
-                    {
-                        "text": "You are an expert image creator. Create a detailed, high-quality image based on the user's description."
-                    }
-                ]
-            }
+            "contents": [{
+                "parts": [{
+                    "text": prompt
+                }]
+            }]
         });
         
         // Build the URL with API key
@@ -195,14 +178,14 @@ impl GeminiClient {
         // Log the full response for debugging
         info!("Image generation API response: {}", serde_json::to_string_pretty(&response_json)?);
         
-        // Extract the generated image data from the gemini-2.0 response format
+        // Extract the generated image data
         if let Some(image_data) = response_json
             .get("candidates")
             .and_then(|c| c.get(0))
             .and_then(|c| c.get("content"))
             .and_then(|c| c.get("parts"))
-            .and_then(|p| p.get(1))  // The second part contains the image
-            .and_then(|p| p.get("inline_data"))
+            .and_then(|p| p.get(0))
+            .and_then(|p| p.get("image"))
             .and_then(|i| i.get("data"))
             .and_then(|d| d.as_str()) {
             info!("Successfully generated image from Gemini API");
