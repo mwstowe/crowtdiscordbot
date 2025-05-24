@@ -119,6 +119,8 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
                         // If this is a bot regex response, extract the original author's name
                         if let Some(name_end) = prev_msg.content.find(" meant: ") {
                             prev_msg.content[0..name_end].to_string()
+                        } else if let Some(name_end) = prev_msg.content.find(" *really* meant: ") {
+                            prev_msg.content[0..name_end].to_string()
                         } else {
                             get_best_display_name(ctx, prev_msg).await
                         }
