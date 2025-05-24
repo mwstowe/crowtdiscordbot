@@ -28,7 +28,7 @@ impl GeminiClient {
         context_messages: usize
     ) -> Self {
         // Default endpoint for Gemini API
-        let default_endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent".to_string();
+        let default_endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent".to_string();
         let image_endpoint = "https://generativelanguage.googleapis.com/v1beta/models/imagegeneration@002:generateContent".to_string();
         
         // Default prompt wrapper
