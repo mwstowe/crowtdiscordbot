@@ -152,13 +152,21 @@ impl GeminiClient {
         self.rate_limiter.acquire().await?;
         
         // Prepare the request body for the gemini-2.0-flash-preview-image-generation model
-        // Remove systemInstruction as it's not supported by this model
+        // Based on official examples for this specific model
         let request_body = serde_json::json!({
             "contents": [{
+                "role": "user",
                 "parts": [{
-                    "text": format!("Generate an image of: {}", prompt)
+                    "text": prompt
                 }]
-            }]
+            }],
+            "generationConfig": {
+                "temperature": 1.0,
+                "topP": 0.95,
+                "topK": 64,
+                "maxOutputTokens": 8192,
+                "stopSequences": []
+            }
         });
         
         // Build the URL with API key
