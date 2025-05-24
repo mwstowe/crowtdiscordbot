@@ -152,16 +152,13 @@ impl GeminiClient {
         self.rate_limiter.acquire().await?;
         
         // Prepare the request body for the gemini-2.0-flash-preview-image-generation model
-        // Fix the response_mime_type format - it should not be an array
+        // Remove the generationConfig section entirely as it's causing issues
         let request_body = serde_json::json!({
             "contents": [{
                 "parts": [{
                     "text": prompt
                 }]
-            }],
-            "generationConfig": {
-                "responseMimeType": "image/png"
-            }
+            }]
         });
         
         // Build the URL with API key
