@@ -5,10 +5,12 @@ use std::time::Duration;
 use tracing::{error, info};
 use crate::rate_limiter::RateLimiter;
 use crate::display_name::clean_display_name;
+use base64::Engine;
 
 pub struct GeminiClient {
     api_key: String,
     api_endpoint: String,
+    image_endpoint: String,
     prompt_wrapper: String,
     bot_name: String,
     rate_limiter: RateLimiter,
@@ -27,6 +29,7 @@ impl GeminiClient {
     ) -> Self {
         // Default endpoint for Gemini API
         let default_endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent".to_string();
+        let image_endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-preview-image-generation:generateContent".to_string();
         
         // Default prompt wrapper
         let default_prompt_wrapper = "You are {bot_name}, a helpful Discord bot. You are responding to {user}. Be concise, helpful, and friendly. Here is their message: {message}\n\nRecent conversation context:\n{context}".to_string();
@@ -41,6 +44,7 @@ impl GeminiClient {
         Self {
             api_key,
             api_endpoint,
+            image_endpoint,
             prompt_wrapper,
             bot_name,
             rate_limiter,
@@ -139,6 +143,61 @@ impl GeminiClient {
         } else {
             error!("Failed to extract text from Gemini API response");
             Err(anyhow::anyhow!("Failed to extract text from Gemini API response"))
+        }
+    }
+
+    // Generate an image from a text prompt
+    pub async fn generate_image(&self, prompt: &str) -> Result<Vec<u8>> {
+        // Use acquire() which includes retry logic and request recording
+        self.rate_limiter.acquire().await?;
+        
+        // Prepare the request body
+        let request_body = serde_json::json!({
+            "contents": [{
+                "parts": [{
+                    "text": prompt
+                }]
+            }]
+        });
+        
+        // Build the URL with API key
+        let url = format!("{}?key={}", self.image_endpoint, self.api_key);
+        
+        // Make the API call
+        let client = reqwest::Client::new();
+        let response = client
+            .post(&url)
+            .json(&request_body)
+            .timeout(Duration::from_secs(60))  // Longer timeout for image generation
+            .send()
+            .await?;
+            
+        // Parse the response
+        let response_json: serde_json::Value = response.json().await?;
+        
+        // Extract the generated image data
+        if let Some(image_data) = response_json
+            .get("candidates")
+            .and_then(|c| c.get(0))
+            .and_then(|c| c.get("content"))
+            .and_then(|c| c.get("parts"))
+            .and_then(|p| p.get(0))
+            .and_then(|p| p.get("image"))
+            .and_then(|i| i.get("data"))
+            .and_then(|d| d.as_str()) {
+            info!("Successfully generated image from Gemini API");
+            
+            // Decode base64 image data
+            match base64::engine::general_purpose::STANDARD.decode(image_data) {
+                Ok(bytes) => Ok(bytes),
+                Err(e) => {
+                    error!("Failed to decode base64 image data: {:?}", e);
+                    Err(anyhow::anyhow!("Failed to decode base64 image data"))
+                }
+            }
+        } else {
+            error!("Failed to extract image data from Gemini API response");
+            Err(anyhow::anyhow!("Failed to extract image data from Gemini API response"))
         }
     }
 }

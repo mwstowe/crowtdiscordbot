@@ -32,8 +32,9 @@ mod trump_insult;
 mod display_name;
 mod buzz;
 mod lastseen;
-mod bandname;
+mod image_generation;
 mod regex_substitution;
+mod bandname;
 
 // Use our modules
 use config::{load_config, parse_config};
@@ -48,6 +49,7 @@ use masterofallscience::{MasterOfAllScienceClient, handle_masterofallscience_com
 use display_name::{get_best_display_name, clean_display_name, get_clean_display_name};
 use buzz::handle_buzz_command;
 use lastseen::handle_lastseen_command;
+use image_generation::handle_showme_command;
 use regex_substitution::handle_regex_substitution;
 
 // Define keys for the client data
@@ -123,7 +125,7 @@ impl Bot {
         commands.insert("hello".to_string(), "world!".to_string());
         
         // Generate a comprehensive help message with all commands
-        let help_message = "Available commands:\n!help - Show this help message\n!hello - Say hello\n!buzz - Generate a corporate buzzword phrase\n!fightcrime - Generate a crime fighting duo\n!trump - Generate a Trump insult\n!bandname [band name] - Generate an absurd music genre for a band\n!lastseen [name] - Find when a user was last active\n!quote [search_term] - Get a random quote\n!quote -show [show_name] - Get a random quote from a specific show\n!quote -dud [username] - Get a random message from a user\n!slogan [search_term] - Get a random advertising slogan\n!frinkiac [search_term] - Get a Simpsons screenshot from Frinkiac (or random if no term provided)\n!morbotron [search_term] - Get a Futurama screenshot from Morbotron (or random if no term provided)\n!masterofallscience [search_term] - Get a Rick and Morty screenshot from Master of All Science (or random if no term provided)";
+        let help_message = "Available commands:\n!help - Show this help message\n!hello - Say hello\n!buzz - Generate a corporate buzzword phrase\n!fightcrime - Generate a crime fighting duo\n!trump - Generate a Trump insult\n!bandname [band name] - Generate an absurd music genre for a band\n!lastseen [name] - Find when a user was last active\n!quote [search_term] - Get a random quote\n!quote -show [show_name] - Get a random quote from a specific show\n!quote -dud [username] - Get a random message from a user\n!slogan [search_term] - Get a random advertising slogan\n!frinkiac [search_term] - Get a Simpsons screenshot from Frinkiac (or random if no term provided)\n!morbotron [search_term] - Get a Futurama screenshot from Morbotron (or random if no term provided)\n!masterofallscience [search_term] - Get a Rick and Morty screenshot from Master of All Science (or random if no term provided)\n!showme [text] - Generate an image based on the text description";
         commands.insert("help".to_string(), help_message.to_string());
         
         // Define keyword triggers - empty but we keep the structure for future additions
@@ -970,15 +972,34 @@ impl Bot {
                     }
                 } else if command == "bandname" {
                     // Generate a band genre
-                    let band_name = if parts.len() > 1 {
-                        parts[1..].join(" ")
+                    if parts.len() > 1 {
+                        let band_name = parts[1..].join(" ");
+                        let genre = self.band_genre_generator.generate_genre(&band_name);
+                        if let Err(e) = msg.channel_id.say(&ctx.http, genre).await {
+                            error!("Error sending band genre: {:?}", e);
+                        }
                     } else {
-                        "Your Band".to_string()
-                    };
-                    
-                    let genre = self.band_genre_generator.generate_genre(&band_name);
-                    if let Err(e) = msg.channel_id.say(&ctx.http, genre).await {
-                        error!("Error sending band genre: {:?}", e);
+                        if let Err(e) = msg.reply(&ctx.http, "Please provide a band name.").await {
+                            error!("Error sending usage message: {:?}", e);
+                        }
+                    }
+                } else if command == "showme" {
+                    // Extract the image prompt
+                    if parts.len() > 1 {
+                        let prompt = parts[1..].join(" ");
+                        if let Some(gemini_client) = &self.gemini_client {
+                            if let Err(e) = handle_showme_command(ctx, msg, gemini_client, &prompt).await {
+                                error!("Error handling showme command: {:?}", e);
+                            }
+                        } else {
+                            if let Err(e) = msg.reply(&ctx.http, "Sorry, image generation is not available (Gemini API not configured).").await {
+                                error!("Error sending API not configured message: {:?}", e);
+                            }
+                        }
+                    } else {
+                        if let Err(e) = msg.reply(&ctx.http, "Please provide a description of what you want me to show you.").await {
+                            error!("Error sending usage message: {:?}", e);
+                        }
                     }
                 } else if command == "help" {
                     // Help command - use the help message from our commands HashMap
