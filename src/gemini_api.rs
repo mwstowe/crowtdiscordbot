@@ -153,6 +153,7 @@ impl GeminiClient {
         
         // Prepare the request body for the gemini-2.0-flash-preview-image-generation model
         // Based on official examples for this specific model
+        // Explicitly request both TEXT and IMAGE modalities as required
         let request_body = serde_json::json!({
             "contents": [{
                 "role": "user",
@@ -164,9 +165,14 @@ impl GeminiClient {
                 "temperature": 1.0,
                 "topP": 0.95,
                 "topK": 64,
-                "maxOutputTokens": 8192,
-                "stopSequences": []
-            }
+                "maxOutputTokens": 8192
+            },
+            "tools": [{
+                "functionDeclarations": [{
+                    "name": "generate_image",
+                    "description": "Generate an image based on the text prompt"
+                }]
+            }]
         });
         
         // Build the URL with API key
