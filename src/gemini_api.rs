@@ -152,25 +152,12 @@ impl GeminiClient {
         self.rate_limiter.acquire().await?;
         
         // Prepare the request body for the gemini-2.0-flash-preview-image-generation model
-        // Based on official examples for this specific model
-        // Explicitly request both TEXT and IMAGE modalities as required
+        // Use a very simple approach without any special configurations
         let request_body = serde_json::json!({
             "contents": [{
                 "role": "user",
                 "parts": [{
-                    "text": prompt
-                }]
-            }],
-            "generationConfig": {
-                "temperature": 1.0,
-                "topP": 0.95,
-                "topK": 64,
-                "maxOutputTokens": 8192
-            },
-            "tools": [{
-                "functionDeclarations": [{
-                    "name": "generate_image",
-                    "description": "Generate an image based on the text prompt"
+                    "text": format!("Generate an image of: {}. Respond with both text and image.", prompt)
                 }]
             }]
         });
