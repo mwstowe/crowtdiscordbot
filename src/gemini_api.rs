@@ -29,7 +29,7 @@ impl GeminiClient {
     ) -> Self {
         // Default endpoint for Gemini API
         let default_endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent".to_string();
-        let image_endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent".to_string();
+        let image_endpoint = "https://generativelanguage.googleapis.com/v1beta/models/imagegeneration@002:generateContent".to_string();
         
         // Default prompt wrapper
         let default_prompt_wrapper = "You are {bot_name}, a helpful Discord bot. You are responding to {user}. Be concise, helpful, and friendly. Here is their message: {message}\n\nRecent conversation context:\n{context}".to_string();
@@ -151,18 +151,10 @@ impl GeminiClient {
         // Use acquire() which includes retry logic and request recording
         self.rate_limiter.acquire().await?;
         
-        // Prepare the request body with specific instructions for image generation
+        // Prepare the request body for Imagen
         let request_body = serde_json::json!({
-            "contents": [{
-                "parts": [{
-                    "text": format!("Generate a detailed image based on this description: {}. Return only the image, no text.", prompt)
-                }]
-            }],
-            "generationConfig": {
-                "temperature": 0.9,
-                "topK": 32,
-                "topP": 1,
-                "maxOutputTokens": 2048,
+            "prompt": {
+                "text": prompt
             }
         });
         
@@ -182,19 +174,14 @@ impl GeminiClient {
         let response_json: serde_json::Value = response.json().await?;
         
         // Log the full response for debugging
-        info!("Gemini image API response: {}", serde_json::to_string_pretty(&response_json)?);
+        info!("Image generation API response: {}", serde_json::to_string_pretty(&response_json)?);
         
-        // Extract the generated image data
+        // Extract the generated image data - different format for Imagen
         if let Some(image_data) = response_json
-            .get("candidates")
-            .and_then(|c| c.get(0))
-            .and_then(|c| c.get("content"))
-            .and_then(|c| c.get("parts"))
-            .and_then(|p| p.get(0))
-            .and_then(|p| p.get("inlineData"))
+            .get("image")
             .and_then(|i| i.get("data"))
             .and_then(|d| d.as_str()) {
-            info!("Successfully generated image from Gemini API");
+            info!("Successfully generated image");
             
             // Decode base64 image data
             match base64::engine::general_purpose::STANDARD.decode(image_data) {
@@ -205,8 +192,8 @@ impl GeminiClient {
                 }
             }
         } else {
-            error!("Failed to extract image data from Gemini API response");
-            Err(anyhow::anyhow!("Failed to extract image data from Gemini API response"))
+            error!("Failed to extract image data from API response");
+            Err(anyhow::anyhow!("Failed to extract image data from API response"))
         }
     }
 }
