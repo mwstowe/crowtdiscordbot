@@ -188,8 +188,8 @@ impl GeminiClient {
             .and_then(|c| c.get(0))
             .and_then(|c| c.get("content"))
             .and_then(|c| c.get("parts"))
-            .and_then(|p| p.get(0))
-            .and_then(|p| p.get("image"))
+            .and_then(|p| p.get(1))  // The second part contains the image
+            .and_then(|p| p.get("inlineData"))
             .and_then(|i| i.get("data"))
             .and_then(|d| d.as_str()) {
             info!("Successfully generated image from Gemini API");
