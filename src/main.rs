@@ -127,7 +127,14 @@ impl Bot {
         commands.insert("hello".to_string(), "world!".to_string());
         
         // Generate a comprehensive help message with all commands
-        let help_message = "Available commands:\n!help - Show this help message\n!hello - Say hello\n!buzz - Generate a corporate buzzword phrase\n!fightcrime - Generate a crime fighting duo\n!trump - Generate a Trump insult\n!bandname [band name] - Generate an absurd music genre for a band\n!lastseen [name] - Find when a user was last active\n!quote [search_term] - Get a random quote\n!quote -show [show_name] - Get a random quote from a specific show\n!quote -dud [username] - Get a random message from a user\n!slogan [search_term] - Get a random advertising slogan\n!frinkiac [search_term] - Get a Simpsons screenshot from Frinkiac (or random if no term provided)\n!morbotron [search_term] - Get a Futurama screenshot from Morbotron (or random if no term provided)\n!masterofallscience [search_term] - Get a Rick and Morty screenshot from Master of All Science (or random if no term provided)\n!imagine [text] - Generate an image based on the text description";
+        let help_message = if !imagine_channels.is_empty() {
+            // Include the imagine command if channels are configured
+            "Available commands:\n!help - Show this help message\n!hello - Say hello\n!buzz - Generate a corporate buzzword phrase\n!fightcrime - Generate a crime fighting duo\n!trump - Generate a Trump insult\n!bandname [band name] - Generate an absurd music genre for a band\n!lastseen [name] - Find when a user was last active\n!quote [search_term] - Get a random quote\n!quote -show [show_name] - Get a random quote from a specific show\n!quote -dud [username] - Get a random message from a user\n!slogan [search_term] - Get a random advertising slogan\n!frinkiac [search_term] - Get a Simpsons screenshot from Frinkiac (or random if no term provided)\n!morbotron [search_term] - Get a Futurama screenshot from Morbotron (or random if no term provided)\n!masterofallscience [search_term] - Get a Rick and Morty screenshot from Master of All Science (or random if no term provided)\n!imagine [text] - Generate an image based on the text description"
+        } else {
+            // Exclude the imagine command if no channels are configured
+            "Available commands:\n!help - Show this help message\n!hello - Say hello\n!buzz - Generate a corporate buzzword phrase\n!fightcrime - Generate a crime fighting duo\n!trump - Generate a Trump insult\n!bandname [band name] - Generate an absurd music genre for a band\n!lastseen [name] - Find when a user was last active\n!quote [search_term] - Get a random quote\n!quote -show [show_name] - Get a random quote from a specific show\n!quote -dud [username] - Get a random message from a user\n!slogan [search_term] - Get a random advertising slogan\n!frinkiac [search_term] - Get a Simpsons screenshot from Frinkiac (or random if no term provided)\n!morbotron [search_term] - Get a Futurama screenshot from Morbotron (or random if no term provided)\n!masterofallscience [search_term] - Get a Rick and Morty screenshot from Master of All Science (or random if no term provided)"
+        };
+        
         commands.insert("help".to_string(), help_message.to_string());
         
         // Define keyword triggers - empty but we keep the structure for future additions
@@ -991,7 +998,7 @@ impl Bot {
                             error!("Error sending usage message: {:?}", e);
                         }
                     }
-                } else if command == "imagine" {
+                } else if command == "imagine" && !self.imagine_channels.is_empty() {
                     // Extract the image prompt
                     if parts.len() > 1 {
                         let prompt = parts[1..].join(" ");
