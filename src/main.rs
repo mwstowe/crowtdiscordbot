@@ -1,6 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use anyhow::Result;
 use serenity::all::*;
 use serenity::async_trait;
@@ -83,6 +83,7 @@ struct Bot {
     google_search_enabled: bool,
     gemini_interjection_prompt: Option<String>,
     imagine_channels: Vec<String>,
+    start_time: Instant,
     #[allow(dead_code)]
     gemini_context_messages: usize,
     #[allow(dead_code)]
@@ -129,10 +130,10 @@ impl Bot {
         // Generate a comprehensive help message with all commands
         let help_message = if !imagine_channels.is_empty() {
             // Include the imagine command if channels are configured
-            "Available commands:\n!help - Show this help message\n!hello - Say hello\n!buzz - Generate a corporate buzzword phrase\n!fightcrime - Generate a crime fighting duo\n!trump - Generate a Trump insult\n!bandname [band name] - Generate an absurd music genre for a band\n!lastseen [name] - Find when a user was last active\n!quote [search_term] - Get a random quote\n!quote -show [show_name] - Get a random quote from a specific show\n!quote -dud [username] - Get a random message from a user\n!slogan [search_term] - Get a random advertising slogan\n!frinkiac [search_term] - Get a Simpsons screenshot from Frinkiac (or random if no term provided)\n!morbotron [search_term] - Get a Futurama screenshot from Morbotron (or random if no term provided)\n!masterofallscience [search_term] - Get a Rick and Morty screenshot from Master of All Science (or random if no term provided)\n!imagine [text] - Generate an image based on the text description"
+            "Available commands:\n!help - Show this help message\n!hello - Say hello\n!buzz - Generate a corporate buzzword phrase\n!fightcrime - Generate a crime fighting duo\n!trump - Generate a Trump insult\n!bandname [band name] - Generate an absurd music genre for a band\n!lastseen [name] - Find when a user was last active\n!quote [search_term] - Get a random quote\n!quote -show [show_name] - Get a random quote from a specific show\n!quote -dud [username] - Get a random message from a user\n!slogan [search_term] - Get a random advertising slogan\n!frinkiac [search_term] - Get a Simpsons screenshot from Frinkiac (or random if no term provided)\n!morbotron [search_term] - Get a Futurama screenshot from Morbotron (or random if no term provided)\n!masterofallscience [search_term] - Get a Rick and Morty screenshot from Master of All Science (or random if no term provided)\n!imagine [text] - Generate an image based on the text description\n!info - Show bot statistics and status"
         } else {
             // Exclude the imagine command if no channels are configured
-            "Available commands:\n!help - Show this help message\n!hello - Say hello\n!buzz - Generate a corporate buzzword phrase\n!fightcrime - Generate a crime fighting duo\n!trump - Generate a Trump insult\n!bandname [band name] - Generate an absurd music genre for a band\n!lastseen [name] - Find when a user was last active\n!quote [search_term] - Get a random quote\n!quote -show [show_name] - Get a random quote from a specific show\n!quote -dud [username] - Get a random message from a user\n!slogan [search_term] - Get a random advertising slogan\n!frinkiac [search_term] - Get a Simpsons screenshot from Frinkiac (or random if no term provided)\n!morbotron [search_term] - Get a Futurama screenshot from Morbotron (or random if no term provided)\n!masterofallscience [search_term] - Get a Rick and Morty screenshot from Master of All Science (or random if no term provided)"
+            "Available commands:\n!help - Show this help message\n!hello - Say hello\n!buzz - Generate a corporate buzzword phrase\n!fightcrime - Generate a crime fighting duo\n!trump - Generate a Trump insult\n!bandname [band name] - Generate an absurd music genre for a band\n!lastseen [name] - Find when a user was last active\n!quote [search_term] - Get a random quote\n!quote -show [show_name] - Get a random quote from a specific show\n!quote -dud [username] - Get a random message from a user\n!slogan [search_term] - Get a random advertising slogan\n!frinkiac [search_term] - Get a Simpsons screenshot from Frinkiac (or random if no term provided)\n!morbotron [search_term] - Get a Futurama screenshot from Morbotron (or random if no term provided)\n!masterofallscience [search_term] - Get a Rick and Morty screenshot from Master of All Science (or random if no term provided)\n!info - Show bot statistics and status"
         };
         
         commands.insert("help".to_string(), help_message.to_string());
@@ -213,6 +214,7 @@ impl Bot {
             google_search_enabled,
             gemini_interjection_prompt,
             imagine_channels,
+            start_time: Instant::now(),
             gemini_context_messages,
             interjection_mst3k_probability,
             interjection_memory_probability,
@@ -236,6 +238,96 @@ impl Bot {
             Ok(true) => info!("✅ Database connection test passed"),
             Ok(false) => error!("❌ Database connection test failed"),
             Err(e) => error!("❌ Error testing database connection: {:?}", e),
+        }
+        
+        Ok(())
+    }
+    
+    // Format a duration into a human-readable string
+    fn format_duration(duration: Duration) -> String {
+        let total_seconds = duration.as_secs();
+        let days = total_seconds / 86400;
+        let hours = (total_seconds % 86400) / 3600;
+        let minutes = (total_seconds % 3600) / 60;
+        let seconds = total_seconds % 60;
+        
+        if days > 0 {
+            format!("{}d {}h {}m {}s", days, hours, minutes, seconds)
+        } else if hours > 0 {
+            format!("{}h {}m {}s", hours, minutes, seconds)
+        } else if minutes > 0 {
+            format!("{}m {}s", minutes, seconds)
+        } else {
+            format!("{}s", seconds)
+        }
+    }
+    
+    // Handle the !info command
+    async fn handle_info_command(&self, ctx: &Context, msg: &Message) -> Result<()> {
+        // Calculate uptime
+        let uptime = self.start_time.elapsed();
+        let uptime_str = Self::format_duration(uptime);
+        
+        // Get message history count
+        let message_count = if let Some(db) = &self.message_db {
+            match db.lock().await.call(|conn| {
+                let mut stmt = conn.prepare("SELECT COUNT(*) FROM messages")?;
+                let count: i64 = stmt.query_row([], |row| row.get(0))?;
+                Ok::<_, rusqlite::Error>(count)
+            }).await {
+                Ok(count) => count.to_string(),
+                Err(_) => "Unknown".to_string(),
+            }
+        } else {
+            "Database not available".to_string()
+        };
+        
+        // Get memory usage (approximate)
+        let memory_usage = match std::process::Command::new("ps")
+            .args(&["-o", "rss=", "-p", &std::process::id().to_string()])
+            .output() {
+                Ok(output) => {
+                    let rss = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    if rss.is_empty() {
+                        "Unknown".to_string()
+                    } else {
+                        // Convert from KB to MB
+                        match rss.parse::<f64>() {
+                            Ok(kb) => format!("{:.2} MB", kb / 1024.0),
+                            Err(_) => "Unknown".to_string(),
+                        }
+                    }
+                },
+                Err(_) => "Unknown".to_string(),
+            };
+        
+        // Count followed channels
+        let channel_count = self.followed_channels.len();
+        
+        // Build the info message
+        let mut info = format!(
+            "**{} Bot Info**\n\n", 
+            self.bot_name
+        );
+        
+        info.push_str(&format!("**Uptime:** {}\n", uptime_str));
+        info.push_str(&format!("**Messages in database:** {}\n", message_count));
+        info.push_str(&format!("**Memory usage:** {}\n", memory_usage));
+        info.push_str(&format!("**Following {} channels**\n", channel_count));
+        
+        // Add feature status
+        info.push_str("\n**Features:**\n");
+        info.push_str(&format!("- Google search: {}\n", if self.google_search_enabled { "Enabled" } else { "Disabled" }));
+        info.push_str(&format!("- AI responses: {}\n", if self.gemini_client.is_some() { "Enabled" } else { "Disabled" }));
+        info.push_str(&format!("- Image generation: {}\n", if !self.imagine_channels.is_empty() { 
+            format!("Enabled in {} channels", self.imagine_channels.len()) 
+        } else { 
+            "Disabled".to_string() 
+        }));
+        
+        // Send the info message
+        if let Err(e) = msg.channel_id.say(&ctx.http, info).await {
+            error!("Error sending info message: {:?}", e);
         }
         
         Ok(())
@@ -1022,6 +1114,11 @@ impl Bot {
                         if let Err(e) = msg.channel_id.say(&ctx.http, help_text).await {
                             error!("Error sending help message: {:?}", e);
                         }
+                    }
+                } else if command == "info" {
+                    // Handle the info command
+                    if let Err(e) = self.handle_info_command(ctx, msg).await {
+                        error!("Error handling info command: {:?}", e);
                     }
                 } else if command == "slogan" {
                     // Extract search term if provided
