@@ -57,6 +57,7 @@ pub struct Config {
     pub interjection_memory_probability: Option<String>,
     pub interjection_pondering_probability: Option<String>,
     pub interjection_ai_probability: Option<String>,
+    pub imagine_channels: Option<String>,
     // thinking_message removed - only using typing indicator
     pub google_search_enabled: Option<String>,
     pub db_host: Option<String>,
@@ -131,7 +132,8 @@ pub fn parse_config(config: &Config) -> (
     f64,                    // interjection_mst3k_probability
     f64,                    // interjection_memory_probability
     f64,                    // interjection_pondering_probability
-    f64                     // interjection_ai_probability
+    f64,                    // interjection_ai_probability
+    Vec<String>             // imagine_channels
 ) {
     // Get the bot name
     let bot_name = config.bot_name.clone().unwrap_or_else(|| "Crow".to_string());
@@ -242,6 +244,23 @@ pub fn parse_config(config: &Config) -> (
           interjection_pondering_probability,
           interjection_ai_probability);
     
+    // Parse imagine channels
+    let imagine_channels = config.imagine_channels
+        .as_ref()
+        .map(|channels_str| {
+            channels_str.split(',')
+                .map(|channel| channel.trim().to_string())
+                .filter(|channel| !channel.is_empty())
+                .collect::<Vec<String>>()
+        })
+        .unwrap_or_else(Vec::new);
+    
+    if !imagine_channels.is_empty() {
+        info!("Image generation restricted to channels: {:?}", imagine_channels);
+    } else {
+        info!("Image generation allowed in all channels");
+    }
+    
     info!("Google search feature is {}", if google_search_enabled { "enabled" } else { "disabled" });
           
     (
@@ -256,6 +275,7 @@ pub fn parse_config(config: &Config) -> (
         interjection_mst3k_probability,
         interjection_memory_probability,
         interjection_pondering_probability,
-        interjection_ai_probability
+        interjection_ai_probability,
+        imagine_channels
     )
 }

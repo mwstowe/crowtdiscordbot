@@ -4,11 +4,40 @@ use serenity::prelude::*;
 use tracing::{error, info, warn};
 use crate::gemini_api::GeminiClient;
 use serenity::builder::CreateAttachment;
-use serenity::all::CreateMessage;
+use serenity::all::{CreateMessage, Channel};
 use tokio::time::sleep;
 use std::time::Duration;
 
-pub async fn handle_imagine_command(ctx: &Context, msg: &Message, gemini_client: &GeminiClient, prompt: &str) -> Result<()> {
+pub async fn handle_imagine_command(ctx: &Context, msg: &Message, gemini_client: &GeminiClient, prompt: &str, imagine_channels: &[String]) -> Result<()> {
+    // Check if the command is being used in an allowed channel
+    let channel_name = match msg.channel_id.to_channel(&ctx.http).await {
+        Ok(channel) => {
+            match channel {
+                Channel::Guild(guild_channel) => guild_channel.name,
+                _ => String::new(),
+            }
+        },
+        Err(_) => String::new(),
+    };
+    
+    // If imagine_channels is configured and the current channel is not in the list
+    if !imagine_channels.is_empty() && !imagine_channels.contains(&channel_name) {
+        // Create a message directing the user to the appropriate channels
+        let channel_list = if imagine_channels.len() == 1 {
+            format!("the #{} channel", imagine_channels[0])
+        } else {
+            let channels = imagine_channels.iter()
+                .map(|c| format!("#{}", c))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("one of these channels: {}", channels)
+        };
+        
+        // Reply with a helpful message
+        msg.reply(&ctx.http, format!("Image generation is only available in {}. Please try your command there.", channel_list)).await?;
+        return Ok(());
+    }
+
     // Start typing indicator
     if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
         error!("Failed to send typing indicator for image generation: {:?}", e);

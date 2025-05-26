@@ -82,6 +82,7 @@ struct Bot {
     gateway_bot_ids: Vec<u64>,
     google_search_enabled: bool,
     gemini_interjection_prompt: Option<String>,
+    imagine_channels: Vec<String>,
     #[allow(dead_code)]
     gemini_context_messages: usize,
     #[allow(dead_code)]
@@ -119,6 +120,7 @@ impl Bot {
         interjection_memory_probability: f64,
         interjection_pondering_probability: f64,
         interjection_ai_probability: f64,
+        imagine_channels: Vec<String>
     ) -> Self {
         // Define the commands the bot will respond to
         let mut commands = HashMap::new();
@@ -203,6 +205,7 @@ impl Bot {
             gateway_bot_ids,
             google_search_enabled,
             gemini_interjection_prompt,
+            imagine_channels,
             gemini_context_messages,
             interjection_mst3k_probability,
             interjection_memory_probability,
@@ -993,7 +996,7 @@ impl Bot {
                     if parts.len() > 1 {
                         let prompt = parts[1..].join(" ");
                         if let Some(gemini_client) = &self.gemini_client {
-                            if let Err(e) = handle_imagine_command(ctx, msg, gemini_client, &prompt).await {
+                            if let Err(e) = handle_imagine_command(ctx, msg, gemini_client, &prompt, &self.imagine_channels).await {
                                 error!("Error handling imagine command: {:?}", e);
                             }
                         } else {
@@ -1578,7 +1581,7 @@ async fn main() -> Result<()> {
     let token = &config.discord_token;
     
     // Parse config values
-    let (bot_name, message_history_limit, db_trim_interval, gemini_rate_limit_minute, gemini_rate_limit_day, gateway_bot_ids, google_search_enabled, gemini_context_messages, interjection_mst3k_probability, interjection_memory_probability, interjection_pondering_probability, interjection_ai_probability) = 
+    let (bot_name, message_history_limit, db_trim_interval, gemini_rate_limit_minute, gemini_rate_limit_day, gateway_bot_ids, google_search_enabled, gemini_context_messages, interjection_mst3k_probability, interjection_memory_probability, interjection_pondering_probability, interjection_ai_probability, imagine_channels) = 
         parse_config(&config);
     
     // Get Gemini API key
@@ -1816,7 +1819,8 @@ Don't explain your reasoning or include your rating in the response."#)
         interjection_mst3k_probability,
         interjection_memory_probability,
         interjection_pondering_probability,
-        interjection_ai_probability
+        interjection_ai_probability,
+        imagine_channels
     );
     
     // Check database connection
