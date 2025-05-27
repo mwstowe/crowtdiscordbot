@@ -808,7 +808,7 @@ impl Bot {
                             use mysql::prelude::Queryable;
                             
                             // Build the show clause for MST3K
-                            let show_clause = "%Mystery Science Theater%";
+                            let show_clause = "%MST3K%";  // Use the actual show name in the database
                             
                             // Count total matching quotes
                             let count_query = "SELECT COUNT(*) FROM masterlist_quotes, masterlist_episodes, masterlist_shows \
