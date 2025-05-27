@@ -813,7 +813,7 @@ impl Bot {
                                               AND masterlist_quotes.show_ep = masterlist_episodes.show_ep \
                                               AND show_title LIKE ?";
                             
-                            if let Ok(Some(total_entries)) = conn.exec_first::<i64, _, _>(count_query, (show_clause.clone(),)) {
+                            if let Ok(Some(total_entries)) = conn.exec_first::<i64, _, _>(count_query, (show_clause,)) {
                                 if total_entries > 0 {
                                     // Get a random quote
                                     let random_index = rand::thread_rng().gen_range(0..total_entries);
