@@ -35,6 +35,7 @@ mod lastseen;
 mod image_generation;
 mod regex_substitution;
 mod bandname;
+mod mst3k_quotes;
 
 // Use our modules
 use config::{load_config, parse_config};
@@ -51,6 +52,7 @@ use buzz::handle_buzz_command;
 use lastseen::handle_lastseen_command;
 use image_generation::handle_imagine_command;
 use regex_substitution::handle_regex_substitution;
+use mst3k_quotes::fallback_mst3k_quote;
 
 // Define keys for the client data
 struct RecentSpeakersKey;
@@ -787,25 +789,104 @@ impl Bot {
             
             info!("Triggered MST3K quote interjection ({:.2}% chance, {})", probability_percent, odds);
             
-            let mst3k_quotes = [
-                "Watch out for snakes!",
-                "It's the amazing Rando!",
-                "Normal view... Normal view... NORMAL VIEW!",
-                "Hi-keeba!",
-                "I'm different!",
-                "Rowsdower!",
-                "Mitchell!",
-                "Deep hurting...",
-                "Trumpy, you can do magic things!",
-                "Torgo's theme intensifies",
-            ];
+            // Try to get a quote from the database first
+            if self.db_manager.is_configured() {
+                // Use a separate task to query the database
+                let db_manager = self.db_manager.clone();
+                
+                let task_result = tokio::task::spawn(async move {
+                    // Query for MST3K quotes specifically
+                    let mut result = None;
                     
-            let quote = mst3k_quotes.choose(&mut rand::thread_rng()).unwrap_or(&"I'm different!").to_string();
-            let quote_text = quote.clone(); // Clone for logging
-            if let Err(e) = msg.channel_id.say(&ctx.http, quote).await {
-                error!("Error sending random MST3K quote: {:?}", e);
+                    // Get a connection from the pool
+                    if let Some(pool) = db_manager.pool.as_ref() {
+                        if let Ok(mut conn) = pool.get_conn() {
+                            use mysql::prelude::Queryable;
+                            
+                            // Build the show clause for MST3K
+                            let show_clause = "%Mystery Science Theater%";
+                            
+                            // Count total matching quotes
+                            let count_query = "SELECT COUNT(*) FROM masterlist_quotes, masterlist_episodes, masterlist_shows \
+                                              WHERE masterlist_episodes.show_id = masterlist_shows.show_id \
+                                              AND masterlist_quotes.show_id = masterlist_shows.show_id \
+                                              AND masterlist_quotes.show_ep = masterlist_episodes.show_ep \
+                                              AND show_title LIKE ?";
+                            
+                            if let Ok(Some(total_entries)) = conn.exec_first::<i64, _, _>(count_query, (show_clause.clone(),)) {
+                                if total_entries > 0 {
+                                    // Get a random quote
+                                    let random_index = rand::thread_rng().gen_range(0..total_entries);
+                                    
+                                    let select_query = "SELECT quote FROM masterlist_quotes, masterlist_episodes, masterlist_shows \
+                                                       WHERE masterlist_episodes.show_id = masterlist_shows.show_id \
+                                                       AND masterlist_quotes.show_id = masterlist_shows.show_id \
+                                                       AND masterlist_quotes.show_ep = masterlist_episodes.show_ep \
+                                                       AND show_title LIKE ? \
+                                                       LIMIT ?, 1";
+                                    
+                                    if let Ok(Some(quote_text)) = 
+                                        conn.exec_first::<String, _, _>(
+                                            select_query,
+                                            (show_clause, random_index)
+                                        ) {
+                                        // Clean up HTML entities
+                                        let clean_quote = html_escape::decode_html_entities(&quote_text);
+                                        
+                                        // Extract a character name and their quote if possible
+                                        if let Some(colon_pos) = clean_quote.find(':') {
+                                            if colon_pos > 0 && colon_pos < clean_quote.len() - 1 {
+                                                let character = clean_quote[0..colon_pos].trim();
+                                                let character_quote = clean_quote[colon_pos+1..].trim();
+                                                
+                                                // Only use if we have both a character and a quote
+                                                if !character.is_empty() && !character_quote.is_empty() {
+                                                    result = Some((character.to_string(), character_quote.to_string()));
+                                                }
+                                            }
+                                        }
+                                        
+                                        // If we couldn't extract a character quote, use the whole quote
+                                        if result.is_none() {
+                                            result = Some(("MST3K".to_string(), clean_quote.to_string()));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    result
+                }).await;
+                
+                if let Ok(Some((character, quote))) = task_result {
+                    // Format the quote as if the bot is saying it
+                    let formatted_quote = if character == "MST3K" {
+                        // If we couldn't extract a character, just use the quote
+                        quote
+                    } else {
+                        // Format as if the bot is quoting the character
+                        format!("*as {}*: {}", character, quote)
+                    };
+                    
+                    // Send the quote
+                    let quote_for_log = formatted_quote.clone(); // Clone for logging
+                    if let Err(e) = msg.channel_id.say(&ctx.http, formatted_quote).await {
+                        error!("Error sending MST3K database quote: {:?}", e);
+                        
+                        // Fall back to hardcoded quotes if sending fails
+                        fallback_mst3k_quote(ctx, msg).await?;
+                    } else {
+                        info!("MST3K database quote sent: {}", quote_for_log);
+                        return Ok(());
+                    }
+                } else {
+                    // Fall back to hardcoded quotes if database query fails
+                    fallback_mst3k_quote(ctx, msg).await?;
+                }
             } else {
-                info!("MST3K interjection sent: {}", quote_text);
+                // Database not configured, use hardcoded quotes
+                fallback_mst3k_quote(ctx, msg).await?;
             }
         }
         

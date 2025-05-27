@@ -5,8 +5,9 @@ use serenity::all::Http;
 use tracing::{error, info};
 use rand::Rng;
 
+#[derive(Clone)]
 pub struct DatabaseManager {
-    pool: Option<Pool>,
+    pub pool: Option<Pool>,
 }
 
 impl DatabaseManager {
