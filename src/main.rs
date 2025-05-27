@@ -865,8 +865,8 @@ impl Bot {
                         // If we couldn't extract a character, just use the quote
                         quote
                     } else {
-                        // Format as if the bot is quoting the character
-                        format!("*as {}*: {}", character, quote)
+                        // Just use the character's quote directly
+                        quote
                     };
                     
                     // Send the quote
@@ -877,7 +877,7 @@ impl Bot {
                         // Fall back to hardcoded quotes if sending fails
                         fallback_mst3k_quote(ctx, msg).await?;
                     } else {
-                        info!("MST3K database quote sent: {}", quote_for_log);
+                        info!("MST3K database quote sent: {} (from character: {})", quote_for_log, character);
                         return Ok(());
                     }
                 } else {
