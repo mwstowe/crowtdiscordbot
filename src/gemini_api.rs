@@ -185,6 +185,16 @@ impl GeminiClient {
             if let Some(candidate) = candidates.get_mut(0) {
                 if let Some(content) = candidate.get_mut("content") {
                     if let Some(parts) = content.get_mut("parts") {
+                        // Check for image data in the first part (alternative format)
+                        if let Some(part) = parts.get_mut(0) {
+                            if let Some(inline_data) = part.get_mut("inlineData") {
+                                if let Some(data) = inline_data.get_mut("data") {
+                                    *data = serde_json::Value::String("[IMAGE DATA REDACTED]".to_string());
+                                }
+                            }
+                        }
+                        
+                        // Check for image data in the second part (typical format)
                         if let Some(part) = parts.get_mut(1) {
                             if let Some(inline_data) = part.get_mut("inlineData") {
                                 if let Some(data) = inline_data.get_mut("data") {
