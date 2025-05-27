@@ -774,233 +774,260 @@ impl Bot {
     
     // Process a message
     async fn process_message(&self, ctx: &Context, msg: &Message) -> Result<()> {
-        // Random interjection (2% chance - 1 in 50)
-        if rand::thread_rng().gen_bool(0.02) {
-            info!("Triggered random interjection (1 in 50 chance)");
+        // Random interjections with configured probabilities
+        
+        // MST3K Quote interjection
+        if rand::thread_rng().gen_bool(self.interjection_mst3k_probability) {
+            let probability_percent = self.interjection_mst3k_probability * 100.0;
+            let odds = if self.interjection_mst3k_probability > 0.0 {
+                format!("1 in {:.0}", 1.0 / self.interjection_mst3k_probability)
+            } else {
+                "disabled".to_string()
+            };
             
-            // Choose which type of interjection to make (MST3K quote, channel memory, message pondering, or AI interjection)
-            let interjection_type = rand::thread_rng().gen_range(0..4);
+            info!("Triggered MST3K quote interjection ({:.2}% chance, {})", probability_percent, odds);
             
-            match interjection_type {
-                0 => {
-                    // MST3K Quote
-                    info!("Random interjection: MST3K Quote");
-                    let mst3k_quotes = [
-                        "Watch out for snakes!",
-                        "It's the amazing Rando!",
-                        "Normal view... Normal view... NORMAL VIEW!",
-                        "Hi-keeba!",
-                        "I'm different!",
-                        "Rowsdower!",
-                        "Mitchell!",
-                        "Deep hurting...",
-                        "Trumpy, you can do magic things!",
-                        "Torgo's theme intensifies",
-                    ];
+            let mst3k_quotes = [
+                "Watch out for snakes!",
+                "It's the amazing Rando!",
+                "Normal view... Normal view... NORMAL VIEW!",
+                "Hi-keeba!",
+                "I'm different!",
+                "Rowsdower!",
+                "Mitchell!",
+                "Deep hurting...",
+                "Trumpy, you can do magic things!",
+                "Torgo's theme intensifies",
+            ];
                     
-                    let quote = mst3k_quotes.choose(&mut rand::thread_rng()).unwrap_or(&"I'm different!").to_string();
-                    let quote_text = quote.clone(); // Clone for logging
-                    if let Err(e) = msg.channel_id.say(&ctx.http, quote).await {
-                        error!("Error sending random MST3K quote: {:?}", e);
-                    } else {
-                        info!("MST3K interjection sent: {}", quote_text);
-                    }
-                },
-                1 => {
-                    // Enhanced Channel Memory (quote something someone previously said)
-                    info!("Random interjection: Enhanced Channel Memory");
-                    if let (Some(db), Some(gemini_client)) = (&self.message_db, &self.gemini_client) {
-                        let db_clone = Arc::clone(db);
-                        
-                        // Start typing indicator
-                        if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
-                            error!("Failed to send typing indicator for memory interjection: {:?}", e);
-                        }
-                        
-                        // Query the database for a random message with minimum length of 20 characters
-                        let result = db_clone.lock().await.call(|conn| {
-                            let query = "SELECT content, author, display_name FROM messages WHERE length(content) >= 20 ORDER BY RANDOM() LIMIT 1";
-                            let mut stmt = conn.prepare(query)?;
-                            
-                            let rows = stmt.query_map([], |row| {
-                                Ok((
-                                    row.get::<_, String>(0)?,
-                                    row.get::<_, String>(1)?,
-                                    row.get::<_, String>(2)?
-                                ))
-                            })?;
-                            
-                            let mut result = Vec::new();
-                            for row in rows {
-                                result.push(row?);
-                            }
-                            
-                            Ok::<_, rusqlite::Error>(result)
-                        }).await;
-                        
-                        // Get recent context from the channel
-                        let builder = serenity::builder::GetMessages::default().limit(3);
-                        let context = match msg.channel_id.messages(&ctx.http, builder).await {
-                            Ok(messages) => messages,
-                            Err(e) => {
-                                error!("Error retrieving recent messages for memory context: {:?}", e);
-                                Vec::new()
-                            }
-                        };
-                        
-                        let context_text = context.iter()
-                            .map(|m| format!("{}: {}", m.author.name, m.content))
-                            .collect::<Vec<_>>()
-                            .join("\n");
-                        
-                        match result {
-                            Ok(messages) => {
-                                if let Some((content, _, _)) = messages.first() {
-                                    let memory_prompt = format!(
-                                        "You are {}, a witty Discord bot. You've found this message in your memory: \"{}\". \
-                                        Here's what's currently being discussed:\n{}\n\n\
-                                        Please contribute to the conversation:\n\
-                                        1. Keep it short and natural\n\
-                                        2. Don't quote or reference the memory - just say what you want to say\n\
-                                        3. Don't identify yourself or explain what you're doing\n\
-                                        4. If you can't make it work naturally, respond with 'pass'\n\
-                                        5. Correct any obvious typos but preserve the message's character\n\n\
-                                        Remember: Be natural and direct - no meta-commentary. \
-                                        If you can't make it feel natural, just pass.",
-                                        self.bot_name, content, context_text
-                                    );
-                                    
-                                    // Process with Gemini API
-                                    match gemini_client.generate_content(&memory_prompt).await {
-                                        Ok(response) => {
-                                            let response = response.trim();
-                                            
-                                            // Check if we should skip this one
-                                            if response.to_lowercase() == "pass" {
-                                                info!("Memory interjection evaluation: decided to PASS");
-                                                return Ok(());
-                                            }
-                                            
-                                            // Send the processed memory
-                                            if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
-                                                error!("Error sending enhanced memory interjection: {:?}", e);
-                                            } else {
-                                                info!("Enhanced memory interjection sent: {}", response);
-                                            }
-                                        },
-                                        Err(e) => {
-                                            error!("Error processing memory with Gemini API: {:?}", e);
-                                        }
-                                    }
-                                }
-                            },
-                            Err(e) => {
-                                error!("Error querying database for random message: {:?}", e);
-                            }
-                        }
-                    }
-                },
-                2 => {
-                    // Message Pondering (respond to the last message with a thoughtful comment)
-                    info!("Random interjection: Message Pondering");
-                    let ponderings = [
-                        "Hmm, that's an interesting point.",
-                        "I was just thinking about that!",
-                        "That reminds me of something...",
-                        "I'm not sure I agree with that.",
-                        "Fascinating perspective.",
-                        "I've been pondering that very question.",
-                        "That's what I've been saying all along!",
-                        "I never thought of it that way before.",
-                        "You know, that's actually quite profound.",
-                        "Wait, what?",
-                    ];
+            let quote = mst3k_quotes.choose(&mut rand::thread_rng()).unwrap_or(&"I'm different!").to_string();
+            let quote_text = quote.clone(); // Clone for logging
+            if let Err(e) = msg.channel_id.say(&ctx.http, quote).await {
+                error!("Error sending random MST3K quote: {:?}", e);
+            } else {
+                info!("MST3K interjection sent: {}", quote_text);
+            }
+        }
+        
+        // Memory interjection
+        if rand::thread_rng().gen_bool(self.interjection_memory_probability) {
+            let probability_percent = self.interjection_memory_probability * 100.0;
+            let odds = if self.interjection_memory_probability > 0.0 {
+                format!("1 in {:.0}", 1.0 / self.interjection_memory_probability)
+            } else {
+                "disabled".to_string()
+            };
+            
+            info!("Triggered memory interjection ({:.2}% chance, {})", probability_percent, odds);
+            
+            if let (Some(db), Some(gemini_client)) = (&self.message_db, &self.gemini_client) {
+                let db_clone = Arc::clone(db);
+                
+                // Start typing indicator
+                if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
+                    error!("Failed to send typing indicator for memory interjection: {:?}", e);
+                }
+                
+                // Query the database for a random message with minimum length of 20 characters
+                let result = db_clone.lock().await.call(|conn| {
+                    let query = "SELECT content, author, display_name FROM messages WHERE length(content) >= 20 ORDER BY RANDOM() LIMIT 1";
+                    let mut stmt = conn.prepare(query)?;
                     
-                    let pondering = ponderings.choose(&mut rand::thread_rng()).unwrap_or(&"Hmm, interesting.").to_string();
-                    let pondering_text = pondering.clone(); // Clone for logging
-                    if let Err(e) = msg.channel_id.say(&ctx.http, pondering).await {
-                        error!("Error sending random pondering: {:?}", e);
-                    } else {
-                        info!("Pondering interjection sent: {}", pondering_text);
+                    let rows = stmt.query_map([], |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?
+                        ))
+                    })?;
+                    
+                    let mut result = Vec::new();
+                    for row in rows {
+                        result.push(row?);
                     }
-                },
-                3 => {
-                    // AI Interjection (use Gemini API with custom prompt)
-                    if let Some(gemini_client) = &self.gemini_client {
-                        if let Some(interjection_prompt) = &self.gemini_interjection_prompt {
-                            info!("Random interjection: AI Interjection with custom prompt");
+                    
+                    Ok::<_, rusqlite::Error>(result)
+                }).await;
+                
+                // Get recent context from the channel
+                let builder = serenity::builder::GetMessages::default().limit(3);
+                let context = match msg.channel_id.messages(&ctx.http, builder).await {
+                    Ok(messages) => messages,
+                    Err(e) => {
+                        error!("Error retrieving recent messages for memory context: {:?}", e);
+                        Vec::new()
+                    }
+                };
+                
+                let context_text = context.iter()
+                    .map(|m| format!("{}: {}", m.author.name, m.content))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                
+                match result {
+                    Ok(messages) => {
+                        if let Some((content, _, _)) = messages.first() {
+                            let memory_prompt = format!(
+                                "You are {}, a witty Discord bot. You've found this message in your memory: \"{}\". \
+                                Here's what's currently being discussed:\n{}\n\n\
+                                Please contribute to the conversation:\n\
+                                1. Keep it short and natural\n\
+                                2. Don't quote or reference the memory - just say what you want to say\n\
+                                3. Don't identify yourself or explain what you're doing\n\
+                                4. If you can't make it work naturally, respond with 'pass'\n\
+                                5. Correct any obvious typos but preserve the message's character\n\n\
+                                Remember: Be natural and direct - no meta-commentary. \
+                                If you can't make it feel natural, just pass.",
+                                self.bot_name, content, context_text
+                            );
                             
-                            // Start typing indicator
-                            if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
-                                error!("Failed to send typing indicator for AI interjection: {:?}", e);
-                            }
-                            
-                            // Get recent messages for context - use more messages for better context
-                            let context_messages = if let Some(db) = &self.message_db {
-                                match db_utils::get_recent_messages(db.clone(), 5, Some(msg.channel_id.to_string().as_str())).await {
-                                    Ok(messages) => messages,
-                                    Err(e) => {
-                                        error!("Error retrieving recent messages for AI interjection: {:?}", e);
-                                        Vec::new()
-                                    }
-                                }
-                            } else {
-                                Vec::new()
-                            };
-                            
-                            // Format context for the prompt
-                            let context_text = if !context_messages.is_empty() {
-                                // Reverse the messages to get chronological order (oldest first)
-                                let mut chronological_messages = context_messages.clone();
-                                chronological_messages.reverse();
-                                
-                                let formatted_messages: Vec<String> = chronological_messages.iter()
-                                    .map(|(_author, display_name, content)| format!("{}: {}", display_name, content))
-                                    .collect();
-                                formatted_messages.join("\n")
-                            } else {
-                                "No recent messages".to_string()
-                            };
-                            
-                            // Replace placeholders in the custom prompt
-                            let prompt = interjection_prompt
-                                .replace("{bot_name}", &self.bot_name)
-                                .replace("{context}", &context_text);
-                            
-                            // Call Gemini API with the custom prompt
-                            match gemini_client.generate_response(&prompt, "").await {
+                            // Process with Gemini API
+                            match gemini_client.generate_content(&memory_prompt).await {
                                 Ok(response) => {
-                                    // Check if the response is "pass" - if so, don't send anything
-                                    if response.trim().to_lowercase() == "pass" {
-                                        info!("AI interjection evaluation: decided to PASS - no response sent");
+                                    let response = response.trim();
+                                    
+                                    // Check if we should skip this one
+                                    if response.to_lowercase() == "pass" {
+                                        info!("Memory interjection evaluation: decided to PASS");
                                         return Ok(());
                                     }
                                     
-                                    // Apply realistic typing delay
-                                    apply_realistic_delay(&response, ctx, msg.channel_id).await;
-                                    
-                                    // Send the response
-                                    let response_text = response.clone(); // Clone for logging
+                                    // Send the processed memory
                                     if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
-                                        error!("Error sending AI interjection: {:?}", e);
+                                        error!("Error sending enhanced memory interjection: {:?}", e);
                                     } else {
-                                        info!("AI interjection evaluation: SENT response - {}", response_text);
+                                        info!("Enhanced memory interjection sent: {}", response);
                                     }
                                 },
                                 Err(e) => {
-                                    error!("AI interjection evaluation: ERROR - {:?}", e);
+                                    error!("Error processing memory with Gemini API: {:?}", e);
                                 }
                             }
-                        } else {
-                            // If Gemini API is configured but interjection prompt is missing
-                            info!("AI Interjection not available (GEMINI_INTERJECTION_PROMPT not configured) - no response sent");
+                        }
+                    },
+                    Err(e) => {
+                        error!("Error querying database for random message: {:?}", e);
+                    }
+                }
+            }
+        }
+        
+        // Pondering interjection
+        if rand::thread_rng().gen_bool(self.interjection_pondering_probability) {
+            let probability_percent = self.interjection_pondering_probability * 100.0;
+            let odds = if self.interjection_pondering_probability > 0.0 {
+                format!("1 in {:.0}", 1.0 / self.interjection_pondering_probability)
+            } else {
+                "disabled".to_string()
+            };
+            
+            info!("Triggered pondering interjection ({:.2}% chance, {})", probability_percent, odds);
+            
+            let ponderings = [
+                "Hmm, that's an interesting point.",
+                "I was just thinking about that!",
+                "That reminds me of something...",
+                "I'm not sure I agree with that.",
+                "Fascinating perspective.",
+                "I've been pondering that very question.",
+                "That's what I've been saying all along!",
+                "I never thought of it that way before.",
+                "You know, that's actually quite profound.",
+                "Wait, what?",
+            ];
+            
+            let pondering = ponderings.choose(&mut rand::thread_rng()).unwrap_or(&"Hmm, interesting.").to_string();
+            let pondering_text = pondering.clone(); // Clone for logging
+            if let Err(e) = msg.channel_id.say(&ctx.http, pondering).await {
+                error!("Error sending random pondering: {:?}", e);
+            } else {
+                info!("Pondering interjection sent: {}", pondering_text);
+            }
+        }
+        
+        // AI interjection
+        if rand::thread_rng().gen_bool(self.interjection_ai_probability) {
+            let probability_percent = self.interjection_ai_probability * 100.0;
+            let odds = if self.interjection_ai_probability > 0.0 {
+                format!("1 in {:.0}", 1.0 / self.interjection_ai_probability)
+            } else {
+                "disabled".to_string()
+            };
+            
+            info!("Triggered AI interjection ({:.2}% chance, {})", probability_percent, odds);
+            
+            if let Some(gemini_client) = &self.gemini_client {
+                if let Some(interjection_prompt) = &self.gemini_interjection_prompt {
+                    info!("Processing AI interjection with custom prompt");
+                    
+                    // Start typing indicator
+                    if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
+                        error!("Failed to send typing indicator for AI interjection: {:?}", e);
+                    }
+                    
+                    // Get recent messages for context - use more messages for better context
+                    let context_messages = if let Some(db) = &self.message_db {
+                        match db_utils::get_recent_messages(db.clone(), 5, Some(msg.channel_id.to_string().as_str())).await {
+                            Ok(messages) => messages,
+                            Err(e) => {
+                                error!("Error retrieving recent messages for AI interjection: {:?}", e);
+                                Vec::new()
+                            }
                         }
                     } else {
-                        // If Gemini API is not configured
-                        info!("AI Interjection not available (Gemini API not configured) - no response sent");
+                        Vec::new()
+                    };
+                    
+                    // Format context for the prompt
+                    let context_text = if !context_messages.is_empty() {
+                        // Reverse the messages to get chronological order (oldest first)
+                        let mut chronological_messages = context_messages.clone();
+                        chronological_messages.reverse();
+                        
+                        let formatted_messages: Vec<String> = chronological_messages.iter()
+                            .map(|(_author, display_name, content)| format!("{}: {}", display_name, content))
+                            .collect();
+                        formatted_messages.join("\n")
+                    } else {
+                        "No recent messages".to_string()
+                    };
+                    
+                    // Replace placeholders in the custom prompt
+                    let prompt = interjection_prompt
+                        .replace("{bot_name}", &self.bot_name)
+                        .replace("{context}", &context_text);
+                    
+                    // Call Gemini API with the custom prompt
+                    match gemini_client.generate_response(&prompt, "").await {
+                        Ok(response) => {
+                            // Check if the response is "pass" - if so, don't send anything
+                            if response.trim().to_lowercase() == "pass" {
+                                info!("AI interjection evaluation: decided to PASS - no response sent");
+                                return Ok(());
+                            }
+                            
+                            // Apply realistic typing delay
+                            apply_realistic_delay(&response, ctx, msg.channel_id).await;
+                            
+                            // Send the response
+                            let response_text = response.clone(); // Clone for logging
+                            if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
+                                error!("Error sending AI interjection: {:?}", e);
+                            } else {
+                                info!("AI interjection evaluation: SENT response - {}", response_text);
+                            }
+                        },
+                        Err(e) => {
+                            error!("AI interjection evaluation: ERROR - {:?}", e);
+                        }
                     }
-                },
-                _ => {} // Should never happen
+                } else {
+                    // If Gemini API is configured but interjection prompt is missing
+                    info!("AI Interjection not available (GEMINI_INTERJECTION_PROMPT not configured) - no response sent");
+                }
+            } else {
+                // If Gemini API is not configured
+                info!("AI Interjection not available (Gemini API not configured) - no response sent");
             }
         }
         
