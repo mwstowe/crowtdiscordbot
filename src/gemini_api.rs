@@ -211,8 +211,11 @@ impl GeminiClient {
             .and_then(|t| t.as_str())
             .unwrap_or("").to_string();
         
-        // Extract the generated image data
-        if let Some(image_data) = response_json
+        // Extract the generated image data - handle both possible response formats
+        let mut image_data = None;
+        
+        // First try to find the image in the second part (typical format)
+        if let Some(data) = response_json
             .get("candidates")
             .and_then(|c| c.get(0))
             .and_then(|c| c.get("content"))
@@ -221,6 +224,26 @@ impl GeminiClient {
             .and_then(|p| p.get("inlineData"))
             .and_then(|i| i.get("data"))
             .and_then(|d| d.as_str()) {
+            image_data = Some(data);
+        }
+        
+        // If not found, try to find it in the first part (alternative format)
+        if image_data.is_none() {
+            if let Some(data) = response_json
+                .get("candidates")
+                .and_then(|c| c.get(0))
+                .and_then(|c| c.get("content"))
+                .and_then(|c| c.get("parts"))
+                .and_then(|p| p.get(0))
+                .and_then(|p| p.get("inlineData"))
+                .and_then(|i| i.get("data"))
+                .and_then(|d| d.as_str()) {
+                image_data = Some(data);
+            }
+        }
+        
+        // Process the image data if found
+        if let Some(image_data) = image_data {
             info!("Successfully generated image from Gemini API");
             
             // Decode base64 image data
