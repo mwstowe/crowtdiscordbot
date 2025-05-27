@@ -85,3 +85,7 @@ DB_PASSWORD = "quotes_password"
 
 # Gateway bot IDs (comma-separated) - messages from these bots will be processed
 # GATEWAY_BOT_IDS = "123456789012345678,234567890123456789"
+
+# Image generation channels (comma-separated) - channels where !imagine command is allowed
+# If empty, the command is allowed in all followed channels
+# IMAGINE_CHANNELS = "bot-testing,ai-images"
