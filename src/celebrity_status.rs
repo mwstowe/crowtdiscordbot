@@ -152,21 +152,61 @@ async fn search_celebrity(name: &str) -> Result<Option<String>> {
 }
 
 fn extract_date(text: &str, keyword: &str) -> Option<String> {
+    info!("Extracting {} date from text: {}", keyword, text);
+    
     // Common date patterns in Wikipedia
     let patterns = [
         format!(r"{} on (\d+ [A-Za-z]+ \d{{4}})", keyword),
         format!(r"{} in ([A-Za-z]+ \d{{4}})", keyword),
         format!(r"{} (\d+ [A-Za-z]+ \d{{4}})", keyword),
+        format!(r"{} at .* on (\d+ [A-Za-z]+ \d{{4}})", keyword),
+        format!(r"{} .* on (\d+ [A-Za-z]+ \d{{4}})", keyword),
+        // Add more patterns as needed
     ];
     
-    for pattern in patterns {
-        if let Some(captures) = regex::Regex::new(&pattern).ok()?.captures(text) {
+    for pattern in &patterns {
+        info!("Trying pattern: {}", pattern);
+        if let Some(captures) = regex::Regex::new(pattern).ok()?.captures(text) {
             if let Some(date_match) = captures.get(1) {
-                return Some(date_match.as_str().to_string());
+                let date = date_match.as_str().to_string();
+                info!("Found date with pattern {}: {}", pattern, date);
+                return Some(date);
             }
         }
     }
     
+    // If we couldn't find a date with the specific patterns, try a more general approach
+    // Look for dates near the keyword
+    let keyword_pos = match text.find(keyword) {
+        Some(pos) => pos,
+        None => return None,
+    };
+    
+    // Look for a date pattern within 100 characters after the keyword
+    let search_end = (keyword_pos + 100).min(text.len());
+    let search_text = &text[keyword_pos..search_end];
+    
+    info!("Searching for date in: {}", search_text);
+    
+    // General date patterns
+    let general_patterns = [
+        r"(\d{1,2} [A-Za-z]+ \d{4})",  // 20 April 2023
+        r"([A-Za-z]+ \d{1,2}, \d{4})",  // April 20, 2023
+        r"(\d{4}-\d{2}-\d{2})",         // 2023-04-20
+    ];
+    
+    for pattern in &general_patterns {
+        info!("Trying general pattern: {}", pattern);
+        if let Some(captures) = regex::Regex::new(pattern).ok()?.captures(search_text) {
+            if let Some(date_match) = captures.get(1) {
+                let date = date_match.as_str().to_string();
+                info!("Found date with general pattern {}: {}", pattern, date);
+                return Some(date);
+            }
+        }
+    }
+    
+    info!("No date found for keyword: {}", keyword);
     None
 }
 
