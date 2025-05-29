@@ -199,8 +199,25 @@ async fn search_celebrity(name: &str) -> Result<Option<String>> {
                 date);
             
             // Add cause of death if available
-            if let Some(cause) = cause_of_death {
+            if let Some(ref cause) = cause_of_death {
                 death_info.push_str(&format!(" Cause of death: {}.", cause));
+            }
+            
+            // Calculate age at death if birth date is available
+            if let Some(birth_date_str) = &birth_date {
+                if let Some(birth) = parse_date(birth_date_str) {
+                    if let Some(death) = parse_date(&date) {
+                        let age = calculate_age(birth, death);
+                        death_info = format!(". {} died on {} at the age of {}.", 
+                            subject_pronoun.to_string().to_uppercase().chars().next().unwrap().to_string() + &subject_pronoun[1..], 
+                            date, age);
+                        
+                        // Re-add cause of death if available
+                        if let Some(ref cause) = cause_of_death {
+                            death_info.push_str(&format!(" Cause of death: {}.", cause));
+                        }
+                    }
+                }
             }
             
             response.push_str(&death_info);
@@ -215,8 +232,25 @@ async fn search_celebrity(name: &str) -> Result<Option<String>> {
                 date);
             
             // Add cause of death if available
-            if let Some(cause) = cause_of_death {
+            if let Some(ref cause) = cause_of_death {
                 death_info.push_str(&format!(" Cause of death: {}.", cause));
+            }
+            
+            // Calculate age at death if birth date is available
+            if let Some(birth_date_str) = &birth_date {
+                if let Some(birth) = parse_date(birth_date_str) {
+                    if let Some(death) = parse_date(&date) {
+                        let age = calculate_age(birth, death);
+                        death_info = format!(". {} died on {} at the age of {}.", 
+                            subject_pronoun.to_string().to_uppercase().chars().next().unwrap().to_string() + &subject_pronoun[1..], 
+                            date, age);
+                        
+                        // Re-add cause of death if available
+                        if let Some(ref cause) = cause_of_death {
+                            death_info.push_str(&format!(" Cause of death: {}.", cause));
+                        }
+                    }
+                }
             }
             
             response.push_str(&death_info);
