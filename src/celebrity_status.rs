@@ -292,7 +292,9 @@ pub fn extract_dates_from_parentheses(text: &str) -> (Option<String>, Option<Str
                     let year_regex = Regex::new(r"\d{4}").unwrap();
                     if year_regex.is_match(birth_part) && year_regex.is_match(death_part) {
                         // Create cleaned text without the parentheses
-                        let cleaned_text = format!("{}{}", &text[0..start_idx], &text[end_idx+1..]);
+                        // Remove any double spaces that might be created when removing parentheses
+                        let mut cleaned_text = format!("{}{}", &text[0..start_idx], &text[end_idx+1..]);
+                        cleaned_text = cleaned_text.replace("  ", " ");
                         
                         info!("DIRECT EXTRACTION SUCCESS - Birth: {}, Death: {}", birth_part, death_part);
                         info!("Cleaned text: {}", cleaned_text);
@@ -315,7 +317,9 @@ pub fn extract_dates_from_parentheses(text: &str) -> (Option<String>, Option<Str
         info!("Regex extraction - parentheses content: {}", parentheses_content);
         
         // Create cleaned text without the parentheses
-        let cleaned_text = format!("{}{}", before, after);
+        // Remove any double spaces that might be created when removing parentheses
+        let mut cleaned_text = format!("{}{}", before, after);
+        cleaned_text = cleaned_text.replace("  ", " ");
         
         // Direct check for birth-death date format
         if parentheses_content.contains('–') || parentheses_content.contains('-') {
