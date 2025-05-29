@@ -202,11 +202,32 @@ pub fn extract_dates_from_parentheses(text: &str) -> (Option<String>, Option<Str
         info!("Before parentheses: {}", before);
         info!("After parentheses: {}", after);
         
-        // Extract birth and death dates from parentheses
+        // Direct check for birth-death date format (e.g., "January 20, 1946 – January 16, 2025")
+        if parentheses_content.contains('–') || parentheses_content.contains('-') {
+            let separator = if parentheses_content.contains('–') { '–' } else { '-' };
+            let parts: Vec<&str> = parentheses_content.split(separator).collect();
+            
+            if parts.len() == 2 {
+                let birth_part = parts[0].trim();
+                let death_part = parts[1].trim();
+                
+                // Check if both parts look like dates (contain years)
+                let year_regex = Regex::new(r"\d{4}").unwrap();
+                if year_regex.is_match(birth_part) && year_regex.is_match(death_part) {
+                    info!("Direct extraction - Birth date: {}, Death date: {}", birth_part, death_part);
+                    
+                    // Create cleaned text without the parentheses
+                    let cleaned_text = format!("{}{}", before, after);
+                    return (Some(birth_part.to_string()), Some(death_part.to_string()), cleaned_text);
+                }
+            }
+        }
+        
+        // If direct extraction didn't work, try the more complex patterns
         let birth_date = extract_year_from_parentheses(parentheses_content, "born");
         let death_date = extract_year_from_parentheses(parentheses_content, "died");
         
-        info!("Extracted birth date: {:?}, death date: {:?}", birth_date, death_date);
+        info!("Pattern-based extraction - Birth date: {:?}, Death date: {:?}", birth_date, death_date);
         
         // Create cleaned text without the parentheses
         let cleaned_text = format!("{}{}", before, after);
