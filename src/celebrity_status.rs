@@ -188,23 +188,52 @@ async fn search_celebrity(name: &str) -> Result<Option<String>> {
     info!("Is dead determination: {}", is_dead);
     
     if is_dead {
+        // Try to extract cause of death
+        let cause_of_death = extract_cause_of_death(raw_extract);
+        
         // First check if we have a death date from parentheses
         if let Some(date) = death_date {
             info!("Using death date from parentheses: {}", date);
-            response.push_str(&format!(". {} died on {}.", subject_pronoun.to_string().to_uppercase().chars().next().unwrap().to_string() + &subject_pronoun[1..], date));
+            let mut death_info = format!(". {} died on {}.", 
+                subject_pronoun.to_string().to_uppercase().chars().next().unwrap().to_string() + &subject_pronoun[1..], 
+                date);
+            
+            // Add cause of death if available
+            if let Some(cause) = cause_of_death {
+                death_info.push_str(&format!(" Cause of death: {}.", cause));
+            }
+            
+            response.push_str(&death_info);
             return Ok(Some(response));
         }
         
         // If not, try to extract death date from the text
         if let Some(date) = extract_date(&cleaned_extract, "died") {
             info!("Using extracted death date: {}", date);
-            response.push_str(&format!(". {} died on {}.", subject_pronoun.to_string().to_uppercase().chars().next().unwrap().to_string() + &subject_pronoun[1..], date));
+            let mut death_info = format!(". {} died on {}.", 
+                subject_pronoun.to_string().to_uppercase().chars().next().unwrap().to_string() + &subject_pronoun[1..], 
+                date);
+            
+            // Add cause of death if available
+            if let Some(cause) = cause_of_death {
+                death_info.push_str(&format!(" Cause of death: {}.", cause));
+            }
+            
+            response.push_str(&death_info);
             return Ok(Some(response));
         }
         
         // If we still don't have a death date
         info!("No death date found for {}", page_title);
-        response.push_str(&format!(". {} has died, but I couldn't determine the exact date.", subject_pronoun.to_string().to_uppercase().chars().next().unwrap().to_string() + &subject_pronoun[1..]));
+        let mut death_info = format!(". {} has died, but I couldn't determine the exact date.", 
+            subject_pronoun.to_string().to_uppercase().chars().next().unwrap().to_string() + &subject_pronoun[1..]);
+        
+        // Add cause of death if available
+        if let Some(cause) = cause_of_death {
+            death_info.push_str(&format!(" Cause of death: {}.", cause));
+        }
+        
+        response.push_str(&death_info);
         return Ok(Some(response));
     } else {
         // Person is alive - try to calculate their age
@@ -463,6 +492,87 @@ fn parse_date(date_str: &str) -> Option<NaiveDate> {
         }
     }
     
+    None
+}
+
+// Function to extract cause of death from text
+fn extract_cause_of_death(text: &str) -> Option<String> {
+    info!("Attempting to extract cause of death from text");
+    
+    // Common patterns for cause of death
+    let patterns = [
+        r"died (?:of|from|due to|after|following) ([^\.]+)",
+        r"death (?:was caused by|was due to|from|by) ([^\.]+)",
+        r"died .{0,30}? (?:of|from|due to|after|following) ([^\.]+)",
+        r"passed away (?:from|due to|after|following) ([^\.]+)",
+        r"succumbed to ([^\.]+)",
+        r"lost (?:his|her|their) (?:battle|fight|struggle) with ([^\.]+)",
+        r"died .{0,50}? complications (?:of|from) ([^\.]+)",
+        r"cause of death was ([^\.]+)",
+    ];
+    
+    let text_lower = text.to_lowercase();
+    
+    for pattern in &patterns {
+        if let Ok(re) = Regex::new(pattern) {
+            if let Some(captures) = re.captures(&text_lower) {
+                if let Some(cause_match) = captures.get(1) {
+                    let mut cause = cause_match.as_str().trim().to_string();
+                    
+                    // Clean up the cause of death
+                    // Remove trailing periods, commas, etc.
+                    while cause.ends_with('.') || cause.ends_with(',') || cause.ends_with(';') || cause.ends_with(':') {
+                        cause.pop();
+                    }
+                    
+                    // Capitalize first letter
+                    if !cause.is_empty() {
+                        let first_char = cause.chars().next().unwrap().to_uppercase().collect::<String>();
+                        if cause.len() > 1 {
+                            cause = first_char + &cause[1..];
+                        } else {
+                            cause = first_char;
+                        }
+                    }
+                    
+                    info!("Found cause of death: {}", cause);
+                    return Some(cause);
+                }
+            }
+        }
+    }
+    
+    // If no match found with the patterns, try to find sentences containing death-related terms
+    let death_terms = ["died", "death", "passed away", "deceased", "fatal", "killed"];
+    
+    // Split the text into sentences
+    let sentences: Vec<&str> = text.split(|c| c == '.' || c == '!' || c == '?')
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .collect();
+    
+    for sentence in sentences {
+        let sentence_lower = sentence.to_lowercase();
+        for term in &death_terms {
+            if sentence_lower.contains(term) {
+                // Look for cause indicators
+                let cause_indicators = ["from", "due to", "of", "after", "by", "with"];
+                for indicator in &cause_indicators {
+                    if sentence_lower.contains(indicator) {
+                        if let Some(pos) = sentence_lower.find(indicator) {
+                            let cause = sentence[pos + indicator.len()..].trim();
+                            if !cause.is_empty() {
+                                info!("Found potential cause of death in sentence: {}", cause);
+                                return Some(cause.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    info!("No cause of death found");
     None
 }
 
