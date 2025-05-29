@@ -5,6 +5,7 @@ use tracing::{error, info};
 use reqwest::Client;
 use serde_json::Value;
 use chrono::{NaiveDate, Datelike};
+use regex::Regex;
 
 pub async fn handle_aliveordead_command(http: &Http, msg: &Message, celebrity_name: &str) -> Result<()> {
     info!("Handling !aliveordead command for celebrity: {}", celebrity_name);
@@ -100,27 +101,40 @@ async fn search_celebrity(name: &str) -> Result<Option<String>> {
         }
     };
     
-    // Check if this is a person (has "born" or "died" in the extract)
-    if !extract.contains(" born ") && !extract.contains(" died ") {
+    // Check if this is a person (has birth/death dates in parentheses or "born"/"died" in the extract)
+    let is_person = extract.contains(" born ") || extract.contains(" died ") || 
+                    Regex::new(r"\([^)]*\d{4}[^)]*\)").ok().map_or(false, |re| re.is_match(extract));
+    
+    if !is_person {
         info!("Page doesn't appear to be about a person: {}", page_title);
         return Ok(Some(format!("I found information about '{}', but it doesn't appear to be a person.", page_title)));
     }
     
+    // Try to extract birth and death dates from parentheses after the name
+    let (birth_date, death_date, cleaned_extract) = extract_dates_from_parentheses(extract);
+    
     // Get a short description (first sentence or two)
-    let description = extract
+    let description = cleaned_extract
         .split('.')
         .take(2)
         .collect::<Vec<&str>>()
-        .join(".");
+        .join(".")
+        .trim()
+        .to_string();
     
-    // Check for death information
-    let is_dead = extract.contains(" died ");
+    // Determine if the person is dead
+    let is_dead = death_date.is_some() || extract.contains(" died ");
     
     if is_dead {
-        // Try to extract death date
-        let death_date = extract_date(extract, "died");
+        // If we have a death date from parentheses, use it
+        if let Some(date) = death_date {
+            return Ok(Some(format!("**{}**: {}. They died on {}.", page_title, description, date)));
+        }
         
-        match death_date {
+        // Otherwise try to extract death date from the text
+        let extracted_death_date = extract_date(&cleaned_extract, "died");
+        
+        match extracted_death_date {
             Some(date) => {
                 return Ok(Some(format!("**{}**: {}. They died on {}.", page_title, description, date)));
             },
@@ -129,19 +143,35 @@ async fn search_celebrity(name: &str) -> Result<Option<String>> {
             }
         }
     } else {
-        // Try to extract birth date to calculate age
-        let birth_date = extract_date(extract, "born");
+        // Person is alive
+        // If we have a birth date from parentheses, use it to calculate age
+        if let Some(date_str) = birth_date {
+            // Try to parse the date in various formats
+            let parsed_date = parse_date(&date_str);
+            
+            if let Some(birth) = parsed_date {
+                // Calculate age
+                let today = chrono::Local::now().naive_local().date();
+                let age = calculate_age(birth, today);
+                return Ok(Some(format!("**{}**: {}. They are still alive at {} years old.", page_title, description, age)));
+            }
+        }
         
-        match birth_date {
-            Some(date) => {
+        // Try to extract birth date from the text
+        let extracted_birth_date = extract_date(&cleaned_extract, "born");
+        
+        match extracted_birth_date {
+            Some(date_str) => {
                 // Try to parse the date
-                if let Ok(parsed_date) = NaiveDate::parse_from_str(&date, "%d %B %Y") {
+                let parsed_date = parse_date(&date_str);
+                
+                if let Some(birth) = parsed_date {
                     // Calculate age
                     let today = chrono::Local::now().naive_local().date();
-                    let age = calculate_age(parsed_date, today);
+                    let age = calculate_age(birth, today);
                     return Ok(Some(format!("**{}**: {}. They are still alive at {} years old.", page_title, description, age)));
                 } else {
-                    return Ok(Some(format!("**{}**: {}. They are still alive, born on {}.", page_title, description, date)));
+                    return Ok(Some(format!("**{}**: {}. They are still alive, born on {}.", page_title, description, date_str)));
                 }
             },
             None => {
@@ -149,6 +179,78 @@ async fn search_celebrity(name: &str) -> Result<Option<String>> {
             }
         }
     }
+}
+
+fn extract_dates_from_parentheses(text: &str) -> (Option<String>, Option<String>, String) {
+    // Look for parentheses near the beginning of the text that contain dates
+    let re = Regex::new(r"^([^(]*)\(([^)]+)\)(.*)$").unwrap();
+    
+    if let Some(captures) = re.captures(text) {
+        let before = captures.get(1).map_or("", |m| m.as_str());
+        let parentheses_content = captures.get(2).map_or("", |m| m.as_str());
+        let after = captures.get(3).map_or("", |m| m.as_str());
+        
+        info!("Found parentheses content: {}", parentheses_content);
+        
+        // Extract birth and death dates from parentheses
+        let birth_date = extract_year_from_parentheses(parentheses_content, "born");
+        let death_date = extract_year_from_parentheses(parentheses_content, "died");
+        
+        // Create cleaned text without the parentheses
+        let cleaned_text = format!("{}{}", before, after);
+        
+        return (birth_date, death_date, cleaned_text);
+    }
+    
+    // If no parentheses found, return the original text
+    (None, None, text.to_string())
+}
+
+fn extract_year_from_parentheses(text: &str, date_type: &str) -> Option<String> {
+    // Common patterns in Wikipedia parentheses
+    // Examples: "born January 20, 1930", "20 January 1930 – 15 April 2023"
+    
+    if date_type == "born" {
+        // Look for birth date
+        // Pattern: "born January 20, 1930" or just a date at the beginning
+        let born_re = Regex::new(r"(?:born|b\.)\s+([A-Za-z]+\s+\d{1,2},?\s+\d{4})").unwrap();
+        if let Some(captures) = born_re.captures(text) {
+            return captures.get(1).map(|m| m.as_str().to_string());
+        }
+        
+        // If there's a dash, the birth date is likely before it
+        if text.contains('–') || text.contains('-') {
+            let parts: Vec<&str> = text.split(|c| c == '–' || c == '-').collect();
+            if !parts.is_empty() {
+                let potential_date = parts[0].trim();
+                // Check if it looks like a date (contains a year)
+                if Regex::new(r"\d{4}").unwrap().is_match(potential_date) {
+                    return Some(potential_date.to_string());
+                }
+            }
+        }
+    } else if date_type == "died" {
+        // Look for death date
+        // Pattern: "died April 15, 2023" or date after a dash
+        let died_re = Regex::new(r"(?:died|d\.)\s+([A-Za-z]+\s+\d{1,2},?\s+\d{4})").unwrap();
+        if let Some(captures) = died_re.captures(text) {
+            return captures.get(1).map(|m| m.as_str().to_string());
+        }
+        
+        // If there's a dash, the death date is likely after it
+        if text.contains('–') || text.contains('-') {
+            let parts: Vec<&str> = text.split(|c| c == '–' || c == '-').collect();
+            if parts.len() > 1 {
+                let potential_date = parts[1].trim();
+                // Check if it looks like a date (contains a year)
+                if Regex::new(r"\d{4}").unwrap().is_match(potential_date) {
+                    return Some(potential_date.to_string());
+                }
+            }
+        }
+    }
+    
+    None
 }
 
 fn extract_date(text: &str, keyword: &str) -> Option<String> {
@@ -207,6 +309,26 @@ fn extract_date(text: &str, keyword: &str) -> Option<String> {
     }
     
     info!("No date found for keyword: {}", keyword);
+    None
+}
+
+fn parse_date(date_str: &str) -> Option<NaiveDate> {
+    // Try various date formats
+    let formats = [
+        "%d %B %Y",       // 20 April 2023
+        "%B %d, %Y",      // April 20, 2023
+        "%Y-%m-%d",       // 2023-04-20
+        "%B %Y",          // April 2023
+        "%d %b %Y",       // 20 Apr 2023
+        "%b %d, %Y",      // Apr 20, 2023
+    ];
+    
+    for format in &formats {
+        if let Ok(date) = NaiveDate::parse_from_str(date_str, format) {
+            return Some(date);
+        }
+    }
+    
     None
 }
 
