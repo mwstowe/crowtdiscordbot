@@ -36,6 +36,43 @@ pub async fn handle_aliveordead_command(http: &Http, msg: &Message, celebrity_na
     Ok(())
 }
 
+// Function to determine gender and return appropriate pronouns
+fn determine_gender(text: &str) -> (&'static str, &'static str, &'static str) {
+    // Default to they/them/their
+    let mut subject = "they";
+    let mut object = "them";
+    let mut possessive = "their";
+    
+    // Look for gendered pronouns in the text
+    let text_lower = text.to_lowercase();
+    
+    // Check for male indicators
+    if text_lower.contains(" he ") || text_lower.contains(" his ") || text_lower.contains(" him ") || 
+       text_lower.contains(" himself ") || text_lower.contains(" mr. ") || text_lower.contains(" mr ") ||
+       text_lower.contains(" actor ") || text_lower.contains(" father ") || text_lower.contains(" son ") ||
+       text_lower.contains(" brother ") || text_lower.contains(" husband ") || text_lower.contains(" boyfriend ") {
+        subject = "he";
+        object = "him";
+        possessive = "his";
+        info!("Gender detection: Male pronouns detected");
+    }
+    // Check for female indicators
+    else if text_lower.contains(" she ") || text_lower.contains(" her ") || text_lower.contains(" hers ") || 
+            text_lower.contains(" herself ") || text_lower.contains(" mrs. ") || text_lower.contains(" mrs ") ||
+            text_lower.contains(" ms. ") || text_lower.contains(" ms ") || text_lower.contains(" miss ") ||
+            text_lower.contains(" actress ") || text_lower.contains(" mother ") || text_lower.contains(" daughter ") ||
+            text_lower.contains(" sister ") || text_lower.contains(" wife ") || text_lower.contains(" girlfriend ") {
+        subject = "she";
+        object = "her";
+        possessive = "her";
+        info!("Gender detection: Female pronouns detected");
+    } else {
+        info!("Gender detection: No clear gender indicators, using they/them");
+    }
+    
+    (subject, object, possessive)
+}
+
 async fn search_celebrity(name: &str) -> Result<Option<String>> {
     let client = Client::new();
     
@@ -112,6 +149,10 @@ async fn search_celebrity(name: &str) -> Result<Option<String>> {
         return Ok(Some(format!("I found information about '{}', but it doesn't appear to be a person.", page_title)));
     }
     
+    // Determine gender for proper pronoun usage
+    let (subject_pronoun, object_pronoun, possessive_pronoun) = determine_gender(raw_extract);
+    info!("Using pronouns: {}/{}/{}", subject_pronoun, object_pronoun, possessive_pronoun);
+    
     // Try to extract birth and death dates from parentheses after the name
     let (birth_date, death_date, cleaned_extract) = extract_dates_from_parentheses(raw_extract);
     
@@ -150,20 +191,20 @@ async fn search_celebrity(name: &str) -> Result<Option<String>> {
         // First check if we have a death date from parentheses
         if let Some(date) = death_date {
             info!("Using death date from parentheses: {}", date);
-            response.push_str(&format!(". They died on {}.", date));
+            response.push_str(&format!(". {} died on {}.", subject_pronoun.to_string().to_uppercase().chars().next().unwrap().to_string() + &subject_pronoun[1..], date));
             return Ok(Some(response));
         }
         
         // If not, try to extract death date from the text
         if let Some(date) = extract_date(&cleaned_extract, "died") {
             info!("Using extracted death date: {}", date);
-            response.push_str(&format!(". They died on {}.", date));
+            response.push_str(&format!(". {} died on {}.", subject_pronoun.to_string().to_uppercase().chars().next().unwrap().to_string() + &subject_pronoun[1..], date));
             return Ok(Some(response));
         }
         
         // If we still don't have a death date
         info!("No death date found for {}", page_title);
-        response.push_str(". They have died, but I couldn't determine the exact date.");
+        response.push_str(&format!(". {} has died, but I couldn't determine the exact date.", subject_pronoun.to_string().to_uppercase().chars().next().unwrap().to_string() + &subject_pronoun[1..]));
         return Ok(Some(response));
     } else {
         // Person is alive - try to calculate their age
@@ -174,7 +215,7 @@ async fn search_celebrity(name: &str) -> Result<Option<String>> {
                 let today = chrono::Local::now().naive_local().date();
                 let age = calculate_age(birth, today);
                 info!("Calculated age {} from birth date {}", age, date_str);
-                response.push_str(&format!(". They are still alive at {} years old.", age));
+                response.push_str(&format!(". {} is still alive at {} years old.", subject_pronoun.to_string().to_uppercase().chars().next().unwrap().to_string() + &subject_pronoun[1..], age));
                 return Ok(Some(response));
             }
         }
@@ -185,17 +226,17 @@ async fn search_celebrity(name: &str) -> Result<Option<String>> {
                 let today = chrono::Local::now().naive_local().date();
                 let age = calculate_age(birth, today);
                 info!("Calculated age {} from extracted birth date {}", age, date_str);
-                response.push_str(&format!(". They are still alive at {} years old.", age));
+                response.push_str(&format!(". {} is still alive at {} years old.", subject_pronoun.to_string().to_uppercase().chars().next().unwrap().to_string() + &subject_pronoun[1..], age));
                 return Ok(Some(response));
             } else {
                 // We have a birth date string but couldn't parse it
-                response.push_str(&format!(". They are still alive, born on {}.", date_str));
+                response.push_str(&format!(". {} is still alive, born on {}.", subject_pronoun.to_string().to_uppercase().chars().next().unwrap().to_string() + &subject_pronoun[1..], date_str));
                 return Ok(Some(response));
             }
         }
         
         // If we couldn't determine age
-        response.push_str(". They appear to be alive, but I couldn't determine their age.");
+        response.push_str(&format!(". {} appears to be alive, but I couldn't determine {}_age.", subject_pronoun.to_string().to_uppercase().chars().next().unwrap().to_string() + &subject_pronoun[1..], possessive_pronoun));
         return Ok(Some(response));
     }
 }
@@ -331,7 +372,6 @@ pub fn extract_year_from_parentheses(text: &str, date_type: &str) -> Option<Stri
         }
         
         // Special case for future dates - if the year is greater than current year
-        // This is to handle cases like "January 20, 1946 – January 16, 2025"
         let current_year = chrono::Local::now().year();
         let future_year_re = Regex::new(&format!(r"(\w+\s+\d{{1,2}},?\s+({}-\d{{4}}))", current_year)).unwrap();
         if let Some(captures) = future_year_re.captures(text) {
