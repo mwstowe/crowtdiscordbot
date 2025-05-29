@@ -269,6 +269,18 @@ pub fn extract_year_from_parentheses(text: &str, date_type: &str) -> Option<Stri
                 }
             }
         }
+        
+        // Special case for future dates - if the year is greater than current year
+        // This is to handle cases like "January 20, 1946 – January 16, 2025"
+        let current_year = chrono::Local::now().year();
+        let future_year_re = Regex::new(&format!(r"(\w+\s+\d{{1,2}},?\s+({}-\d{{4}}))", current_year)).unwrap();
+        if let Some(captures) = future_year_re.captures(text) {
+            if let Some(date_match) = captures.get(1) {
+                let date = date_match.as_str().to_string();
+                info!("Found future death date: {}", date);
+                return Some(date);
+            }
+        }
     }
     
     info!("No {} date found in parentheses", date_type);
