@@ -116,6 +116,8 @@ async fn search_celebrity(name: &str) -> Result<Option<String>> {
     let (birth_date, death_date, cleaned_extract) = extract_dates_from_parentheses(raw_extract);
     
     info!("Cleaned extract: {}", cleaned_extract);
+    info!("Birth date: {:?}", birth_date);
+    info!("Death date: {:?}", death_date);
     
     // Get a short description (first sentence or two)
     let description = cleaned_extract
@@ -186,7 +188,7 @@ async fn search_celebrity(name: &str) -> Result<Option<String>> {
     }
 }
 
-fn extract_dates_from_parentheses(text: &str) -> (Option<String>, Option<String>, String) {
+pub fn extract_dates_from_parentheses(text: &str) -> (Option<String>, Option<String>, String) {
     // Look for parentheses near the beginning of the text that contain dates
     // This regex matches the first set of parentheses in the text
     let re = Regex::new(r"^(.*?)\(([^)]+)\)(.*)$").unwrap();
@@ -217,7 +219,7 @@ fn extract_dates_from_parentheses(text: &str) -> (Option<String>, Option<String>
     (None, None, text.to_string())
 }
 
-fn extract_year_from_parentheses(text: &str, date_type: &str) -> Option<String> {
+pub fn extract_year_from_parentheses(text: &str, date_type: &str) -> Option<String> {
     // Common patterns in Wikipedia parentheses
     // Examples: "born January 20, 1930", "20 January 1930 – 15 April 2023"
     
