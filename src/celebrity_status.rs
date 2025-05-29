@@ -131,9 +131,20 @@ async fn search_celebrity(name: &str) -> Result<Option<String>> {
     let mut response = format!("**{}**: {}", page_title, description);
     
     // Determine if the person is dead and add appropriate information
-    // Check if the text contains a death date in parentheses or mentions "died"
-    // Also check if the text contains "was" instead of "is" as an additional indicator
-    let is_dead = death_date.is_some();
+    let contains_was = raw_extract.contains(" was ");
+    let contains_is = raw_extract.contains(" is ");
+    
+    // Debug the death detection logic
+    info!("Death detection - death_date: {:?}, contains_was: {}, contains_is: {}", 
+          death_date, contains_was, contains_is);
+    
+    // A person is considered dead if:
+    // 1. We have a death date from parentheses, OR
+    // 2. The text uses past tense ("was") and not present tense ("is") and has parentheses (likely birth-death dates)
+    let is_dead = death_date.is_some() || 
+                 (contains_was && !contains_is && raw_extract.contains("(") && raw_extract.contains(")"));
+    
+    info!("Is dead determination: {}", is_dead);
     
     if is_dead {
         // First check if we have a death date from parentheses
@@ -220,6 +231,11 @@ pub fn extract_dates_from_parentheses(text: &str) -> (Option<String>, Option<Str
                 let year_regex = Regex::new(r"\d{4}").unwrap();
                 if year_regex.is_match(birth_part) && year_regex.is_match(death_part) {
                     info!("SUCCESSFUL EXTRACTION - Birth: {}, Death: {}", birth_part, death_part);
+                    
+                    // Debug the extraction to make sure we're getting the right values
+                    info!("EXTRACTED BIRTH DATE: {}", birth_part);
+                    info!("EXTRACTED DEATH DATE: {}", death_part);
+                    
                     return (Some(birth_part.to_string()), Some(death_part.to_string()), cleaned_text);
                 }
             }
