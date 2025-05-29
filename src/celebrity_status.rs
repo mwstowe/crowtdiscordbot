@@ -201,8 +201,40 @@ async fn search_celebrity(name: &str) -> Result<Option<String>> {
 }
 
 pub fn extract_dates_from_parentheses(text: &str) -> (Option<String>, Option<String>, String) {
-    // Look for parentheses near the beginning of the text that contain dates
-    // This regex matches the first set of parentheses in the text
+    // Special case for the exact format we're seeing
+    if let Some(start_idx) = text.find('(') {
+        if let Some(end_idx) = text[start_idx..].find(')') {
+            let end_idx = start_idx + end_idx;
+            let parentheses_content = &text[start_idx+1..end_idx];
+            
+            info!("Direct extraction - parentheses content: {}", parentheses_content);
+            
+            // Check for birth-death format with en dash or hyphen
+            if parentheses_content.contains('–') || parentheses_content.contains('-') {
+                let separator = if parentheses_content.contains('–') { '–' } else { '-' };
+                let parts: Vec<&str> = parentheses_content.split(separator).collect();
+                
+                if parts.len() == 2 {
+                    let birth_part = parts[0].trim();
+                    let death_part = parts[1].trim();
+                    
+                    // Check if both parts look like dates (contain years)
+                    let year_regex = Regex::new(r"\d{4}").unwrap();
+                    if year_regex.is_match(birth_part) && year_regex.is_match(death_part) {
+                        // Create cleaned text without the parentheses
+                        let cleaned_text = format!("{}{}", &text[0..start_idx], &text[end_idx+1..]);
+                        
+                        info!("DIRECT EXTRACTION SUCCESS - Birth: {}, Death: {}", birth_part, death_part);
+                        info!("Cleaned text: {}", cleaned_text);
+                        
+                        return (Some(birth_part.to_string()), Some(death_part.to_string()), cleaned_text);
+                    }
+                }
+            }
+        }
+    }
+    
+    // If the direct approach didn't work, fall back to the regex approach
     let re = Regex::new(r"^(.*?)\(([^)]+)\)(.*)$").unwrap();
     
     if let Some(captures) = re.captures(text) {
@@ -210,15 +242,12 @@ pub fn extract_dates_from_parentheses(text: &str) -> (Option<String>, Option<Str
         let parentheses_content = captures.get(2).map_or("", |m| m.as_str());
         let after = captures.get(3).map_or("", |m| m.as_str());
         
-        info!("Found parentheses content: {}", parentheses_content);
-        info!("Before parentheses: {}", before);
-        info!("After parentheses: {}", after);
+        info!("Regex extraction - parentheses content: {}", parentheses_content);
         
         // Create cleaned text without the parentheses
         let cleaned_text = format!("{}{}", before, after);
-        info!("Created cleaned text: {}", cleaned_text);
         
-        // Direct check for birth-death date format (e.g., "January 20, 1946 – January 16, 2025")
+        // Direct check for birth-death date format
         if parentheses_content.contains('–') || parentheses_content.contains('-') {
             let separator = if parentheses_content.contains('–') { '–' } else { '-' };
             let parts: Vec<&str> = parentheses_content.split(separator).collect();
@@ -230,12 +259,7 @@ pub fn extract_dates_from_parentheses(text: &str) -> (Option<String>, Option<Str
                 // Check if both parts look like dates (contain years)
                 let year_regex = Regex::new(r"\d{4}").unwrap();
                 if year_regex.is_match(birth_part) && year_regex.is_match(death_part) {
-                    info!("SUCCESSFUL EXTRACTION - Birth: {}, Death: {}", birth_part, death_part);
-                    
-                    // Debug the extraction to make sure we're getting the right values
-                    info!("EXTRACTED BIRTH DATE: {}", birth_part);
-                    info!("EXTRACTED DEATH DATE: {}", death_part);
-                    
+                    info!("REGEX EXTRACTION SUCCESS - Birth: {}, Death: {}", birth_part, death_part);
                     return (Some(birth_part.to_string()), Some(death_part.to_string()), cleaned_text);
                 }
             }
