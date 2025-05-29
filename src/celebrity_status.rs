@@ -271,6 +271,32 @@ async fn search_celebrity(name: &str) -> Result<Option<String>> {
 }
 
 pub fn extract_dates_from_parentheses(text: &str) -> (Option<String>, Option<String>, String) {
+    // First, try to find birth and death dates from the entire text
+    // This handles cases like Eddie Van Halen where pronunciation guides appear before dates
+    let birth_death_regex = Regex::new(r"\(\s*[^)]*?(\w+\s+\d{1,2},?\s+\d{4})\s*(?:–|-)\s*(\w+\s+\d{1,2},?\s+\d{4})[^)]*\)").unwrap();
+    
+    if let Some(captures) = birth_death_regex.captures(text) {
+        if let (Some(birth_match), Some(death_match)) = (captures.get(1), captures.get(2)) {
+            let birth_date = birth_match.as_str().trim();
+            let death_date = death_match.as_str().trim();
+            
+            info!("REGEX EXTRACTION SUCCESS - Birth: {}, Death: {}", birth_date, death_date);
+            
+            // Remove the entire parenthetical section
+            let start_idx = captures.get(0).unwrap().start();
+            let end_idx = captures.get(0).unwrap().end();
+            
+            // Create cleaned text without the parentheses
+            let mut cleaned_text = format!("{}{}", &text[0..start_idx], &text[end_idx..]);
+            cleaned_text = cleaned_text.replace("  ", " ").trim().to_string();
+            
+            info!("Cleaned text: {}", cleaned_text);
+            
+            return (Some(birth_date.to_string()), Some(death_date.to_string()), cleaned_text);
+        }
+    }
+    
+    // If the improved regex approach didn't work, fall back to the original approach
     // Special case for the exact format we're seeing
     if let Some(start_idx) = text.find('(') {
         if let Some(end_idx) = text[start_idx..].find(')') {
