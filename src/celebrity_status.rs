@@ -115,9 +115,8 @@ async fn search_celebrity(name: &str) -> Result<Option<String>> {
     // Try to extract birth and death dates from parentheses after the name
     let (birth_date, death_date, cleaned_extract) = extract_dates_from_parentheses(raw_extract);
     
+    info!("FINAL EXTRACTION RESULTS - Birth date: {:?}, Death date: {:?}", birth_date, death_date);
     info!("Cleaned extract: {}", cleaned_extract);
-    info!("Birth date: {:?}", birth_date);
-    info!("Death date: {:?}", death_date);
     
     // Get a short description (first sentence or two)
     let description = cleaned_extract
@@ -132,7 +131,12 @@ async fn search_celebrity(name: &str) -> Result<Option<String>> {
     let mut response = format!("**{}**: {}", page_title, description);
     
     // Determine if the person is dead and add appropriate information
-    let is_dead = death_date.is_some() || raw_extract.contains(" died ");
+    // Check if the text contains a death date in parentheses or mentions "died"
+    // Also check if the text contains "was" instead of "is" as an additional indicator
+    let contains_was = raw_extract.contains(" was ");
+    let contains_is = raw_extract.contains(" is ");
+    let is_dead = death_date.is_some() || raw_extract.contains(" died ") || 
+                 (contains_was && !contains_is && raw_extract.contains("(") && raw_extract.contains(")"));
     
     if is_dead {
         // First check if we have a death date from parentheses
@@ -218,6 +222,10 @@ pub fn extract_dates_from_parentheses(text: &str) -> (Option<String>, Option<Str
                     
                     // Create cleaned text without the parentheses
                     let cleaned_text = format!("{}{}", before, after);
+                    
+                    // Debug log to verify extraction
+                    info!("SUCCESSFUL EXTRACTION - Birth: {}, Death: {}", birth_part, death_part);
+                    
                     return (Some(birth_part.to_string()), Some(death_part.to_string()), cleaned_text);
                 }
             }
