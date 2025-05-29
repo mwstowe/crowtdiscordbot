@@ -128,6 +128,7 @@ async fn search_celebrity(name: &str) -> Result<Option<String>> {
     if is_dead {
         // If we have a death date from parentheses, use it
         if let Some(date) = death_date {
+            info!("Using death date from parentheses: {}", date);
             return Ok(Some(format!("**{}**: {}. They died on {}.", page_title, description, date)));
         }
         
@@ -136,9 +137,11 @@ async fn search_celebrity(name: &str) -> Result<Option<String>> {
         
         match extracted_death_date {
             Some(date) => {
+                info!("Using extracted death date: {}", date);
                 return Ok(Some(format!("**{}**: {}. They died on {}.", page_title, description, date)));
             },
             None => {
+                info!("No death date found for {}", page_title);
                 return Ok(Some(format!("**{}**: {}. They have died, but I couldn't determine the exact date.", page_title, description)));
             }
         }
@@ -210,12 +213,16 @@ fn extract_year_from_parentheses(text: &str, date_type: &str) -> Option<String> 
     // Common patterns in Wikipedia parentheses
     // Examples: "born January 20, 1930", "20 January 1930 – 15 April 2023"
     
+    info!("Extracting {} date from parentheses: {}", date_type, text);
+    
     if date_type == "born" {
         // Look for birth date
         // Pattern: "born January 20, 1930" or just a date at the beginning
         let born_re = Regex::new(r"(?:born|b\.)\s+([A-Za-z]+\s+\d{1,2},?\s+\d{4})").unwrap();
         if let Some(captures) = born_re.captures(text) {
-            return captures.get(1).map(|m| m.as_str().to_string());
+            let date = captures.get(1).map(|m| m.as_str().to_string());
+            info!("Found birth date with 'born' pattern: {:?}", date);
+            return date;
         }
         
         // If there's a dash, the birth date is likely before it
@@ -225,6 +232,7 @@ fn extract_year_from_parentheses(text: &str, date_type: &str) -> Option<String> 
                 let potential_date = parts[0].trim();
                 // Check if it looks like a date (contains a year)
                 if Regex::new(r"\d{4}").unwrap().is_match(potential_date) {
+                    info!("Found birth date before dash: {}", potential_date);
                     return Some(potential_date.to_string());
                 }
             }
@@ -234,7 +242,9 @@ fn extract_year_from_parentheses(text: &str, date_type: &str) -> Option<String> 
         // Pattern: "died April 15, 2023" or date after a dash
         let died_re = Regex::new(r"(?:died|d\.)\s+([A-Za-z]+\s+\d{1,2},?\s+\d{4})").unwrap();
         if let Some(captures) = died_re.captures(text) {
-            return captures.get(1).map(|m| m.as_str().to_string());
+            let date = captures.get(1).map(|m| m.as_str().to_string());
+            info!("Found death date with 'died' pattern: {:?}", date);
+            return date;
         }
         
         // If there's a dash, the death date is likely after it
@@ -244,12 +254,14 @@ fn extract_year_from_parentheses(text: &str, date_type: &str) -> Option<String> 
                 let potential_date = parts[1].trim();
                 // Check if it looks like a date (contains a year)
                 if Regex::new(r"\d{4}").unwrap().is_match(potential_date) {
+                    info!("Found death date after dash: {}", potential_date);
                     return Some(potential_date.to_string());
                 }
             }
         }
     }
     
+    info!("No {} date found in parentheses", date_type);
     None
 }
 
