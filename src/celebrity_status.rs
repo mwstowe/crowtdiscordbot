@@ -93,7 +93,7 @@ async fn search_celebrity(name: &str) -> Result<Option<String>> {
     };
     
     // Extract the extract (page content)
-    let extract = match pages.get(page_id).and_then(|p| p.get("extract")).and_then(|e| e.as_str()) {
+    let raw_extract = match pages.get(page_id).and_then(|p| p.get("extract")).and_then(|e| e.as_str()) {
         Some(e) => e,
         None => {
             info!("No extract found for page: {}", page_title);
@@ -101,9 +101,11 @@ async fn search_celebrity(name: &str) -> Result<Option<String>> {
         }
     };
     
+    info!("Raw extract: {}", raw_extract);
+    
     // Check if this is a person (has birth/death dates in parentheses or "born"/"died" in the extract)
-    let is_person = extract.contains(" born ") || extract.contains(" died ") || 
-                    Regex::new(r"\([^)]*\d{4}[^)]*\)").ok().map_or(false, |re| re.is_match(extract));
+    let is_person = raw_extract.contains(" born ") || raw_extract.contains(" died ") || 
+                    Regex::new(r"\([^)]*\d{4}[^)]*\)").ok().map_or(false, |re| re.is_match(raw_extract));
     
     if !is_person {
         info!("Page doesn't appear to be about a person: {}", page_title);
@@ -111,7 +113,9 @@ async fn search_celebrity(name: &str) -> Result<Option<String>> {
     }
     
     // Try to extract birth and death dates from parentheses after the name
-    let (birth_date, death_date, cleaned_extract) = extract_dates_from_parentheses(extract);
+    let (birth_date, death_date, cleaned_extract) = extract_dates_from_parentheses(raw_extract);
+    
+    info!("Cleaned extract: {}", cleaned_extract);
     
     // Get a short description (first sentence or two)
     let description = cleaned_extract
@@ -126,7 +130,7 @@ async fn search_celebrity(name: &str) -> Result<Option<String>> {
     let mut response = format!("**{}**: {}", page_title, description);
     
     // Determine if the person is dead and add appropriate information
-    let is_dead = death_date.is_some() || extract.contains(" died ");
+    let is_dead = death_date.is_some() || raw_extract.contains(" died ");
     
     if is_dead {
         // First check if we have a death date from parentheses
@@ -184,7 +188,8 @@ async fn search_celebrity(name: &str) -> Result<Option<String>> {
 
 fn extract_dates_from_parentheses(text: &str) -> (Option<String>, Option<String>, String) {
     // Look for parentheses near the beginning of the text that contain dates
-    let re = Regex::new(r"^([^(]*)\(([^)]+)\)(.*)$").unwrap();
+    // This regex matches the first set of parentheses in the text
+    let re = Regex::new(r"^(.*?)\(([^)]+)\)(.*)$").unwrap();
     
     if let Some(captures) = re.captures(text) {
         let before = captures.get(1).map_or("", |m| m.as_str());
@@ -192,6 +197,8 @@ fn extract_dates_from_parentheses(text: &str) -> (Option<String>, Option<String>
         let after = captures.get(3).map_or("", |m| m.as_str());
         
         info!("Found parentheses content: {}", parentheses_content);
+        info!("Before parentheses: {}", before);
+        info!("After parentheses: {}", after);
         
         // Extract birth and death dates from parentheses
         let birth_date = extract_year_from_parentheses(parentheses_content, "born");
