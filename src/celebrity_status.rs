@@ -271,63 +271,47 @@ async fn search_celebrity(name: &str) -> Result<Option<String>> {
 }
 
 pub fn extract_dates_from_parentheses(text: &str) -> (Option<String>, Option<String>, String) {
-    // First, try to find birth and death dates from the entire text
-    // This handles cases like Eddie Van Halen where pronunciation guides appear before dates
-    let birth_death_regex = Regex::new(r"\(\s*[^)]*?(\w+\s+\d{1,2},?\s+\d{4})\s*(?:–|-)\s*(\w+\s+\d{1,2},?\s+\d{4})[^)]*\)").unwrap();
-    
-    if let Some(captures) = birth_death_regex.captures(text) {
-        if let (Some(birth_match), Some(death_match)) = (captures.get(1), captures.get(2)) {
-            let birth_date = birth_match.as_str().trim();
-            let death_date = death_match.as_str().trim();
-            
-            info!("REGEX EXTRACTION SUCCESS - Birth: {}, Death: {}", birth_date, death_date);
-            
-            // Remove the entire parenthetical section
-            let start_idx = captures.get(0).unwrap().start();
-            let end_idx = captures.get(0).unwrap().end();
-            
-            // Create cleaned text without the parentheses
-            let mut cleaned_text = format!("{}{}", &text[0..start_idx], &text[end_idx..]);
-            cleaned_text = cleaned_text.replace("  ", " ").trim().to_string();
-            
-            info!("Cleaned text: {}", cleaned_text);
-            
-            return (Some(birth_date.to_string()), Some(death_date.to_string()), cleaned_text);
-        }
-    }
-    
-    // If the improved regex approach didn't work, fall back to the original approach
-    // Special case for the exact format we're seeing
-    if let Some(start_idx) = text.find('(') {
-        if let Some(end_idx) = text[start_idx..].find(')') {
-            let end_idx = start_idx + end_idx;
-            let parentheses_content = &text[start_idx+1..end_idx];
-            
-            info!("Direct extraction - parentheses content: {}", parentheses_content);
-            
-            // Check for birth-death format with en dash or hyphen
-            if parentheses_content.contains('–') || parentheses_content.contains('-') {
-                let separator = if parentheses_content.contains('–') { '–' } else { '-' };
-                let parts: Vec<&str> = parentheses_content.split(separator).collect();
-                
-                if parts.len() == 2 {
-                    let birth_part = parts[0].trim();
-                    let death_part = parts[1].trim();
-                    
-                    // Check if both parts look like dates (contain years)
-                    let year_regex = Regex::new(r"\d{4}").unwrap();
-                    if year_regex.is_match(birth_part) && year_regex.is_match(death_part) {
-                        // Create cleaned text without the parentheses
-                        // Remove any double spaces that might be created when removing parentheses
-                        let mut cleaned_text = format!("{}{}", &text[0..start_idx], &text[end_idx+1..]);
-                        cleaned_text = cleaned_text.replace("  ", " ");
-                        
-                        info!("DIRECT EXTRACTION SUCCESS - Birth: {}, Death: {}", birth_part, death_part);
-                        info!("Cleaned text: {}", cleaned_text);
-                        
-                        return (Some(birth_part.to_string()), Some(death_part.to_string()), cleaned_text);
-                    }
+    // Find the first opening parenthesis
+    if let Some(open_paren_pos) = text.find('(') {
+        // Find the matching closing parenthesis
+        let mut depth = 1;
+        let mut close_paren_pos = None;
+        
+        for (i, c) in text[open_paren_pos + 1..].char_indices() {
+            if c == '(' {
+                depth += 1;
+            } else if c == ')' {
+                depth -= 1;
+                if depth == 0 {
+                    close_paren_pos = Some(open_paren_pos + 1 + i);
+                    break;
                 }
+            }
+        }
+        
+        if let Some(close_pos) = close_paren_pos {
+            // Extract the entire parenthetical section
+            let paren_section = &text[open_paren_pos..=close_pos];
+            
+            // Look for dates within this section
+            let date_regex = Regex::new(r"(\w+ \d{1,2}, \d{4})").unwrap();
+            let mut dates = Vec::new();
+            
+            for date_match in date_regex.find_iter(paren_section) {
+                dates.push(date_match.as_str().to_string());
+            }
+            
+            if dates.len() >= 2 {
+                // Create cleaned text without the parentheses
+                let mut cleaned_text = format!("{}{}", 
+                    &text[0..open_paren_pos], 
+                    &text[close_pos + 1..]);
+                cleaned_text = cleaned_text.replace("  ", " ").trim().to_string();
+                
+                info!("EXTRACTION SUCCESS - Birth: {}, Death: {}", dates[0], dates[1]);
+                info!("Cleaned text: {}", cleaned_text);
+                
+                return (Some(dates[0].clone()), Some(dates[1].clone()), cleaned_text);
             }
         }
     }
