@@ -778,7 +778,393 @@ impl Bot {
     
     // Process a message
     async fn process_message(&self, ctx: &Context, msg: &Message) -> Result<()> {
-        // Random interjections with configured probabilities
+        // Store message in database if configured
+        if let Some(db) = &self.message_db {
+            let db_clone = Arc::clone(db);
+            let msg_clone = msg.clone();
+            
+            tokio::spawn(async move {
+                if let Err(e) = db_utils::save_message(db_clone, 
+                                           &msg_clone.author.name,
+                                           &crate::display_name::get_best_display_name_sync(&msg_clone),
+                                           &msg_clone.content,
+                                           Some(&msg_clone)).await {
+                    error!("Error storing message in database: {:?}", e);
+                }
+            });
+            
+            // Also update the in-memory message history
+            let data = ctx.data.read().await;
+            if let Some(message_history) = data.get::<MessageHistoryKey>() {
+                let mut history = message_history.write().await;
+                if history.len() >= self.message_history_limit {
+                    history.pop_front();
+                }
+                history.push_back(msg.clone());
+            }
+        }
+        
+        // IMPORTANT: Process all explicit triggers first, before any random interjections
+        
+        // Check for commands (messages starting with !)
+        if msg.content.starts_with('!') {
+            let parts: Vec<&str> = msg.content[1..].split_whitespace().collect();
+            if !parts.is_empty() {
+                let command = parts[0].to_lowercase();
+                
+                if command == "hello" {
+                    // Simple hello command
+                    if let Err(e) = msg.channel_id.say(&ctx.http, "world!").await {
+                        error!("Error sending hello response: {:?}", e);
+                    }
+                } else if command == "trump" {
+                    // Generate a Trump insult
+                    let insult = self.trump_insult_generator.generate_insult();
+                    if let Err(e) = msg.channel_id.say(&ctx.http, insult).await {
+                        error!("Error sending Trump insult: {:?}", e);
+                    }
+                } else if command == "bandname" {
+                    // Generate a band genre
+                    if parts.len() > 1 {
+                        let band_name = parts[1..].join(" ");
+                        let genre = self.band_genre_generator.generate_genre(&band_name);
+                        if let Err(e) = msg.channel_id.say(&ctx.http, genre).await {
+                            error!("Error sending band genre: {:?}", e);
+                        }
+                    } else {
+                        if let Err(e) = msg.reply(&ctx.http, "Please provide a band name.").await {
+                            error!("Error sending usage message: {:?}", e);
+                        }
+                    }
+                } else if command == "imagine" && !self.imagine_channels.is_empty() {
+                    // Extract the image prompt
+                    if parts.len() > 1 {
+                        let prompt = parts[1..].join(" ");
+                        if let Some(gemini_client) = &self.gemini_client {
+                            if let Err(e) = handle_imagine_command(ctx, msg, gemini_client, &prompt, &self.imagine_channels).await {
+                                error!("Error handling imagine command: {:?}", e);
+                            }
+                        } else {
+                            if let Err(e) = msg.reply(&ctx.http, "Sorry, image generation is not available (Gemini API not configured).").await {
+                                error!("Error sending API not configured message: {:?}", e);
+                            }
+                        }
+                    } else {
+                        if let Err(e) = msg.reply(&ctx.http, "Please provide a description of what you want me to show you.").await {
+                            error!("Error sending usage message: {:?}", e);
+                        }
+                    }
+                } else if command == "aliveordead" {
+                    // Check if a celebrity name was provided
+                    if parts.len() > 1 {
+                        let celebrity_name = parts[1..].join(" ");
+                        if let Err(e) = handle_aliveordead_command(&ctx.http, &msg, &celebrity_name).await {
+                            error!("Error handling aliveordead command: {:?}", e);
+                            if let Err(e) = msg.channel_id.say(&ctx.http, "Error checking celebrity status").await {
+                                error!("Error sending error message: {:?}", e);
+                            }
+                        }
+                    } else {
+                        if let Err(e) = msg.reply(&ctx.http, "Please provide a celebrity name.").await {
+                            error!("Error sending usage message: {:?}", e);
+                        }
+                    }
+                } else if command == "help" {
+                    // Help command - use the help message from our commands HashMap
+                    if let Some(help_text) = self.commands.get("help") {
+                        if let Err(e) = msg.channel_id.say(&ctx.http, help_text).await {
+                            error!("Error sending help message: {:?}", e);
+                        }
+                    }
+                } else if command == "info" {
+                    // Handle the info command
+                    if let Err(e) = self.handle_info_command(ctx, msg).await {
+                        error!("Error handling info command: {:?}", e);
+                    }
+                } else if command == "slogan" {
+                    // Extract search term if provided
+                    let search_term = if parts.len() > 1 {
+                        Some(parts[1..].join(" "))
+                    } else {
+                        None
+                    };
+                    
+                    // Generate a slogan response
+                    if let Err(e) = self.handle_slogan_command(&ctx.http, &msg, search_term).await {
+                        error!("Error handling slogan command: {:?}", e);
+                        if let Err(e) = msg.channel_id.say(&ctx.http, "Error accessing slogan database").await {
+                            error!("Error sending error message: {:?}", e);
+                        }
+                    }
+                } else if command == "quote" {
+                    // Extract all arguments after the command
+                    let args: Vec<&str> = if parts.len() > 1 {
+                        parts[1..].to_vec()
+                    } else {
+                        Vec::new()
+                    };
+                    
+                    // Check if this is a -dud request (quote a user)
+                    if args.contains(&"-dud") {
+                        let username_index = args.iter().position(|&r| r == "-dud").unwrap() + 1;
+                        let username = if username_index < args.len() {
+                            Some(args[username_index].to_string())
+                        } else {
+                            None
+                        };
+                        
+                        if let Err(e) = self.handle_quote_dud_command(&ctx.http, &msg, username).await {
+                            error!("Error handling quote -dud command: {:?}", e);
+                            if let Err(e) = msg.channel_id.say(&ctx.http, "Error retrieving user quotes").await {
+                                error!("Error sending error message: {:?}", e);
+                            }
+                        }
+                    } else {
+                        // Regular quote command with possible -show flag
+                        if let Err(e) = self.handle_quote_command(&ctx.http, &msg, args).await {
+                            error!("Error handling quote command: {:?}", e);
+                            if let Err(e) = msg.channel_id.say(&ctx.http, "Error accessing quote database").await {
+                                error!("Error sending error message: {:?}", e);
+                            }
+                        }
+                    }
+                } else if command == "fightcrime" {
+                    match self.generate_crime_fighting_duo(&ctx, &msg).await {
+                        Ok(duo) => {
+                            if let Err(e) = msg.channel_id.say(&ctx.http, duo).await {
+                                error!("Error sending crime fighting duo: {:?}", e);
+                            }
+                        },
+                        Err(e) => {
+                            error!("Error handling fightcrime command: {:?}", e);
+                            if let Err(e) = msg.channel_id.say(&ctx.http, "Error generating crime fighting duo").await {
+                                error!("Error sending error message: {:?}", e);
+                            }
+                        }
+                    }
+                } else if command == "buzz" {
+                    // Handle the buzz command
+                    if let Err(e) = handle_buzz_command(&ctx.http, &msg).await {
+                        error!("Error handling buzz command: {:?}", e);
+                        if let Err(e) = msg.channel_id.say(&ctx.http, "Error generating buzzword").await {
+                            error!("Error sending error message: {:?}", e);
+                        }
+                    }
+                } else if command == "lastseen" {
+                    // Extract name to search for
+                    let name = if parts.len() > 1 {
+                        parts[1..].join(" ")
+                    } else {
+                        String::new()
+                    };
+                    
+                    // Handle the lastseen command
+                    if let Err(e) = handle_lastseen_command(&ctx.http, &msg, &name, &self.message_db).await {
+                        error!("Error handling lastseen command: {:?}", e);
+                        if let Err(e) = msg.channel_id.say(&ctx.http, "Error searching message history").await {
+                            error!("Error sending error message: {:?}", e);
+                        }
+                    }
+                } else if command == "frinkiac" {
+                    // Extract search term if provided
+                    let search_term = if parts.len() > 1 {
+                        Some(parts[1..].join(" "))
+                    } else {
+                        None
+                    };
+                    
+                    // Handle the frinkiac command
+                    if let Err(e) = handle_frinkiac_command(&ctx.http, &msg, search_term, &self.frinkiac_client).await {
+                        error!("Error handling frinkiac command: {:?}", e);
+                        if let Err(e) = msg.channel_id.say(&ctx.http, "Error searching Frinkiac").await {
+                            error!("Error sending error message: {:?}", e);
+                        }
+                    }
+                } else if command == "morbotron" {
+                    // Extract search term if provided
+                    let search_term = if parts.len() > 1 {
+                        Some(parts[1..].join(" "))
+                    } else {
+                        None
+                    };
+                    
+                    // Handle the morbotron command
+                    if let Err(e) = handle_morbotron_command(&ctx.http, &msg, search_term, &self.morbotron_client).await {
+                        error!("Error handling morbotron command: {:?}", e);
+                        if let Err(e) = msg.channel_id.say(&ctx.http, "Error searching Morbotron").await {
+                            error!("Error sending error message: {:?}", e);
+                        }
+                    }
+                } else if command == "masterofallscience" {
+                    // Extract search term if provided
+                    let search_term = if parts.len() > 1 {
+                        Some(parts[1..].join(" "))
+                    } else {
+                        None
+                    };
+                    
+                    // Handle the masterofallscience command
+                    if let Err(e) = handle_masterofallscience_command(&ctx.http, &msg, search_term, &self.masterofallscience_client).await {
+                        error!("Error handling masterofallscience command: {:?}", e);
+                        if let Err(e) = msg.channel_id.say(&ctx.http, "Error searching Master of All Science").await {
+                            error!("Error sending error message: {:?}", e);
+                        }
+                    }
+                } else if let Some(response) = self.commands.get(&command) {
+                    if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
+                        error!("Error sending command response: {:?}", e);
+                    }
+                }
+            }
+            return Ok(());
+        }
+        
+        // Check for Google search (messages starting with "google")
+        if self.google_search_enabled && msg.content.to_lowercase().starts_with("google ") && msg.content.len() > 7 {
+            let query = &msg.content[7..];
+            
+            if let Some(google_client) = &self.google_client {
+                if let Err(e) = msg.channel_id.say(&ctx.http, format!("Searching for: {}", query)).await {
+                    error!("Error sending search confirmation: {:?}", e);
+                }
+                
+                // Perform the search
+                match google_client.search(query).await {
+                    Ok(Some(result)) => {
+                        // Clean up the title by removing extra whitespace
+                        let title = result.title.trim().replace("\n", " ").replace("  ", " ");
+                        
+                        // Format and send the result
+                        let response = format!("**{}**\n{}\n{}", title, result.url, result.snippet);
+                        if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
+                            error!("Error sending search result: {:?}", e);
+                        }
+                    },
+                    Ok(None) => {
+                        if let Err(e) = msg.channel_id.say(&ctx.http, "No search results found.").await {
+                            error!("Error sending no results message: {:?}", e);
+                        }
+                    },
+                    Err(e) => {
+                        error!("Error performing search: {:?}", e);
+                        if let Err(e) = msg.channel_id.say(&ctx.http, "Error performing search.").await {
+                            error!("Error sending error message: {:?}", e);
+                        }
+                    }
+                }
+            } else {
+                if let Err(e) = msg.channel_id.say(&ctx.http, "Search is not configured.").await {
+                    error!("Error sending search error: {:?}", e);
+                }
+            }
+            return Ok(());
+        }
+        
+        // Check if the bot is being addressed using our new function
+        if self.is_bot_addressed(&msg.content) {
+            // Use the full message content including the bot's name
+            let content = msg.content.trim().to_string();
+            let content_lower = content.to_lowercase();
+            
+            // Check if the message contains "who fights crime" when the bot is addressed
+            if content_lower.contains("who fights crime") {
+                info!("Bot addressed with 'who fights crime' question");
+                match self.generate_crime_fighting_duo(&ctx, &msg).await {
+                    Ok(duo) => {
+                        if let Err(e) = msg.channel_id.say(&ctx.http, duo).await {
+                            error!("Error sending crime fighting duo: {:?}", e);
+                        }
+                        return Ok(());
+                    },
+                    Err(e) => {
+                        error!("Error generating crime fighting duo: {:?}", e);
+                        // Continue with normal response if crime fighting duo generation fails
+                    }
+                }
+            }
+            
+            if !content.is_empty() {
+                if let Some(gemini_client) = &self.gemini_client {
+                    // Get and clean the display name
+                    let clean_display_name = get_clean_display_name(ctx, msg).await;
+                    
+                    // Extract pronouns from the original display name
+                    let display_name = get_best_display_name(ctx, msg).await;
+                    let user_pronouns = crate::display_name::extract_pronouns(&display_name);
+                    
+                    // Start typing indicator before making API call
+                    if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
+                        error!("Failed to send typing indicator: {:?}", e);
+                    }
+                    
+                    // Get recent messages for context
+                    let context_messages = if let Some(db) = &self.message_db {
+                        // Get the last 5 messages from the database
+                        match db_utils::get_recent_messages(db.clone(), 5, Some(msg.channel_id.to_string().as_str())).await {
+                            Ok(messages) => messages,
+                            Err(e) => {
+                                error!("Error retrieving recent messages: {:?}", e);
+                                Vec::new()
+                            }
+                        }
+                    } else {
+                        Vec::new()
+                    };
+                    
+                    // Call the Gemini API with context and pronouns
+                    match gemini_client.generate_response_with_context(
+                        &content, 
+                        &clean_display_name, 
+                        &context_messages,
+                        user_pronouns.as_deref()
+                    ).await {
+                        Ok(response) => {
+                            // Apply realistic typing delay based on response length
+                            apply_realistic_delay(&response, ctx, msg.channel_id).await;
+                            
+                            // Create a message reference for replying
+                            let message_reference = MessageReference::from(msg);
+                            let create_message = CreateMessage::new()
+                                .content(response.clone())
+                                .reference_message(message_reference);
+                            
+                            if let Err(e) = msg.channel_id.send_message(&ctx.http, create_message).await {
+                                error!("Error sending Gemini response as reply: {:?}", e);
+                                // Fallback to regular message if reply fails
+                                if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
+                                    error!("Error sending fallback Gemini response: {:?}", e);
+                                }
+                            }
+                        },
+                        Err(e) => {
+                            error!("Error calling Gemini API: {:?}", e);
+                            
+                            // Create a message reference for replying
+                            let message_reference = MessageReference::from(msg);
+                            let create_message = CreateMessage::new()
+                                .content(format!("Sorry, I encountered an error: {}", e))
+                                .reference_message(message_reference);
+                            
+                            if let Err(e) = msg.channel_id.send_message(&ctx.http, create_message).await {
+                                error!("Error sending error message as reply: {:?}", e);
+                                // Fallback to regular message if reply fails
+                                if let Err(e) = msg.channel_id.say(&ctx.http, format!("Sorry, I encountered an error: {}", e)).await {
+                                    error!("Error sending fallback error message: {:?}", e);
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // No Gemini API configured, use a simple response
+                    if let Err(e) = msg.reply(&ctx.http, "Sorry, I'm not configured to respond to messages yet.").await {
+                        error!("Error sending simple response: {:?}", e);
+                    }
+                }
+                return Ok(());
+            }
+        }
+        
+        // Now process random interjections only if no explicit triggers were matched
         
         // MST3K Quote interjection
         if rand::thread_rng().gen_bool(self.interjection_mst3k_probability) {

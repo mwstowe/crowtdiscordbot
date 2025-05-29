@@ -19,6 +19,12 @@ pub async fn get_best_display_name(ctx: &Context, msg: &Message) -> String {
     msg.author.global_name.clone().unwrap_or_else(|| msg.author.name.clone())
 }
 
+// Synchronous version of get_best_display_name for use in non-async contexts
+pub fn get_best_display_name_sync(msg: &Message) -> String {
+    // Just use the global name or username since we can't access guild data synchronously
+    msg.author.global_name.clone().unwrap_or_else(|| msg.author.name.clone())
+}
+
 // Clean a display name by removing IRC formatting, brackets, and pronouns
 pub fn clean_display_name(name: &str) -> String {
     // First remove IRC formatting
@@ -55,22 +61,7 @@ pub fn clean_display_name(name: &str) -> String {
         }
     }
     
-    // Check for pronouns in angle brackets <any/all>
-    if let Some(idx) = clean_name.find('<') {
-        let after_angle = &clean_name[idx..];
-        if after_angle.contains("/") || 
-           after_angle.contains("he") || 
-           after_angle.contains("she") || 
-           after_angle.contains("they") || 
-           after_angle.contains("xe") || 
-           after_angle.contains("ze") ||
-           after_angle.contains("it") || 
-           after_angle.contains("fae") {
-            clean_name = clean_name[0..idx].trim().to_string();
-        }
-    }
-    
-    clean_name.trim().to_string()
+    clean_name
 }
 
 // Extract pronouns from a display name
