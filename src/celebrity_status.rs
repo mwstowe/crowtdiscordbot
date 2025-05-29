@@ -122,65 +122,63 @@ async fn search_celebrity(name: &str) -> Result<Option<String>> {
         .trim()
         .to_string();
     
-    // Determine if the person is dead
+    // Build the response
+    let mut response = format!("**{}**: {}", page_title, description);
+    
+    // Determine if the person is dead and add appropriate information
     let is_dead = death_date.is_some() || extract.contains(" died ");
     
     if is_dead {
-        // If we have a death date from parentheses, use it
+        // First check if we have a death date from parentheses
         if let Some(date) = death_date {
             info!("Using death date from parentheses: {}", date);
-            return Ok(Some(format!("**{}**: {}. They died on {}.", page_title, description, date)));
+            response.push_str(&format!(". They died on {}.", date));
+            return Ok(Some(response));
         }
         
-        // Otherwise try to extract death date from the text
-        let extracted_death_date = extract_date(&cleaned_extract, "died");
-        
-        match extracted_death_date {
-            Some(date) => {
-                info!("Using extracted death date: {}", date);
-                return Ok(Some(format!("**{}**: {}. They died on {}.", page_title, description, date)));
-            },
-            None => {
-                info!("No death date found for {}", page_title);
-                return Ok(Some(format!("**{}**: {}. They have died, but I couldn't determine the exact date.", page_title, description)));
-            }
+        // If not, try to extract death date from the text
+        if let Some(date) = extract_date(&cleaned_extract, "died") {
+            info!("Using extracted death date: {}", date);
+            response.push_str(&format!(". They died on {}.", date));
+            return Ok(Some(response));
         }
+        
+        // If we still don't have a death date
+        info!("No death date found for {}", page_title);
+        response.push_str(". They have died, but I couldn't determine the exact date.");
+        return Ok(Some(response));
     } else {
-        // Person is alive
-        // If we have a birth date from parentheses, use it to calculate age
+        // Person is alive - try to calculate their age
+        
+        // First try with birth date from parentheses
         if let Some(date_str) = birth_date {
-            // Try to parse the date in various formats
-            let parsed_date = parse_date(&date_str);
-            
-            if let Some(birth) = parsed_date {
-                // Calculate age
+            if let Some(birth) = parse_date(&date_str) {
                 let today = chrono::Local::now().naive_local().date();
                 let age = calculate_age(birth, today);
-                return Ok(Some(format!("**{}**: {}. They are still alive at {} years old.", page_title, description, age)));
+                info!("Calculated age {} from birth date {}", age, date_str);
+                response.push_str(&format!(". They are still alive at {} years old.", age));
+                return Ok(Some(response));
             }
         }
         
-        // Try to extract birth date from the text
-        let extracted_birth_date = extract_date(&cleaned_extract, "born");
-        
-        match extracted_birth_date {
-            Some(date_str) => {
-                // Try to parse the date
-                let parsed_date = parse_date(&date_str);
-                
-                if let Some(birth) = parsed_date {
-                    // Calculate age
-                    let today = chrono::Local::now().naive_local().date();
-                    let age = calculate_age(birth, today);
-                    return Ok(Some(format!("**{}**: {}. They are still alive at {} years old.", page_title, description, age)));
-                } else {
-                    return Ok(Some(format!("**{}**: {}. They are still alive, born on {}.", page_title, description, date_str)));
-                }
-            },
-            None => {
-                return Ok(Some(format!("**{}**: {}. They appear to be alive, but I couldn't determine their age.", page_title, description)));
+        // If that fails, try with birth date from text
+        if let Some(date_str) = extract_date(&cleaned_extract, "born") {
+            if let Some(birth) = parse_date(&date_str) {
+                let today = chrono::Local::now().naive_local().date();
+                let age = calculate_age(birth, today);
+                info!("Calculated age {} from extracted birth date {}", age, date_str);
+                response.push_str(&format!(". They are still alive at {} years old.", age));
+                return Ok(Some(response));
+            } else {
+                // We have a birth date string but couldn't parse it
+                response.push_str(&format!(". They are still alive, born on {}.", date_str));
+                return Ok(Some(response));
             }
         }
+        
+        // If we couldn't determine age
+        response.push_str(". They appear to be alive, but I couldn't determine their age.");
+        return Ok(Some(response));
     }
 }
 
@@ -199,6 +197,8 @@ fn extract_dates_from_parentheses(text: &str) -> (Option<String>, Option<String>
         let birth_date = extract_year_from_parentheses(parentheses_content, "born");
         let death_date = extract_year_from_parentheses(parentheses_content, "died");
         
+        info!("Extracted birth date: {:?}, death date: {:?}", birth_date, death_date);
+        
         // Create cleaned text without the parentheses
         let cleaned_text = format!("{}{}", before, after);
         
@@ -206,6 +206,7 @@ fn extract_dates_from_parentheses(text: &str) -> (Option<String>, Option<String>
     }
     
     // If no parentheses found, return the original text
+    info!("No parentheses found in text");
     (None, None, text.to_string())
 }
 
