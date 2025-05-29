@@ -573,6 +573,20 @@ fn extract_cause_of_death(text: &str) -> Option<String> {
                         cause.pop();
                     }
                     
+                    // Skip if the cause contains phrases that indicate it's not actually a cause of death
+                    let false_indicators = [
+                        "until his death", "until her death", "until their death",
+                        "before his death", "before her death", "before their death",
+                        "prior to his death", "prior to her death", "prior to their death",
+                        "at the time of", "at the age of"
+                    ];
+                    
+                    let is_false_positive = false_indicators.iter().any(|&indicator| cause.to_lowercase().contains(indicator));
+                    if is_false_positive {
+                        info!("Skipping false positive cause: {}", cause);
+                        continue;
+                    }
+                    
                     // Capitalize first letter
                     if !cause.is_empty() {
                         let first_char = cause.chars().next().unwrap().to_uppercase().collect::<String>();
@@ -609,10 +623,28 @@ fn extract_cause_of_death(text: &str) -> Option<String> {
                     if sentence_lower.contains(indicator) {
                         if let Some(pos) = sentence_lower.find(indicator) {
                             let cause = sentence[pos + indicator.len()..].trim();
-                            if !cause.is_empty() {
-                                info!("Found potential cause of death in sentence: {}", cause);
-                                return Some(cause.to_string());
+                            
+                            // Skip if empty or too long (likely not a real cause)
+                            if cause.is_empty() || cause.len() > 100 {
+                                continue;
                             }
+                            
+                            // Skip if the cause contains phrases that indicate it's not actually a cause of death
+                            let false_indicators = [
+                                "until his death", "until her death", "until their death",
+                                "before his death", "before her death", "before their death",
+                                "prior to his death", "prior to her death", "prior to their death",
+                                "at the time of", "at the age of"
+                            ];
+                            
+                            let is_false_positive = false_indicators.iter().any(|&indicator| cause.to_lowercase().contains(indicator));
+                            if is_false_positive {
+                                info!("Skipping false positive cause: {}", cause);
+                                continue;
+                            }
+                            
+                            info!("Found potential cause of death in sentence: {}", cause);
+                            return Some(cause.to_string());
                         }
                     }
                 }
