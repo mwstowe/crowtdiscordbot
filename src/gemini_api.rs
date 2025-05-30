@@ -4,7 +4,6 @@ use serde_json;
 use std::time::Duration;
 use tracing::{error, info};
 use crate::rate_limiter::RateLimiter;
-use crate::display_name::clean_display_name;
 use base64::Engine;
 
 pub struct GeminiClient {
@@ -81,9 +80,9 @@ impl GeminiClient {
                 context_messages
             };
             
-            // Format each message as "User: Message"
+            // Format each message as "DisplayName: Message" using the display_name field
             limited_messages.iter()
-                .map(|(user, _, msg)| format!("{}: {}", clean_display_name(user), msg))
+                .map(|(_, display_name, msg)| format!("{}: {}", display_name, msg))
                 .collect::<Vec<_>>()
                 .join("\n")
         } else {
