@@ -1285,13 +1285,7 @@ impl Bot {
                 
                 if let Ok(Some((character, quote))) = task_result {
                     // Format the quote as if the bot is saying it
-                    let formatted_quote = if character == "MST3K" {
-                        // If we couldn't extract a character, just use the quote
-                        quote
-                    } else {
-                        // Just use the character's quote directly
-                        quote
-                    };
+                    let formatted_quote = quote;  // Just use the quote directly without attribution
                     
                     // Send the quote
                     let quote_for_log = formatted_quote.clone(); // Clone for logging
