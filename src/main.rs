@@ -1284,8 +1284,33 @@ impl Bot {
                 }).await;
                 
                 if let Ok(Some((character, quote))) = task_result {
-                    // Format the quote as if the bot is saying it
-                    let formatted_quote = quote;  // Just use the quote directly without attribution
+                    // Extract individual lines from the quote
+                    // Format: "<Speaker> Line <Speaker> Line"
+                    let re = regex::Regex::new(r"<([^>]+)>\s*([^<]+)").unwrap_or_else(|_| {
+                        error!("Failed to compile regex for MST3K quote parsing");
+                        regex::Regex::new(r".*").unwrap() // Fallback regex that matches everything
+                    });
+                    
+                    // Find all speaker-line pairs
+                    let mut lines = Vec::new();
+                    for cap in re.captures_iter(&quote) {
+                        if let (Some(_speaker), Some(line_match)) = (cap.get(1), cap.get(2)) {
+                            let line = line_match.as_str().trim();
+                            if !line.is_empty() {
+                                lines.push(line.to_string());
+                            }
+                        }
+                    }
+                    
+                    // If we found any lines, pick one randomly
+                    let formatted_quote = if !lines.is_empty() {
+                        lines.choose(&mut rand::thread_rng())
+                            .unwrap_or(&quote)
+                            .clone()
+                    } else {
+                        // If no lines were extracted, use the whole quote as fallback
+                        quote
+                    };
                     
                     // Send the quote
                     let quote_for_log = formatted_quote.clone(); // Clone for logging
