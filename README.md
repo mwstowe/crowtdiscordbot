@@ -62,18 +62,23 @@ A Discord bot that follows specific channels and responds to various triggers in
 
 ## Available Commands
 
-- `!help` - Show this help message
+- `!help` - Show help
 - `!hello` - Say hello
-- `!buzz` - Generate a corporate buzzword phrase
+- `!buzz` - Generate corporate buzzwords
 - `!fightcrime` - Generate a crime fighting duo
+- `!trump` - Generate a Trump insult
+- `!bandname [name]` - Generate music genre for a band
 - `!lastseen [name]` - Find when a user was last active
-- `!quote [search_term]` - Get a random quote
-- `!quote -show [show_name]` - Get a random quote from a specific show
-- `!quote -dud [username]` - Get a random message from a user (or random user if no username provided)
-- `!slogan [search_term]` - Get a random advertising slogan
-- `!frinkiac [search_term]` - Get a Simpsons screenshot from Frinkiac (or random if no term provided)
-- `!morbotron [search_term]` - Get a Futurama screenshot from Morbotron (or random if no term provided)
-- `!masterofallscience [search_term]` - Get a Rick and Morty screenshot from Master of All Science (or random if no term provided)
+- `!quote [term]` - Get a random quote
+- `!quote -show [show]` - Get quote from specific show
+- `!quote -dud [user]` - Get random message from a user (or random user if no username provided)
+- `!slogan [term]` - Get a random advertising slogan
+- `!frinkiac [term]` - Get a Simpsons screenshot
+- `!morbotron [term]` - Get a Futurama screenshot
+- `!masterofallscience [term]` - Get a Rick and Morty screenshot
+- `!imagine [text]` - Generate an image (if configured)
+- `!alive [name]` - Check if a celebrity is alive or dead
+- `!info` - Show bot statistics
 
 ## Database Structure
 
