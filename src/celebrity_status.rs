@@ -8,7 +8,7 @@ use chrono::{NaiveDate, Datelike};
 use regex::Regex;
 
 pub async fn handle_aliveordead_command(http: &Http, msg: &Message, celebrity_name: &str) -> Result<()> {
-    info!("Handling !aliveordead command for celebrity: {}", celebrity_name);
+    info!("Handling !alive command for celebrity: {}", celebrity_name);
     
     // Show typing indicator while processing
     if let Err(e) = msg.channel_id.broadcast_typing(http).await {
