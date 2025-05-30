@@ -3,14 +3,13 @@ use serenity::all::Http;
 use serenity::model::channel::Message;
 use tracing::error;
 use crate::gemini_api::GeminiClient;
-use crate::response_timing::apply_realistic_delay;
 
 pub async fn handle_unknown_command(
     http: &Http, 
     msg: &Message, 
     command: &str,
     gemini_client: &GeminiClient,
-    ctx: &serenity::client::Context,
+    _ctx: &serenity::client::Context,  // Renamed to _ctx since we're not using it anymore
 ) -> Result<()> {
     // Show typing indicator while generating response
     if let Err(e) = msg.channel_id.broadcast_typing(http).await {
@@ -31,10 +30,7 @@ pub async fn handle_unknown_command(
     
     match gemini_client.generate_response(&prompt, "").await {
         Ok(response) => {
-            // Apply realistic typing delay
-            apply_realistic_delay(&response, ctx, msg.channel_id).await;
-            
-            // Send the response
+            // Send the response immediately without typing delay
             if let Err(e) = msg.channel_id.say(http, response).await {
                 error!("Error sending unknown command response: {:?}", e);
             }
