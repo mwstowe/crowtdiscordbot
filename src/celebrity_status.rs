@@ -138,7 +138,12 @@ async fn search_celebrity(name: &str) -> Result<Option<String>> {
         }
     };
     
-    info!("Raw extract: {}", raw_extract);
+    // Log only the first 100 characters of the extract for debugging
+    if raw_extract.len() > 100 {
+        info!("Extract preview (first 100 chars): {}...", &raw_extract[..100]);
+    } else {
+        info!("Extract preview: {}", raw_extract);
+    }
     
     // Check if this is a person (has birth/death dates in parentheses or "born"/"died" in the extract)
     let is_person = raw_extract.contains(" born ") || raw_extract.contains(" died ") || 
@@ -156,8 +161,7 @@ async fn search_celebrity(name: &str) -> Result<Option<String>> {
     // Try to extract birth and death dates from parentheses after the name
     let (birth_date, death_date, cleaned_extract) = extract_dates_from_parentheses(raw_extract);
     
-    info!("FINAL EXTRACTION RESULTS - Birth date: {:?}, Death date: {:?}", birth_date, death_date);
-    info!("Cleaned extract: {}", cleaned_extract);
+    info!("Extracted dates - Birth: {:?}, Death: {:?}", birth_date, death_date);
     
     // Get a short description (first sentence or two)
     let description = cleaned_extract
@@ -174,10 +178,6 @@ async fn search_celebrity(name: &str) -> Result<Option<String>> {
     // Determine if the person is dead and add appropriate information
     let contains_was = raw_extract.contains(" was ");
     let contains_is = raw_extract.contains(" is ");
-    
-    // Debug the death detection logic
-    info!("Death detection - death_date: {:?}, contains_was: {}, contains_is: {}", 
-          death_date, contains_was, contains_is);
     
     // A person is considered dead if:
     // 1. We have a death date from parentheses, OR
@@ -342,9 +342,6 @@ pub fn extract_dates_from_parentheses(text: &str) -> (Option<String>, Option<Str
                     &text[close_pos + 1..]);
                 cleaned_text = cleaned_text.replace("  ", " ").trim().to_string();
                 
-                info!("EXTRACTION SUCCESS - Birth: {}, Death: {}", dates[0], dates[1]);
-                info!("Cleaned text: {}", cleaned_text);
-                
                 return (Some(dates[0].clone()), Some(dates[1].clone()), cleaned_text);
             }
         }
@@ -357,8 +354,6 @@ pub fn extract_dates_from_parentheses(text: &str) -> (Option<String>, Option<Str
         let before = captures.get(1).map_or("", |m| m.as_str());
         let parentheses_content = captures.get(2).map_or("", |m| m.as_str());
         let after = captures.get(3).map_or("", |m| m.as_str());
-        
-        info!("Regex extraction - parentheses content: {}", parentheses_content);
         
         // Create cleaned text without the parentheses
         // Remove any double spaces that might be created when removing parentheses
@@ -377,7 +372,6 @@ pub fn extract_dates_from_parentheses(text: &str) -> (Option<String>, Option<Str
                 // Check if both parts look like dates (contain years)
                 let year_regex = Regex::new(r"\d{4}").unwrap();
                 if year_regex.is_match(birth_part) && year_regex.is_match(death_part) {
-                    info!("REGEX EXTRACTION SUCCESS - Birth: {}, Death: {}", birth_part, death_part);
                     return (Some(birth_part.to_string()), Some(death_part.to_string()), cleaned_text);
                 }
             }
@@ -387,13 +381,10 @@ pub fn extract_dates_from_parentheses(text: &str) -> (Option<String>, Option<Str
         let birth_date = extract_year_from_parentheses(parentheses_content, "born");
         let death_date = extract_year_from_parentheses(parentheses_content, "died");
         
-        info!("Pattern-based extraction - Birth date: {:?}, Death date: {:?}", birth_date, death_date);
-        
         return (birth_date, death_date, cleaned_text);
     }
     
     // If no parentheses found, return the original text
-    info!("No parentheses found in text");
     (None, None, text.to_string())
 }
 
@@ -409,7 +400,6 @@ pub fn extract_year_from_parentheses(text: &str, date_type: &str) -> Option<Stri
         let born_re = Regex::new(r"(?:born|b\.)\s+([A-Za-z]+\s+\d{1,2},?\s+\d{4})").unwrap();
         if let Some(captures) = born_re.captures(text) {
             let date = captures.get(1).map(|m| m.as_str().to_string());
-            info!("Found birth date with 'born' pattern: {:?}", date);
             return date;
         }
         
@@ -420,7 +410,6 @@ pub fn extract_year_from_parentheses(text: &str, date_type: &str) -> Option<Stri
                 let potential_date = parts[0].trim();
                 // Check if it looks like a date (contains a year)
                 if Regex::new(r"\d{4}").unwrap().is_match(potential_date) {
-                    info!("Found birth date before dash: {}", potential_date);
                     return Some(potential_date.to_string());
                 }
             }
@@ -431,7 +420,6 @@ pub fn extract_year_from_parentheses(text: &str, date_type: &str) -> Option<Stri
         let died_re = Regex::new(r"(?:died|d\.)\s+([A-Za-z]+\s+\d{1,2},?\s+\d{4})").unwrap();
         if let Some(captures) = died_re.captures(text) {
             let date = captures.get(1).map(|m| m.as_str().to_string());
-            info!("Found death date with 'died' pattern: {:?}", date);
             return date;
         }
         
@@ -442,7 +430,6 @@ pub fn extract_year_from_parentheses(text: &str, date_type: &str) -> Option<Stri
                 let potential_date = parts[1].trim();
                 // Check if it looks like a date (contains a year)
                 if Regex::new(r"\d{4}").unwrap().is_match(potential_date) {
-                    info!("Found death date after dash: {}", potential_date);
                     return Some(potential_date.to_string());
                 }
             }
@@ -454,7 +441,6 @@ pub fn extract_year_from_parentheses(text: &str, date_type: &str) -> Option<Stri
         if let Some(captures) = future_year_re.captures(text) {
             if let Some(date_match) = captures.get(1) {
                 let date = date_match.as_str().to_string();
-                info!("Found future death date: {}", date);
                 return Some(date);
             }
         }
