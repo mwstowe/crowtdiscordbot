@@ -36,6 +36,7 @@ mod image_generation;
 mod regex_substitution;
 mod bandname;
 mod mst3k_quotes;
+mod unknown_command;
 mod celebrity_status;
 
 // Use our modules
@@ -55,6 +56,7 @@ use image_generation::handle_imagine_command;
 use regex_substitution::handle_regex_substitution;
 use mst3k_quotes::fallback_mst3k_quote;
 use celebrity_status::handle_aliveordead_command;
+use unknown_command::handle_unknown_command;
 
 // Define keys for the client data
 struct RecentSpeakersKey;
@@ -1013,6 +1015,11 @@ impl Bot {
                 } else if let Some(response) = self.commands.get(&command) {
                     if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
                         error!("Error sending command response: {:?}", e);
+                    }
+                } else if let Some(gemini_client) = &self.gemini_client {
+                    // Handle unknown command with Gemini API
+                    if let Err(e) = handle_unknown_command(&ctx.http, &msg, &command, gemini_client, ctx).await {
+                        error!("Error handling unknown command: {:?}", e);
                     }
                 }
             }
