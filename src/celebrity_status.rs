@@ -305,44 +305,73 @@ async fn search_celebrity(name: &str) -> Result<Option<String>> {
 }
 
 pub fn extract_dates_from_parentheses(text: &str) -> (Option<String>, Option<String>, String) {
-    // First, try to handle the case of nested parentheses like "Kenneth Ray Rogers (born Kenneth Donald Rogers) (August 21, 1938 – March 20, 2020)"
-    let nested_re = Regex::new(r"\([^()]*\([^()]*\)[^()]*\)").unwrap();
-    if let Some(nested_match) = nested_re.find(text) {
-        let nested_text = nested_match.as_str();
+    // Check for sequential parentheses pattern like "(born Kenneth Donald Rogers) (August 21, 1938 – March 20, 2020)"
+    // First, find all parenthetical sections in the text
+    let mut parentheses_sections = Vec::new();
+    let mut start_idx = 0;
+    
+    while let Some(open_idx) = text[start_idx..].find('(') {
+        let open_pos = start_idx + open_idx;
+        let mut depth = 1;
+        let mut close_pos = None;
         
-        // Check if the last parentheses contain birth-death dates
-        let last_paren_re = Regex::new(r"\(([^()]*)\)$").unwrap();
-        if let Some(captures) = last_paren_re.captures(nested_text) {
-            let date_content = captures.get(1).unwrap().as_str();
+        for (i, c) in text[open_pos + 1..].char_indices() {
+            if c == '(' {
+                depth += 1;
+            } else if c == ')' {
+                depth -= 1;
+                if depth == 0 {
+                    close_pos = Some(open_pos + 1 + i);
+                    break;
+                }
+            }
+        }
+        
+        if let Some(close_idx) = close_pos {
+            parentheses_sections.push((open_pos, close_idx, &text[open_pos..=close_idx]));
+            start_idx = close_idx + 1;
+        } else {
+            break; // No matching closing parenthesis found
+        }
+    }
+    
+    // Look for a section that contains birth-death dates (has a year range with dash)
+    for (_, _, section) in &parentheses_sections {
+        // Remove the outer parentheses
+        let content = &section[1..section.len()-1];
+        
+        // Check if this contains a date range with a dash or en-dash
+        if content.contains('–') || content.contains('-') {
+            let separator = if content.contains('–') { '–' } else { '-' };
+            let parts: Vec<&str> = content.split(separator).collect();
             
-            // Check if this contains a date range with a dash or en-dash
-            if date_content.contains('–') || date_content.contains('-') {
-                let separator = if date_content.contains('–') { '–' } else { '-' };
-                let parts: Vec<&str> = date_content.split(separator).collect();
+            if parts.len() == 2 {
+                let birth_part = parts[0].trim();
+                let death_part = parts[1].trim();
                 
-                if parts.len() == 2 {
-                    let birth_part = parts[0].trim();
-                    let death_part = parts[1].trim();
-                    
-                    // Check if both parts look like dates (contain years)
-                    let year_regex = Regex::new(r"\d{4}").unwrap();
-                    if year_regex.is_match(birth_part) && year_regex.is_match(death_part) {
-                        // Create cleaned text without the nested parentheses
-                        let start_pos = nested_match.start();
-                        let end_pos = nested_match.end();
-                        let mut cleaned_text = format!("{}{}", 
-                            &text[0..start_pos], 
-                            &text[end_pos..]);
-                        cleaned_text = cleaned_text.replace("  ", " ").trim().to_string();
-                        
-                        return (Some(birth_part.to_string()), Some(death_part.to_string()), cleaned_text);
+                // Check if both parts look like dates (contain years)
+                let year_regex = Regex::new(r"\d{4}").unwrap();
+                if year_regex.is_match(birth_part) && year_regex.is_match(death_part) {
+                    // Create cleaned text without this parenthetical section
+                    let mut cleaned_text = text.to_string();
+                    for (start, end, sect) in &parentheses_sections {
+                        if sect == section {
+                            cleaned_text = format!("{}{}", 
+                                &text[0..*start], 
+                                &text[*end+1..]);
+                            break;
+                        }
                     }
+                    cleaned_text = cleaned_text.replace("  ", " ").trim().to_string();
+                    
+                    info!("Found birth-death dates in parentheses: {} - {}", birth_part, death_part);
+                    return (Some(birth_part.to_string()), Some(death_part.to_string()), cleaned_text);
                 }
             }
         }
     }
-
-    // If nested parentheses approach didn't work, try the original approach
+    
+    // If we didn't find a date range in any parenthetical section, try the original approach
     // Find the first opening parenthesis
     if let Some(open_paren_pos) = text.find('(') {
         // Find the matching closing parenthesis
