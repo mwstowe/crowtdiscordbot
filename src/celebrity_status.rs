@@ -571,23 +571,39 @@ fn parse_date(date_str: &str) -> Option<NaiveDate> {
 fn extract_cause_of_death(text: &str) -> Option<String> {
     info!("Attempting to extract cause of death from text");
     
-    // Common patterns for cause of death
+    // Common patterns for cause of death - expanded with more variations
     let patterns = [
-        r"died (?:of|from|due to|after|following) ([^\.]+)",
-        r"death (?:was caused by|was due to|from|by) ([^\.]+)",
-        r"died .{0,30}? (?:of|from|due to|after|following) ([^\.]+)",
-        r"passed away (?:from|due to|after|following) ([^\.]+)",
-        r"succumbed to ([^\.]+)",
-        r"lost (?:his|her|their) (?:battle|fight|struggle) with ([^\.]+)",
-        r"died .{0,50}? complications (?:of|from) ([^\.]+)",
-        r"cause of death was ([^\.]+)",
+        // Direct cause patterns
+        r"died (?:of|from|due to|after|following) ([^\.;:]+)",
+        r"death (?:was caused by|was due to|from|by) ([^\.;:]+)",
+        r"died .{0,30}? (?:of|from|due to|after|following) ([^\.;:]+)",
+        r"passed away (?:from|due to|after|following) ([^\.;:]+)",
+        r"succumbed to ([^\.;:]+)",
+        r"lost (?:his|her|their) (?:battle|fight|struggle) with ([^\.;:]+)",
+        r"died .{0,50}? complications (?:of|from) ([^\.;:]+)",
+        r"cause of death was ([^\.;:]+)",
+        r"death was attributed to ([^\.;:]+)",
+        r"died as a result of ([^\.;:]+)",
+        r"died because of ([^\.;:]+)",
+        r"death resulted from ([^\.;:]+)",
+        r"died suddenly (?:of|from) ([^\.;:]+)",
+        r"died unexpectedly (?:of|from) ([^\.;:]+)",
+        r"died at .{1,30}? (?:of|from|due to|after|following) ([^\.;:]+)",
+        r"died in .{1,30}? (?:of|from|due to|after|following) ([^\.;:]+)",
+        r"died while .{1,30}? (?:of|from|due to|after|following) ([^\.;:]+)",
+        r"died during .{1,30}? (?:of|from|due to|after|following) ([^\.;:]+)",
+        r"died .{0,50}? after being diagnosed with ([^\.;:]+)",
+        r"died .{0,50}? after suffering from ([^\.;:]+)",
+        r"died .{0,50}? after contracting ([^\.;:]+)",
+        r"died .{0,50}? after battling ([^\.;:]+)",
+        r"died .{0,50}? after struggling with ([^\.;:]+)",
+        r"died .{0,50}? after fighting ([^\.;:]+)",
     ];
     
-    let text_lower = text.to_lowercase();
-    
+    // First try with the original text (preserving case)
     for pattern in &patterns {
         if let Ok(re) = Regex::new(pattern) {
-            if let Some(captures) = re.captures(&text_lower) {
+            if let Some(captures) = re.captures(text) {
                 if let Some(cause_match) = captures.get(1) {
                     let mut cause = cause_match.as_str().trim().to_string();
                     
@@ -628,8 +644,51 @@ fn extract_cause_of_death(text: &str) -> Option<String> {
         }
     }
     
+    // Try again with lowercase text to catch more variations
+    let text_lower = text.to_lowercase();
+    for pattern in &patterns {
+        if let Ok(re) = Regex::new(pattern) {
+            if let Some(captures) = re.captures(&text_lower) {
+                if let Some(cause_match) = captures.get(1) {
+                    let cause_pos = cause_match.start();
+                    let cause_len = cause_match.end() - cause_pos;
+                    
+                    // Get the original case from the main text
+                    let original_case_cause = if cause_pos + cause_len <= text.len() {
+                        text[cause_pos..cause_pos + cause_len].trim().to_string()
+                    } else {
+                        cause_match.as_str().trim().to_string()
+                    };
+                    
+                    let mut cause = original_case_cause;
+                    
+                    // Clean up the cause of death
+                    while cause.ends_with('.') || cause.ends_with(',') || cause.ends_with(';') || cause.ends_with(':') {
+                        cause.pop();
+                    }
+                    
+                    // Skip false positives
+                    let false_indicators = [
+                        "until his death", "until her death", "until their death",
+                        "before his death", "before her death", "before their death",
+                        "prior to his death", "prior to her death", "prior to their death",
+                        "at the time of", "at the age of"
+                    ];
+                    
+                    let is_false_positive = false_indicators.iter().any(|&indicator| cause.to_lowercase().contains(indicator));
+                    if is_false_positive {
+                        continue;
+                    }
+                    
+                    info!("Found cause of death (lowercase match): {}", cause);
+                    return Some(cause);
+                }
+            }
+        }
+    }
+    
     // If no match found with the patterns, try to find sentences containing death-related terms
-    let death_terms = ["died", "death", "passed away", "deceased", "fatal", "killed"];
+    let death_terms = ["died", "death", "passed away", "deceased", "fatal", "killed", "succumbed"];
     
     // Split the text into sentences
     let sentences: Vec<&str> = text.split(|c| c == '.' || c == '!' || c == '?')
@@ -642,33 +701,90 @@ fn extract_cause_of_death(text: &str) -> Option<String> {
         for term in &death_terms {
             if sentence_lower.contains(term) {
                 // Look for cause indicators
-                let cause_indicators = ["from", "due to", "of", "after", "by", "with"];
+                let cause_indicators = ["from", "due to", "of", "after", "by", "with", "because of", "as a result of"];
                 for indicator in &cause_indicators {
                     if sentence_lower.contains(indicator) {
                         if let Some(pos) = sentence_lower.find(indicator) {
-                            let cause = sentence[pos + indicator.len()..].trim();
+                            // Get the position in the original sentence to preserve case
+                            let indicator_pos_in_original = sentence[..pos.min(sentence.len())].len();
+                            let start_pos = indicator_pos_in_original + indicator.len();
                             
-                            // Skip if empty or too long (likely not a real cause)
-                            if cause.is_empty() || cause.len() > 100 {
-                                continue;
+                            if start_pos < sentence.len() {
+                                let cause = sentence[start_pos..].trim();
+                                
+                                // Skip if empty or too long (likely not a real cause)
+                                if cause.is_empty() || cause.len() > 100 {
+                                    continue;
+                                }
+                                
+                                // Skip if the cause contains phrases that indicate it's not actually a cause of death
+                                let false_indicators = [
+                                    "until his death", "until her death", "until their death",
+                                    "before his death", "before her death", "before their death",
+                                    "prior to his death", "prior to her death", "prior to their death",
+                                    "at the time of", "at the age of"
+                                ];
+                                
+                                let is_false_positive = false_indicators.iter().any(|&indicator| cause.to_lowercase().contains(indicator));
+                                if is_false_positive {
+                                    info!("Skipping false positive cause: {}", cause);
+                                    continue;
+                                }
+                                
+                                // Clean up the cause - remove trailing punctuation
+                                let mut clean_cause = cause.to_string();
+                                while clean_cause.ends_with('.') || clean_cause.ends_with(',') || 
+                                      clean_cause.ends_with(';') || clean_cause.ends_with(':') {
+                                    clean_cause.pop();
+                                }
+                                
+                                // Limit to the first clause for clarity
+                                if let Some(end_pos) = clean_cause.find(|c| c == ',' || c == ';' || c == ':') {
+                                    clean_cause = clean_cause[..end_pos].to_string();
+                                }
+                                
+                                info!("Found potential cause of death in sentence: {}", clean_cause);
+                                return Some(clean_cause);
                             }
+                        }
+                    }
+                }
+                
+                // Look for specific phrases that often indicate cause of death
+                let specific_phrases = [
+                    "after battling", "after struggling with", "after fighting", 
+                    "after being diagnosed with", "after suffering from", "after contracting"
+                ];
+                
+                for phrase in &specific_phrases {
+                    if sentence_lower.contains(phrase) {
+                        if let Some(pos) = sentence_lower.find(phrase) {
+                            // Get the position in the original sentence to preserve case
+                            let phrase_pos_in_original = sentence[..pos.min(sentence.len())].len();
+                            let start_pos = phrase_pos_in_original + phrase.len();
                             
-                            // Skip if the cause contains phrases that indicate it's not actually a cause of death
-                            let false_indicators = [
-                                "until his death", "until her death", "until their death",
-                                "before his death", "before her death", "before their death",
-                                "prior to his death", "prior to her death", "prior to their death",
-                                "at the time of", "at the age of"
-                            ];
-                            
-                            let is_false_positive = false_indicators.iter().any(|&indicator| cause.to_lowercase().contains(indicator));
-                            if is_false_positive {
-                                info!("Skipping false positive cause: {}", cause);
-                                continue;
+                            if start_pos < sentence.len() {
+                                let cause = sentence[start_pos..].trim();
+                                
+                                // Skip if empty or too long
+                                if cause.is_empty() || cause.len() > 100 {
+                                    continue;
+                                }
+                                
+                                // Clean up and limit to first clause
+                                let mut clean_cause = cause.to_string();
+                                while clean_cause.ends_with('.') || clean_cause.ends_with(',') || 
+                                      clean_cause.ends_with(';') || clean_cause.ends_with(':') {
+                                    clean_cause.pop();
+                                }
+                                
+                                if let Some(end_pos) = clean_cause.find(|c| c == ',' || c == ';' || c == ':') {
+                                    clean_cause = clean_cause[..end_pos].to_string();
+                                }
+                                
+                                info!("Found potential cause of death with specific phrase: {}", clean_cause);
+                                return Some(clean_cause);
                             }
-                            
-                            info!("Found potential cause of death in sentence: {}", cause);
-                            return Some(cause.to_string());
                         }
                     }
                 }
