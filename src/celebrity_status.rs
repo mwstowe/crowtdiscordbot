@@ -305,6 +305,44 @@ async fn search_celebrity(name: &str) -> Result<Option<String>> {
 }
 
 pub fn extract_dates_from_parentheses(text: &str) -> (Option<String>, Option<String>, String) {
+    // First, try to handle the case of nested parentheses like "Kenneth Ray Rogers (born Kenneth Donald Rogers) (August 21, 1938 – March 20, 2020)"
+    let nested_re = Regex::new(r"\([^()]*\([^()]*\)[^()]*\)").unwrap();
+    if let Some(nested_match) = nested_re.find(text) {
+        let nested_text = nested_match.as_str();
+        
+        // Check if the last parentheses contain birth-death dates
+        let last_paren_re = Regex::new(r"\(([^()]*)\)$").unwrap();
+        if let Some(captures) = last_paren_re.captures(nested_text) {
+            let date_content = captures.get(1).unwrap().as_str();
+            
+            // Check if this contains a date range with a dash or en-dash
+            if date_content.contains('–') || date_content.contains('-') {
+                let separator = if date_content.contains('–') { '–' } else { '-' };
+                let parts: Vec<&str> = date_content.split(separator).collect();
+                
+                if parts.len() == 2 {
+                    let birth_part = parts[0].trim();
+                    let death_part = parts[1].trim();
+                    
+                    // Check if both parts look like dates (contain years)
+                    let year_regex = Regex::new(r"\d{4}").unwrap();
+                    if year_regex.is_match(birth_part) && year_regex.is_match(death_part) {
+                        // Create cleaned text without the nested parentheses
+                        let start_pos = nested_match.start();
+                        let end_pos = nested_match.end();
+                        let mut cleaned_text = format!("{}{}", 
+                            &text[0..start_pos], 
+                            &text[end_pos..]);
+                        cleaned_text = cleaned_text.replace("  ", " ").trim().to_string();
+                        
+                        return (Some(birth_part.to_string()), Some(death_part.to_string()), cleaned_text);
+                    }
+                }
+            }
+        }
+    }
+
+    // If nested parentheses approach didn't work, try the original approach
     // Find the first opening parenthesis
     if let Some(open_paren_pos) = text.find('(') {
         // Find the matching closing parenthesis
