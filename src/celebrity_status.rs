@@ -73,6 +73,211 @@ fn determine_gender(text: &str) -> (&'static str, &'static str, &'static str) {
     (subject, object, possessive)
 }
 
+// Function to check if the text is about a fictional character
+fn is_fictional_character(text: &str, title: &str) -> bool {
+    let text_lower = text.to_lowercase();
+    
+    // Common indicators of fictional characters
+    let fictional_indicators = [
+        "fictional character", "fictional protagonist", "fictional antagonist",
+        "fictional superhero", "fictional supervillain", "fictional detective",
+        "main character", "title character", "protagonist of", "antagonist of",
+        "character in the", "character from the", "appears in", "created by",
+        "comic book", "video game character", "anime character", "manga character",
+        "tv series character", "film character", "movie character",
+    ];
+    
+    // Check for these indicators
+    for indicator in &fictional_indicators {
+        if text_lower.contains(indicator) {
+            info!("Fictional character indicator found: '{}'", indicator);
+            return true;
+        }
+    }
+    
+    // Check if the title contains common fictional character indicators
+    let title_lower = title.to_lowercase();
+    let fictional_title_indicators = [
+        "(character)", "(fictional character)", "(comics)", "(Marvel Comics)",
+        "(DC Comics)", "(Disney)", "(film series)", "(film character)",
+    ];
+    
+    for indicator in &fictional_title_indicators {
+        if title_lower.contains(indicator) {
+            info!("Fictional character indicator in title: '{}'", indicator);
+            return true;
+        }
+    }
+    
+    false
+}
+
+// Function to find the actor associated with a fictional character
+async fn find_actor_for_character(text: &str, character_name: &str, client: &Client) -> Result<Option<String>> {
+    let text_lower = text.to_lowercase();
+    
+    // Look for common patterns that mention actors
+    let actor_patterns = [
+        r"portrayed by ([^\.]+)",
+        r"played by ([^\.]+)",
+        r"voiced by ([^\.]+)",
+        r"role of [^\.]+? (?:is|was) ([^\.]+)",
+        r"actor ([^\.]+) portrays",
+        r"actress ([^\.]+) portrays",
+        r"actor ([^\.]+) plays",
+        r"actress ([^\.]+) plays",
+    ];
+    
+    for pattern in &actor_patterns {
+        if let Ok(re) = Regex::new(pattern) {
+            if let Some(captures) = re.captures(&text_lower) {
+                if let Some(actor_match) = captures.get(1) {
+                    let actor_name = actor_match.as_str().trim();
+                    
+                    // Clean up the actor name (remove "in the film" etc.)
+                    let actor_name = actor_name.split(" in ").next().unwrap_or(actor_name).trim();
+                    let actor_name = actor_name.split(" on ").next().unwrap_or(actor_name).trim();
+                    let actor_name = actor_name.split(" for ").next().unwrap_or(actor_name).trim();
+                    
+                    info!("Found potential actor: {}", actor_name);
+                    
+                    // Get information about this actor
+                    if let Ok(Some(actor_info)) = search_actor(actor_name, client).await {
+                        return Ok(Some(format!("The character is most famously portrayed by {}.", actor_info)));
+                    }
+                }
+            }
+        }
+    }
+    
+    // If we couldn't find an actor in the text, try a direct search
+    let search_query = format!("{} actor", character_name);
+    info!("Trying direct search for actor: {}", search_query);
+    
+    // Search for the actor
+    let search_url = format!(
+        "https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch={}&format=json&srlimit=1",
+        urlencoding::encode(&search_query)
+    );
+    
+    let search_response = client.get(&search_url).send().await?;
+    let search_json: Value = search_response.json().await?;
+    
+    // Extract the page title from search results
+    if let Some(title) = search_json
+        .get("query")
+        .and_then(|q| q.get("search"))
+        .and_then(|s| s.get(0))
+        .and_then(|r| r.get("title"))
+        .and_then(|t| t.as_str()) 
+    {
+        // Check if this looks like an actor's name (not the character again)
+        if !title.to_lowercase().contains(&character_name.to_lowercase()) {
+            info!("Found potential actor via search: {}", title);
+            
+            // Get information about this actor
+            if let Ok(Some(actor_info)) = search_actor(title, client).await {
+                return Ok(Some(format!("The character is most famously portrayed by {}.", actor_info)));
+            }
+        }
+    }
+    
+    Ok(None)
+}
+
+// Function to search for information about an actor
+async fn search_actor(name: &str, client: &Client) -> Result<Option<String>> {
+    // Search for the actor's page
+    let search_url = format!(
+        "https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch={}&format=json&srlimit=1",
+        urlencoding::encode(name)
+    );
+    
+    let search_response = client.get(&search_url).send().await?;
+    let search_json: Value = search_response.json().await?;
+    
+    // Extract the page title from search results
+    let page_title = match search_json
+        .get("query")
+        .and_then(|q| q.get("search"))
+        .and_then(|s| s.get(0))
+        .and_then(|r| r.get("title"))
+        .and_then(|t| t.as_str()) {
+            Some(title) => title,
+            None => {
+                info!("No search results found for actor: {}", name);
+                return Ok(None);
+            }
+        };
+    
+    // Now get the page content
+    let page_url = format!(
+        "https://en.wikipedia.org/w/api.php?action=query&prop=extracts&exintro&explaintext&redirects=1&titles={}&format=json",
+        urlencoding::encode(page_title)
+    );
+    
+    let page_response = client.get(&page_url).send().await?;
+    let page_json: Value = page_response.json().await?;
+    
+    // Extract the page ID
+    let pages = match page_json.get("query").and_then(|q| q.get("pages")) {
+        Some(p) => p,
+        None => {
+            info!("No page data found for actor: {}", page_title);
+            return Ok(None);
+        }
+    };
+    
+    // Get the first page (there should only be one)
+    let page_id = match pages.as_object().and_then(|o| o.keys().next()) {
+        Some(id) => id,
+        None => {
+            info!("No page ID found for actor: {}", page_title);
+            return Ok(None);
+        }
+    };
+    
+    // Extract the extract (page content)
+    let raw_extract = match pages.get(page_id).and_then(|p| p.get("extract")).and_then(|e| e.as_str()) {
+        Some(e) => e,
+        None => {
+            info!("No extract found for actor page: {}", page_title);
+            return Ok(None);
+        }
+    };
+    
+    // Check if this is a person
+    let is_person = raw_extract.contains(" born ") || raw_extract.contains(" died ") || 
+                    Regex::new(r"\([^)]*\d{4}[^)]*\)").ok().map_or(false, |re| re.is_match(raw_extract));
+    
+    if !is_person {
+        info!("Actor page doesn't appear to be about a person: {}", page_title);
+        return Ok(None);
+    }
+    
+    // Determine if the actor is alive or dead
+    let (_, death_date, _) = extract_dates_from_parentheses(raw_extract);
+    let contains_was = raw_extract.contains(" was ");
+    let contains_is = raw_extract.contains(" is ");
+    let is_dead = death_date.is_some() || 
+                 (contains_was && !contains_is && raw_extract.contains("(") && raw_extract.contains(")"));
+    
+    // Create a brief description of the actor
+    let mut actor_info = format!("**{}**", page_title);
+    
+    if is_dead {
+        if let Some(date) = death_date {
+            actor_info.push_str(&format!(", who died on {}", date));
+        } else {
+            actor_info.push_str(", who has passed away");
+        }
+    } else {
+        actor_info.push_str(", who is still alive");
+    }
+    
+    Ok(Some(actor_info))
+}
+
 async fn search_celebrity(name: &str) -> Result<Option<String>> {
     let client = Client::new();
     
@@ -143,6 +348,20 @@ async fn search_celebrity(name: &str) -> Result<Option<String>> {
         info!("Extract preview (first 100 chars): {}...", &raw_extract[..100]);
     } else {
         info!("Extract preview: {}", raw_extract);
+    }
+    
+    // Check if this is a fictional character
+    let is_fictional = is_fictional_character(raw_extract, page_title);
+    
+    if is_fictional {
+        info!("Detected fictional character: {}", page_title);
+        
+        // Try to find the actor associated with this character
+        if let Some(actor_info) = find_actor_for_character(raw_extract, page_title, &client).await? {
+            return Ok(Some(format!("**{}** is a fictional character. {}", page_title, actor_info)));
+        } else {
+            return Ok(Some(format!("**{}** is a fictional character, not a real person.", page_title)));
+        }
     }
     
     // Check if this is a person (has birth/death dates in parentheses or "born"/"died" in the extract)
