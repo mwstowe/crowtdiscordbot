@@ -100,6 +100,8 @@ struct Bot {
     interjection_pondering_probability: f64,
     #[allow(dead_code)]
     interjection_ai_probability: f64,
+    #[allow(dead_code)]
+    interjection_fact_probability: f64,
 }
 
 impl Bot {
@@ -127,6 +129,7 @@ impl Bot {
         interjection_memory_probability: f64,
         interjection_pondering_probability: f64,
         interjection_ai_probability: f64,
+        interjection_fact_probability: f64,
         imagine_channels: Vec<String>
     ) -> Self {
         // Define the commands the bot will respond to
@@ -226,6 +229,7 @@ impl Bot {
             interjection_memory_probability,
             interjection_pondering_probability,
             interjection_ai_probability,
+            interjection_fact_probability: 0.005, // Default value
         }
     }
     
@@ -1562,6 +1566,95 @@ impl Bot {
             }
         }
         
+        // Fact interjection
+        if rand::thread_rng().gen_bool(self.interjection_fact_probability) {
+            let probability_percent = self.interjection_fact_probability * 100.0;
+            let odds = if self.interjection_fact_probability > 0.0 {
+                format!("1 in {:.0}", 1.0 / self.interjection_fact_probability)
+            } else {
+                "disabled".to_string()
+            };
+            
+            info!("Triggered fact interjection ({:.2}% chance, {})", probability_percent, odds);
+            
+            if let Some(gemini_client) = &self.gemini_client {
+                // Start typing indicator
+                if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
+                    error!("Failed to send typing indicator for fact interjection: {:?}", e);
+                }
+                
+                // Get recent messages for context
+                let context_messages = if let Some(db) = &self.message_db {
+                    match db_utils::get_recent_messages(db.clone(), 5, Some(msg.channel_id.to_string().as_str())).await {
+                        Ok(messages) => messages,
+                        Err(e) => {
+                            error!("Error retrieving recent messages for fact interjection: {:?}", e);
+                            Vec::new()
+                        }
+                    }
+                } else {
+                    Vec::new()
+                };
+                
+                // Format context for the prompt
+                let context_text = if !context_messages.is_empty() {
+                    // Reverse the messages to get chronological order (oldest first)
+                    let mut chronological_messages = context_messages.clone();
+                    chronological_messages.reverse();
+                    
+                    let formatted_messages: Vec<String> = chronological_messages.iter()
+                        .map(|(_author, display_name, content)| format!("{}: {}", display_name, content))
+                        .collect();
+                    formatted_messages.join("\n")
+                } else {
+                    "No recent messages".to_string()
+                };
+                
+                // Create the fact prompt
+                let fact_prompt = String::from(r#"You are {bot_name}, a Discord bot with a wealth of interesting knowledge.
+Review the recent conversation context and provide an interesting fact that's related to the conversation.
+
+Recent conversation context:
+{context}
+
+Guidelines for your fact:
+1. If possible, relate your fact to something in the conversation
+2. If nothing in the conversation inspires a fact, provide a fact about science fiction, comedy, or technology
+3. Make sure your fact is interesting, surprising, or amusing
+4. Keep it concise (1-2 sentences)
+5. If you can't think of a good fact, respond with exactly "pass" and nothing else
+
+Don't use markdown formatting or explain why you chose this fact."#)
+                    .replace("{bot_name}", &self.bot_name)
+                    .replace("{context}", &context_text);
+                
+                // Call Gemini API with the fact prompt
+                match gemini_client.generate_response(&fact_prompt, "").await {
+                    Ok(response) => {
+                        // Check if the response is "pass" - if so, don't send anything
+                        if response.trim().to_lowercase() == "pass" {
+                            info!("Fact interjection evaluation: decided to PASS - no response sent");
+                            return Ok(());
+                        }
+                        
+                        // Apply realistic typing delay
+                        apply_realistic_delay(&response, ctx, msg.channel_id).await;
+                        
+                        // Send the response
+                        let response_text = response.clone(); // Clone for logging
+                        if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
+                            error!("Error sending fact interjection: {:?}", e);
+                        } else {
+                            info!("Fact interjection evaluation: SENT response - {}", response_text);
+                        }
+                    },
+                    Err(e) => {
+                        error!("Error generating fact interjection: {:?}", e);
+                    }
+                }
+            }
+        }
+        
         // Store the message in the database if available
         if let Some(db) = &self.message_db {
             let author = msg.author.name.clone();
@@ -2260,6 +2353,13 @@ async fn main() -> Result<()> {
     // Parse config values
     let (bot_name, message_history_limit, db_trim_interval, gemini_rate_limit_minute, gemini_rate_limit_day, gateway_bot_ids, google_search_enabled, gemini_context_messages, interjection_mst3k_probability, interjection_memory_probability, interjection_pondering_probability, interjection_ai_probability, imagine_channels) = 
         parse_config(&config);
+        
+    // Get fact interjection probability
+    let interjection_fact_probability = config.interjection_fact_probability.clone()
+        .unwrap_or_else(|| "0.005".to_string())
+        .parse::<f64>()
+        .unwrap_or(0.005);
+    info!("Fact interjection probability: {}%", interjection_fact_probability * 100.0);
     
     // Get Gemini API key
     let gemini_api_key = config.gemini_api_key.clone();
@@ -2340,6 +2440,7 @@ Don't explain your reasoning or include your rating in the response."#)
     info!("Memory interjection probability: {}%", interjection_memory_probability * 100.0);
     info!("Pondering interjection probability: {}%", interjection_pondering_probability * 100.0);
     info!("AI interjection probability: {}%", interjection_ai_probability * 100.0);
+    info!("Fact interjection probability: {}%", interjection_fact_probability * 100.0);
 
     // Log database configuration
     info!("Database configuration: host={:?}, db={:?}, user={:?}, password={}", 
@@ -2497,6 +2598,7 @@ Don't explain your reasoning or include your rating in the response."#)
         interjection_memory_probability,
         interjection_pondering_probability,
         interjection_ai_probability,
+        interjection_fact_probability,
         imagine_channels
     );
     

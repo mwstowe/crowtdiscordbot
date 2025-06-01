@@ -57,6 +57,7 @@ pub struct Config {
     pub interjection_memory_probability: Option<String>,
     pub interjection_pondering_probability: Option<String>,
     pub interjection_ai_probability: Option<String>,
+    pub interjection_fact_probability: Option<String>,
     pub imagine_channels: Option<String>,
     // thinking_message removed - only using typing indicator
     pub google_search_enabled: Option<String>,
