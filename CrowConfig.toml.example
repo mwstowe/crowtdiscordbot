@@ -1,33 +1,32 @@
-# Discord Bot Token
+# Discord Bot Configuration
 DISCORD_TOKEN = "your_discord_token_here"
 
-# Bot Name (defaults to "Crow" if not specified)
-BOT_NAME = "Crow"
-
-# Channel to follow - specify either by ID or name
-# For multiple channels, use comma-separated values
+# Channel Configuration
+# You can use either channel names or IDs, and either single or multiple channels
+# FOLLOWED_CHANNEL_NAME = "general"
 # FOLLOWED_CHANNEL_ID = "123456789012345678"
-FOLLOWED_CHANNEL_NAME = "general"
-# FOLLOWED_CHANNEL_IDS = "123456789012345678,234567890123456789"
-# FOLLOWED_CHANNEL_NAMES = "general,random,bot-testing"
+# FOLLOWED_CHANNEL_NAMES = "general,bot-testing,random"
+# FOLLOWED_CHANNEL_IDS = "123456789012345678,234567890123456789,345678901234567890"
 
-# Optional: Server name to limit channel search to a specific server
-# FOLLOWED_SERVER_NAME = "My Discord Server"
+# Optional: Limit channel search to a specific server
+# FOLLOWED_SERVER_NAME = "Your Server Name"
 
-# Message history limit (defaults to 10000 if not specified)
+# Bot Configuration
+BOT_NAME = "Crow"
 MESSAGE_HISTORY_LIMIT = "10000"
-
-# Database trim interval in seconds (defaults to 3600 seconds / 1 hour if not specified)
 DB_TRIM_INTERVAL_SECS = "3600"
 
-# Gemini API settings
+# Gemini API Configuration
 GEMINI_API_KEY = "your_gemini_api_key_here"
-GEMINI_API_ENDPOINT = "gemini-1.0-pro" # or "gemini-1.5-pro", "gemini-1.5-flash", etc.
-GEMINI_RATE_LIMIT_MINUTE = "15"  # Maximum API calls per minute (defaults to 15)
-GEMINI_RATE_LIMIT_DAY = "1500"   # Maximum API calls per day (defaults to 1500)
-
-# Number of previous messages to include as context for AI responses
+GEMINI_RATE_LIMIT_MINUTE = "15"
+GEMINI_RATE_LIMIT_DAY = "1500"
 GEMINI_CONTEXT_MESSAGES = "5"
+
+# Optional: Custom Gemini API endpoint (defaults to gemini-1.0-pro)
+# GEMINI_API_ENDPOINT = "gemini-1.5-pro"
+
+# Optional: Custom prompt wrapper for Gemini API
+# GEMINI_PROMPT_WRAPPER = "You are {bot_name}, a witty Discord bot. Respond to: {message}"
 
 # Random Interjection Probabilities (chance per message)
 # Each type has its own probability - set to 0 to disable
@@ -35,57 +34,20 @@ INTERJECTION_MST3K_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
 INTERJECTION_MEMORY_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
 INTERJECTION_PONDERING_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
 INTERJECTION_AI_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
+INTERJECTION_FACT_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
 
-# Custom prompt wrapper for Gemini API calls
-# Available placeholders:
-# {message} - The user's message
-# {bot_name} - The bot's name
-# {user} - The user's display name
-# {context} - Recent conversation history
-GEMINI_PROMPT_WRAPPER = """
-You are {bot_name}, a sarcastic and witty Discord bot with a dark sense of humor.
-Respond to {user}'s message: "{message}"
-
-Recent conversation context:
-{context}
-
-Keep your response concise and entertaining. Don't use markdown formatting.
-"""
-
-# Custom prompt for random AI interjections
-GEMINI_INTERJECTION_PROMPT = """
-You are {bot_name}, a sarcastic and witty Discord bot with a dark sense of humor.
-Review the recent conversation context and determine if you can make a relevant interjection.
-
-Recent conversation context:
-{context}
-
-You should ONLY respond with an interjection if ONE of the following criteria is met:
-1. You can complete a song lyric, movie quote, or television quote that someone has started
-2. You can come up with a clever punchline or riff on the conversation
-3. You can correct someone's grammar or spelling (do this sparingly and with humor)
-
-For criterion #2 (punchlines/riffs), rate your response on a scale of 1-10 for humor and cleverness.
-ONLY return the punchline/riff if you rate it 7 or higher.
-
-If none of these criteria are met, respond with exactly "pass" and nothing else.
-
-Keep your response concise (1-2 sentences), snarky, and entertaining. Don't use markdown formatting.
-Don't explain your reasoning or include your rating in the response.
-"""
-
-# Enable or disable Google search feature (defaults to true)
+# Google Search Configuration
 GOOGLE_SEARCH_ENABLED = "true"
 
-# MySQL database credentials for quotes and slogans
-DB_HOST = "localhost"
-DB_NAME = "quotes_db"
-DB_USER = "quotes_user"
-DB_PASSWORD = "quotes_password"
+# MySQL Database Configuration (for quote functionality)
+# DB_HOST = "localhost"
+# DB_NAME = "your_database_name"
+# DB_USER = "your_database_user"
+# DB_PASSWORD = "your_database_password"
 
-# Gateway bot IDs (comma-separated) - messages from these bots will be processed
-# GATEWAY_BOT_IDS = "123456789012345678,234567890123456789"
-
-# Image generation channels (comma-separated) - channels where !imagine command is allowed
-# If empty, the command is allowed in all followed channels
+# Image Generation Configuration
+# Comma-separated list of channels where !imagine command is allowed
 # IMAGINE_CHANNELS = "bot-testing,ai-images"
+
+# Gateway Bot IDs (comma-separated list of bot IDs to ignore)
+# GATEWAY_BOT_IDS = "123456789012345678,234567890123456789"
