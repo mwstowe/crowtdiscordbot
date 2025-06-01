@@ -130,6 +130,7 @@ impl Bot {
         interjection_pondering_probability: f64,
         interjection_ai_probability: f64,
         interjection_fact_probability: f64,
+        log_prompts: bool,
         imagine_channels: Vec<String>
     ) -> Self {
         // Define the commands the bot will respond to
@@ -176,7 +177,8 @@ impl Bot {
                     bot_name.clone(),
                     gemini_rate_limit_minute,
                     gemini_rate_limit_day,
-                    gemini_context_messages
+                    gemini_context_messages,
+                    log_prompts
                 ))
             },
             None => {
@@ -2369,6 +2371,13 @@ async fn main() -> Result<()> {
         info!("Gemini API key loaded");
     }
     
+    // Get Gemini logging setting
+    let gemini_log_prompts = config.gemini_log_prompts.clone()
+        .unwrap_or_else(|| "false".to_string())
+        .parse::<bool>()
+        .unwrap_or(false);
+    info!("Gemini API prompt logging: {}", if gemini_log_prompts { "enabled" } else { "disabled" });
+    
     // Get custom prompt wrapper if available
     let gemini_prompt_wrapper = config.gemini_prompt_wrapper.clone();
     if gemini_prompt_wrapper.is_some() {
@@ -2599,6 +2608,7 @@ Don't explain your reasoning or include your rating in the response."#)
         interjection_pondering_probability,
         interjection_ai_probability,
         interjection_fact_probability,
+        gemini_log_prompts,
         imagine_channels
     );
     

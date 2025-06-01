@@ -2,7 +2,7 @@ use anyhow::Result;
 use reqwest;
 use serde_json;
 use std::time::Duration;
-use tracing::{error, info};
+use tracing::{error, info, debug};
 use crate::rate_limiter::RateLimiter;
 use base64::Engine;
 
@@ -14,6 +14,7 @@ pub struct GeminiClient {
     bot_name: String,
     rate_limiter: RateLimiter,
     context_messages: usize,
+    log_prompts: bool,
 }
 
 impl GeminiClient {
@@ -24,7 +25,8 @@ impl GeminiClient {
         bot_name: String,
         rate_limit_minute: u32,
         rate_limit_day: u32,
-        context_messages: usize
+        context_messages: usize,
+        log_prompts: bool
     ) -> Self {
         // Default endpoint for Gemini API
         let default_endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent".to_string();
@@ -48,6 +50,7 @@ impl GeminiClient {
             bot_name,
             rate_limiter,
             context_messages,
+            log_prompts,
         }
     }
     
@@ -104,6 +107,11 @@ impl GeminiClient {
         // Use acquire() which includes retry logic and request recording
         self.rate_limiter.acquire().await?;
         
+        // Log the prompt if enabled
+        if self.log_prompts {
+            debug!("Gemini API Prompt: {}", prompt);
+        }
+        
         // Prepare the request body
         let request_body = serde_json::json!({
             "contents": [{
@@ -137,7 +145,14 @@ impl GeminiClient {
             .and_then(|p| p.get(0))
             .and_then(|p| p.get("text"))
             .and_then(|t| t.as_str()) {
-            info!("Successfully generated content from Gemini API");
+            
+            // Log the response if enabled
+            if self.log_prompts {
+                debug!("Gemini API Response: {}", text);
+            } else {
+                info!("Successfully generated content from Gemini API");
+            }
+            
             Ok(text.to_string())
         } else {
             error!("Failed to extract text from Gemini API response");
