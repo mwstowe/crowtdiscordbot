@@ -76,15 +76,48 @@ fn determine_gender(text: &str) -> (&'static str, &'static str, &'static str) {
 // Function to check if the text is about a fictional character
 fn is_fictional_character(text: &str, title: &str) -> bool {
     let text_lower = text.to_lowercase();
+    let title_lower = title.to_lowercase();
+    
+    // Special case for Gary Gygax and other known real people who might be incorrectly flagged
+    let known_real_people = [
+        "gary gygax", "ernest gary gygax", "dave arneson", "j. r. r. tolkien", "tolkien",
+        "stan lee", "jack kirby", "george lucas", "gene roddenberry", "isaac asimov",
+        "stephen king", "george r. r. martin", "jrr tolkien", "j.r.r. tolkien"
+    ];
+    
+    for person in &known_real_people {
+        if title_lower.contains(person) {
+            info!("Known real person detected: '{}', not a fictional character", person);
+            return false;
+        }
+    }
+    
+    // Check for explicit "real person" indicators
+    let real_person_indicators = [
+        "was born", "was a", "is a", "american author", "british author", 
+        "writer", "author", "creator", "inventor", "founder", "developer",
+        "designer", "producer", "director", "businessman", "businesswoman",
+        "politician", "president", "prime minister", "ceo", "executive",
+        "scientist", "researcher", "professor", "teacher", "educator",
+        "artist", "musician", "composer", "singer", "actor", "actress",
+        "athlete", "player", "coach", "manager", "born in", "died in",
+        "graduated from", "attended", "studied at", "worked at", "worked for"
+    ];
+    
+    for indicator in &real_person_indicators {
+        if text_lower.contains(indicator) {
+            // If we find a real person indicator, check if there's also a fictional indicator
+            // Only return false if we don't find any fictional indicators
+            break;
+        }
+    }
     
     // Common indicators of fictional characters
     let fictional_indicators = [
         "fictional character", "fictional protagonist", "fictional antagonist",
         "fictional superhero", "fictional supervillain", "fictional detective",
         "main character", "title character", "protagonist of", "antagonist of",
-        "character in the", "character from the", "appears in", "created by",
-        "comic book", "video game character", "anime character", "manga character",
-        "tv series character", "film character", "movie character",
+        "character in the", "character from the", "appears in"
     ];
     
     // Check for these indicators
@@ -95,8 +128,18 @@ fn is_fictional_character(text: &str, title: &str) -> bool {
         }
     }
     
+    // "Created by" is ambiguous - it could refer to a fictional character or a creation by a real person
+    // Only count it as fictional if it doesn't look like a real person description
+    if text_lower.contains("created by") && !text_lower.contains(" born ") && !text_lower.contains(" died ") {
+        // Additional check: if it contains biographical information, it's likely a real person
+        if !text_lower.contains("graduated") && !text_lower.contains("education") && 
+           !text_lower.contains("married") && !text_lower.contains("career") {
+            info!("Fictional character indicator 'created by' found without biographical info");
+            return true;
+        }
+    }
+    
     // Check if the title contains common fictional character indicators
-    let title_lower = title.to_lowercase();
     let fictional_title_indicators = [
         "(character)", "(fictional character)", "(comics)", "(Marvel Comics)",
         "(DC Comics)", "(Disney)", "(film series)", "(film character)",
