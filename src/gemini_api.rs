@@ -2,7 +2,7 @@ use anyhow::Result;
 use reqwest;
 use serde_json;
 use std::time::Duration;
-use tracing::{error, info, debug};
+use tracing::{error, info};
 use crate::rate_limiter::RateLimiter;
 use base64::Engine;
 
@@ -109,7 +109,7 @@ impl GeminiClient {
         
         // Log the prompt if enabled
         if self.log_prompts {
-            debug!("Gemini API Prompt: {}", prompt);
+            info!("Gemini API Prompt: {}", prompt);
         }
         
         // Prepare the request body
@@ -148,7 +148,7 @@ impl GeminiClient {
             
             // Log the response if enabled
             if self.log_prompts {
-                debug!("Gemini API Response: {}", text);
+                info!("Gemini API Response: {}", text);
             } else {
                 info!("Successfully generated content from Gemini API");
             }
