@@ -105,6 +105,23 @@ struct Bot {
 }
 
 impl Bot {
+    // Helper function to save bot's own response to the database
+    async fn save_bot_response(&self, response: &str) {
+        if let Some(db) = &self.message_db {
+            if let Err(e) = db_utils::save_message(
+                db.clone(),
+                &self.bot_name,
+                &self.bot_name,
+                response,
+                None // No Message object for our own response
+            ).await {
+                error!("Error saving bot response to database: {:?}", e);
+            } else {
+                debug!("Saved bot response to database for context");
+            }
+        }
+    }
+
     fn new(
         followed_channels: Vec<ChannelId>,
         mysql_host: Option<String>,
@@ -2220,6 +2237,23 @@ Don't use markdown formatting or explain why you chose this fact."#)
 #[async_trait]
 impl EventHandler for Bot {
     async fn message(&self, ctx: Context, msg: Message) {
+        // Store all messages in the database, including our own
+        if let Some(db) = &self.message_db {
+            // Get the display name
+            let display_name = get_best_display_name(ctx.clone(), msg.clone()).await;
+            
+            // Save the message to the database
+            if let Err(e) = db_utils::save_message(
+                db.clone(),
+                &msg.author.name,
+                &display_name,
+                &msg.content,
+                Some(&msg)
+            ).await {
+                error!("Error saving message to database: {:?}", e);
+            }
+        }
+        
         // Check if the message is from a bot
         if msg.author.bot {
             // Add detailed logging for bot messages
@@ -2230,7 +2264,8 @@ impl EventHandler for Bot {
             info!("📝 Message content: {}", msg.content);
             
             if !self.gateway_bot_ids.contains(&bot_id) {
-                // Not in our gateway bot list, ignore the message
+                // Not in our gateway bot list, ignore the message for processing
+                // (but we've already stored it in the database for context)
                 info!("❌ Ignoring message from bot {} as it's not in our gateway bot list", bot_id);
                 return;
             }
