@@ -101,11 +101,12 @@ struct Bot {
     #[allow(dead_code)]
     interjection_ai_probability: f64,
     #[allow(dead_code)]
-    interjection_fact_probability: f64,
+    _interjection_fact_probability: f64,
 }
 
 impl Bot {
     // Helper function to save bot's own response to the database
+    #[allow(dead_code)]
     async fn save_bot_response(&self, response: &str) {
         if let Some(db) = &self.message_db {
             if let Err(e) = db_utils::save_message(
@@ -146,7 +147,7 @@ impl Bot {
         interjection_memory_probability: f64,
         interjection_pondering_probability: f64,
         interjection_ai_probability: f64,
-        interjection_fact_probability: f64,
+        _interjection_fact_probability: f64,
         log_prompts: bool,
         imagine_channels: Vec<String>
     ) -> Self {
@@ -248,7 +249,7 @@ impl Bot {
             interjection_memory_probability,
             interjection_pondering_probability,
             interjection_ai_probability,
-            interjection_fact_probability: 0.005, // Default value
+            _interjection_fact_probability: 0.005, // Default value
         }
     }
     
@@ -1586,10 +1587,10 @@ impl Bot {
         }
         
         // Fact interjection
-        if rand::thread_rng().gen_bool(self.interjection_fact_probability) {
-            let probability_percent = self.interjection_fact_probability * 100.0;
-            let odds = if self.interjection_fact_probability > 0.0 {
-                format!("1 in {:.0}", 1.0 / self.interjection_fact_probability)
+        if rand::thread_rng().gen_bool(self._interjection_fact_probability) {
+            let probability_percent = self._interjection_fact_probability * 100.0;
+            let odds = if self._interjection_fact_probability > 0.0 {
+                format!("1 in {:.0}", 1.0 / self._interjection_fact_probability)
             } else {
                 "disabled".to_string()
             };
