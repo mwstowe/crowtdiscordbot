@@ -4,6 +4,7 @@ use tokio_rusqlite::Connection as SqliteConnection;
 use serenity::model::channel::Message;
 use serenity::model::id::{MessageId, ChannelId, GuildId, UserId};
 use tracing::info;
+use std::collections::HashSet;
 // Removed unused imports
 
 // Initialize the SQLite database with enhanced schema
@@ -285,7 +286,7 @@ pub async fn get_recent_messages(
     info!("Channel IDs in database: {:?}", channels);
     
     // If channel_id is provided, filter by it
-    let messages = if let Some(channel) = channel_id {
+    let raw_messages: Vec<(String, String, String, String)> = if let Some(channel) = channel_id {
         let channel_str = channel.to_string();
         
         // First get the total count of messages for this channel
@@ -342,6 +343,7 @@ pub async fn get_recent_messages(
                     info!("Retrieved message: ID={}, Author={}, Content={}", msg_id, author, content);
                     
                     Ok((
+                        msg_id,
                         author,
                         display_name,
                         content,
@@ -407,6 +409,7 @@ pub async fn get_recent_messages(
                 info!("Retrieved message: ID={}, Author={}, Content={}", msg_id, author, content);
                 
                 Ok((
+                    msg_id,
                     author,
                     display_name,
                     content,
@@ -427,7 +430,23 @@ pub async fn get_recent_messages(
         result
     };
     
-    Ok(messages)
+    // Deduplicate messages based on content
+    info!("Before deduplication: {} messages", raw_messages.len());
+    
+    // Use a HashSet to track seen content
+    let mut seen_content = HashSet::new();
+    let mut deduplicated_messages = Vec::new();
+    
+    for (msg_id, author, display_name, content) in raw_messages {
+        if seen_content.insert(content.clone()) {
+            // This is a new message content, add it to the result
+            deduplicated_messages.push((author, display_name, content));
+        }
+    }
+    
+    info!("After deduplication: {} messages", deduplicated_messages.len());
+    
+    Ok(deduplicated_messages)
 }
 
 // Trim the message history to keep only the most recent messages
