@@ -248,7 +248,7 @@ pub async fn get_recent_messages(
             let mut stmt = conn.prepare(
                 "SELECT author, display_name, content FROM messages 
                  WHERE channel_id = ? 
-                 ORDER BY timestamp DESC LIMIT ?"
+                 ORDER BY timestamp ASC LIMIT ?"
             )?;
             
             let rows = stmt.query_map([&channel, &limit.to_string()], |row| {
@@ -272,7 +272,7 @@ pub async fn get_recent_messages(
         // If no channel_id is provided, get messages from all channels
         conn_guard.call(move |conn| {
             let mut stmt = conn.prepare(
-                "SELECT author, display_name, content FROM messages ORDER BY timestamp DESC LIMIT ?"
+                "SELECT author, display_name, content FROM messages ORDER BY timestamp ASC LIMIT ?"
             )?;
             
             let rows = stmt.query_map([limit], |row| {

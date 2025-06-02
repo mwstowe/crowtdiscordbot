@@ -74,11 +74,13 @@ impl GeminiClient {
         context_messages: &Vec<(String, String, String)>,
         _user_pronouns: Option<&str>
     ) -> Result<String> {
-        // Format the context messages - limit to configured number and reverse to get chronological order
+        // Format the context messages - already in chronological order from the database query
         let context = if !context_messages.is_empty() {
             // Take only the configured number of messages
             let limited_messages = if context_messages.len() > self.context_messages {
-                &context_messages[0..self.context_messages]
+                // Take the most recent messages (which are at the end since we changed the order)
+                let start_idx = context_messages.len() - self.context_messages;
+                &context_messages[start_idx..]
             } else {
                 context_messages
             };
