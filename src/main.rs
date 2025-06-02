@@ -2240,7 +2240,7 @@ impl EventHandler for Bot {
         // Store all messages in the database, including our own
         if let Some(db) = &self.message_db {
             // Get the display name
-            let display_name = get_best_display_name(ctx.clone(), msg.clone()).await;
+            let display_name = get_best_display_name(&ctx, &msg).await;
             
             // Save the message to the database
             if let Err(e) = db_utils::save_message(

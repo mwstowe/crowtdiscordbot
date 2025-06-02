@@ -102,114 +102,147 @@ impl GeminiClient {
         self.generate_content(&formatted_prompt).await
     }
     
-    // Generate content with a raw prompt
+    // Generate content with a raw prompt and retry on overload errors
     pub async fn generate_content(&self, prompt: &str) -> Result<String> {
-        // Use acquire() which includes retry logic and request recording
-        self.rate_limiter.acquire().await?;
+        // Maximum number of retries
+        const MAX_RETRIES: usize = 5;
         
-        // Log the prompt if enabled
-        if self.log_prompts {
-            info!("Gemini API Prompt: {}", prompt);
-        }
+        // Initial delay in seconds (will be doubled each retry - exponential backoff)
+        let mut delay_secs = 10;
         
-        // Prepare the request body
-        let request_body = serde_json::json!({
-            "contents": [{
-                "parts": [{
-                    "text": prompt
-                }]
-            }]
-        });
-        
-        // Build the URL with API key
-        let url = format!("{}?key={}", self.api_endpoint, self.api_key);
-        
-        // Make the API call
-        let client = reqwest::Client::new();
-        let response = client
-            .post(&url)
-            .json(&request_body)
-            .timeout(Duration::from_secs(30))
-            .send()
-            .await?;
+        // Try up to MAX_RETRIES times
+        for attempt in 1..=MAX_RETRIES {
+            // Use acquire() which includes retry logic and request recording
+            self.rate_limiter.acquire().await?;
             
-        // Parse the response
-        let response_json: serde_json::Value = response.json().await?;
-        
-        // Log the full raw response if logging is enabled
-        if self.log_prompts {
-            if let Ok(pretty_json) = serde_json::to_string_pretty(&response_json) {
-                info!("Gemini API Raw Response: {}", pretty_json);
-            } else {
-                info!("Gemini API Raw Response: {}", response_json);
+            // Log the prompt if enabled
+            if self.log_prompts {
+                info!("Gemini API Prompt: {}", prompt);
             }
-        }
-        
-        // Check for error in response
-        if let Some(error) = response_json.get("error") {
-            let error_message = error.get("message")
-                .and_then(|m| m.as_str())
-                .unwrap_or("Unknown API error");
-            let error_code = error.get("code")
-                .and_then(|c| c.as_u64())
-                .unwrap_or(0);
             
-            error!("Gemini API error (code {}): {}", error_code, error_message);
-            return Err(anyhow::anyhow!("Gemini API error: {}", error_message));
-        }
-        
-        // Check for finish reason
-        if let Some(candidates) = response_json.get("candidates") {
-            if let Some(candidate) = candidates.get(0) {
-                if let Some(finish_reason) = candidate.get("finishReason") {
-                    if finish_reason != "STOP" {
-                        let reason = finish_reason.as_str().unwrap_or("UNKNOWN");
-                        error!("Gemini API response has non-STOP finish reason: {}", reason);
-                        if reason == "SAFETY" {
-                            return Err(anyhow::anyhow!("Gemini API safety filters triggered. The prompt may contain inappropriate content."));
-                        } else if reason == "RECITATION" {
-                            return Err(anyhow::anyhow!("Gemini API detected content recitation. The response may contain copied content."));
-                        } else if reason == "OTHER" {
-                            return Err(anyhow::anyhow!("Gemini API terminated the response for an unspecified reason."));
+            // Prepare the request body
+            let request_body = serde_json::json!({
+                "contents": [{
+                    "parts": [{
+                        "text": prompt
+                    }]
+                }]
+            });
+            
+            // Build the URL with API key
+            let url = format!("{}?key={}", self.api_endpoint, self.api_key);
+            
+            // Make the API call
+            let client = reqwest::Client::new();
+            let response = client
+                .post(&url)
+                .json(&request_body)
+                .timeout(Duration::from_secs(30))
+                .send()
+                .await?;
+                
+            // Parse the response
+            let response_json: serde_json::Value = response.json().await?;
+            
+            // Log the full raw response if logging is enabled
+            if self.log_prompts {
+                if let Ok(pretty_json) = serde_json::to_string_pretty(&response_json) {
+                    info!("Gemini API Raw Response: {}", pretty_json);
+                } else {
+                    info!("Gemini API Raw Response: {}", response_json);
+                }
+            }
+            
+            // Check for error in response
+            if let Some(error) = response_json.get("error") {
+                let error_message = error.get("message")
+                    .and_then(|m| m.as_str())
+                    .unwrap_or("Unknown API error");
+                let error_code = error.get("code")
+                    .and_then(|c| c.as_u64())
+                    .unwrap_or(0);
+                
+                // Check if this is an overload error that we should retry
+                if error_message.contains("overloaded") || error_message.contains("try again later") {
+                    if attempt < MAX_RETRIES {
+                        // Log that we're retrying
+                        info!("Gemini API overloaded (attempt {}/{}), retrying in {} seconds...", 
+                             attempt, MAX_RETRIES, delay_secs);
+                        
+                        // Wait before retrying
+                        tokio::time::sleep(Duration::from_secs(delay_secs)).await;
+                        
+                        // Double the delay for next attempt (exponential backoff)
+                        delay_secs *= 2;
+                        
+                        // Continue to the next retry attempt
+                        continue;
+                    }
+                }
+                
+                // If we've exhausted retries or it's not a retryable error, return the error
+                error!("Gemini API error (code {}): {}", error_code, error_message);
+                return Err(anyhow::anyhow!("Gemini API error: {}", error_message));
+            }
+            
+            // Check for finish reason
+            if let Some(candidates) = response_json.get("candidates") {
+                if let Some(candidate) = candidates.get(0) {
+                    if let Some(finish_reason) = candidate.get("finishReason") {
+                        if finish_reason != "STOP" {
+                            let reason = finish_reason.as_str().unwrap_or("UNKNOWN");
+                            error!("Gemini API response has non-STOP finish reason: {}", reason);
+                            if reason == "SAFETY" {
+                                return Err(anyhow::anyhow!("Gemini API safety filters triggered. The prompt may contain inappropriate content."));
+                            } else if reason == "RECITATION" {
+                                return Err(anyhow::anyhow!("Gemini API detected content recitation. The response may contain copied content."));
+                            } else if reason == "OTHER" {
+                                return Err(anyhow::anyhow!("Gemini API terminated the response for an unspecified reason."));
+                            }
                         }
                     }
                 }
             }
+            
+            // Extract the generated text
+            if let Some(text) = response_json
+                .get("candidates")
+                .and_then(|c| c.get(0))
+                .and_then(|c| c.get("content"))
+                .and_then(|c| c.get("parts"))
+                .and_then(|p| p.get(0))
+                .and_then(|p| p.get("text"))
+                .and_then(|t| t.as_str()) {
+                
+                // Log the response if enabled
+                if self.log_prompts {
+                    info!("Gemini API Response Text: {}", text);
+                } else {
+                    info!("Successfully generated content from Gemini API");
+                }
+                
+                // Success! Return the text
+                return Ok(text.to_string());
+            } else {
+                // Check for prompt feedback
+                let prompt_feedback = if let Some(feedback) = response_json.get("promptFeedback") {
+                    if let Some(block_reason) = feedback.get("blockReason") {
+                        format!("Prompt blocked: {}", block_reason.as_str().unwrap_or("UNKNOWN"))
+                    } else {
+                        "Prompt feedback present but no block reason specified".to_string()
+                    }
+                } else {
+                    "No prompt feedback available".to_string()
+                };
+                
+                error!("Failed to extract text from Gemini API response: {}", prompt_feedback);
+                return Err(anyhow::anyhow!("Failed to extract text from Gemini API response: {}", prompt_feedback));
+            }
         }
         
-        // Extract the generated text
-        if let Some(text) = response_json
-            .get("candidates")
-            .and_then(|c| c.get(0))
-            .and_then(|c| c.get("content"))
-            .and_then(|c| c.get("parts"))
-            .and_then(|p| p.get(0))
-            .and_then(|p| p.get("text"))
-            .and_then(|t| t.as_str()) {
-            
-            // Log the response if enabled
-            if self.log_prompts {
-                info!("Gemini API Response Text: {}", text);
-            } else {
-                info!("Successfully generated content from Gemini API");
-            }
-            
-            Ok(text.to_string())
-        } else {
-            // Check for prompt feedback
-            let prompt_feedback = if let Some(feedback) = response_json.get("promptFeedback") {
-                if let Some(block_reason) = feedback.get("blockReason") {
-                    format!("Prompt blocked: {}", block_reason.as_str().unwrap_or("UNKNOWN"))
-                } else {
-                    "Prompt feedback present but no block reason specified".to_string()
-                }
-            } else {
-                "No prompt feedback available".to_string()
-            };
-            
-            error!("Failed to extract text from Gemini API response: {}", prompt_feedback);
-            Err(anyhow::anyhow!("Failed to extract text from Gemini API response: {}", prompt_feedback))
-        }
+        // This should never be reached due to the return statements above,
+        // but we need it for the compiler
+        Err(anyhow::anyhow!("Maximum retry attempts exceeded"))
     }
 
     // Generate an image from a text prompt
