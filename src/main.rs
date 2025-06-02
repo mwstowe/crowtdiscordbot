@@ -2024,9 +2024,19 @@ Don't use markdown formatting or explain why you chose this fact."#)
                     
                     // Get recent messages for context
                     let context_messages = if let Some(db) = &self.message_db {
+                        // Debug: Log the channel ID we are using
+                        info!("Requesting context messages for channel ID: {}", msg.channel_id);
+                        
                         // Get the last self.gemini_context_messages messages from the database
-                        match db_utils::get_recent_messages(db.clone(), 5, Some(msg.channel_id.to_string().as_str())).await {
-                            Ok(messages) => messages,
+                        match db_utils::get_recent_messages(db.clone(), self.gemini_context_messages, Some(msg.channel_id.to_string().as_str())).await {
+                            Ok(messages) => {
+                                if messages.is_empty() {
+                                    info!("No context messages found for channel {}", msg.channel_id);
+                                } else {
+                                    info!("Found {} context messages for channel {}", messages.len(), msg.channel_id);
+                                }
+                                messages
+                            },
                             Err(e) => {
                                 error!("Error retrieving recent messages: {:?}", e);
                                 Vec::new()

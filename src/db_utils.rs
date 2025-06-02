@@ -244,79 +244,172 @@ pub async fn get_recent_messages(
     // Add debug logging
     info!("Getting recent messages. Limit: {}, Channel ID: {:?}", limit, channel_id);
     
+    // Debug: Check which database file we're using
+    let db_path = conn_guard.call(move |conn| {
+        let path = conn.query_row("PRAGMA database_list", [], |row| {
+            row.get::<_, String>(2)
+        }).unwrap_or_else(|_| "Unknown".to_string());
+        Ok::<_, rusqlite::Error>(path)
+    }).await?;
+    
+    info!("Using database file: {}", db_path);
+    
+    // Debug: List all tables in the database
+    let tables = conn_guard.call(move |conn| {
+        let mut stmt = conn.prepare("SELECT name FROM sqlite_master WHERE type='table'")?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+        let mut result = Vec::new();
+        for row_result in rows {
+            if let Ok(name) = row_result {
+                result.push(name);
+            }
+        }
+        Ok::<_, rusqlite::Error>(result)
+    }).await?;
+    
+    info!("Tables in database: {:?}", tables);
+    
+    // Debug: List all distinct channel IDs in the database
+    let channels = conn_guard.call(move |conn| {
+        let mut stmt = conn.prepare("SELECT DISTINCT channel_id FROM messages")?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+        let mut result = Vec::new();
+        for row_result in rows {
+            if let Ok(id) = row_result {
+                result.push(id);
+            }
+        }
+        Ok::<_, rusqlite::Error>(result)
+    }).await?;
+    
+    info!("Channel IDs in database: {:?}", channels);
+    
     // If channel_id is provided, filter by it
     let messages = if let Some(channel) = channel_id {
-        let channel = channel.to_string();
-        conn_guard.call(move |conn| {
-            // First get the total count of messages for this channel
-            let mut count_stmt = conn.prepare(
-                "SELECT COUNT(*) FROM messages WHERE channel_id = ?"
-            )?;
-            let count: i64 = count_stmt.query_row([&channel], |row| row.get(0))?;
-            
-            info!("Found {} messages in channel {}", count, channel);
-            
-            // Calculate the offset to get only the most recent messages
-            let offset = if count > limit as i64 { count - limit as i64 } else { 0 };
-            
-            info!("Using offset {} to get the most recent {} messages", offset, limit);
-            
-            // Get the most recent messages in chronological order
-            // Use DISTINCT to avoid duplicates and add message_id to ensure uniqueness
-            let mut stmt = conn.prepare(
-                "SELECT DISTINCT message_id, author, display_name, content FROM messages 
-                 WHERE channel_id = ? AND message_id != '0'
-                 ORDER BY timestamp ASC
-                 LIMIT ? OFFSET ?"
-            )?;
-            
-            let rows = stmt.query_map([&channel, &limit.to_string(), &offset.to_string()], |row| {
-                Ok((
-                    row.get::<_, String>(1)?, // author
-                    row.get::<_, String>(2).unwrap_or_else(|_| "".to_string()), // display_name
-                    row.get::<_, String>(3)?, // content
-                ))
-            })?;
-            
-            let mut result = Vec::new();
-            for row_result in rows {
-                if let Ok(row) = row_result {
-                    result.push(row);
-                }
+        let channel_str = channel.to_string();
+        
+        // First get the total count of messages for this channel
+        let count = conn_guard.call({
+            let channel_str = channel_str.clone();
+            move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT COUNT(*) FROM messages WHERE channel_id = ?"
+                )?;
+                let count: i64 = stmt.query_row([&channel_str], |row| row.get(0))?;
+                Ok::<_, rusqlite::Error>(count)
             }
-            
-            info!("Retrieved {} messages for context", result.len());
-            
-            Ok::<_, rusqlite::Error>(result)
-        }).await?
+        }).await?;
+        
+        info!("Found {} messages in channel {}", count, channel_str);
+        
+        // Debug: Check if there are any messages with non-zero message_id
+        let valid_count = conn_guard.call({
+            let channel_str = channel_str.clone();
+            move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT COUNT(*) FROM messages WHERE channel_id = ? AND message_id != '0'"
+                )?;
+                let count: i64 = stmt.query_row([&channel_str], |row| row.get(0))?;
+                Ok::<_, rusqlite::Error>(count)
+            }
+        }).await?;
+        
+        info!("Found {} messages with valid message_id in channel {}", valid_count, channel_str);
+        
+        // Calculate the offset to get only the most recent messages
+        let offset = if count > limit as i64 { count - limit as i64 } else { 0 };
+        
+        info!("Using offset {} to get the most recent {} messages", offset, limit);
+        
+        // Get the most recent messages in chronological order
+        // TEMPORARILY REMOVED message_id != '0' filter for debugging
+        let result = conn_guard.call({
+            let channel_str = channel_str.clone();
+            move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT message_id, author, display_name, content FROM messages 
+                     WHERE channel_id = ? 
+                     ORDER BY timestamp ASC
+                     LIMIT ? OFFSET ?"
+                )?;
+                
+                let rows = stmt.query_map([&channel_str, &limit.to_string(), &offset.to_string()], |row| {
+                    let msg_id = row.get::<_, String>(0)?;
+                    let author = row.get::<_, String>(1)?;
+                    let display_name = row.get::<_, String>(2).unwrap_or_else(|_| "".to_string());
+                    let content = row.get::<_, String>(3)?;
+                    
+                    info!("Retrieved message: ID={}, Author={}, Content={}", msg_id, author, content);
+                    
+                    Ok((
+                        author,
+                        display_name,
+                        content,
+                    ))
+                })?;
+                
+                let mut result = Vec::new();
+                for row_result in rows {
+                    if let Ok(row) = row_result {
+                        result.push(row);
+                    }
+                }
+                
+                Ok::<_, rusqlite::Error>(result)
+            }
+        }).await?;
+        
+        info!("Retrieved {} messages for context", result.len());
+        result
     } else {
         // If no channel_id is provided, get messages from all channels
-        conn_guard.call(move |conn| {
-            // First get the total count of messages
-            let mut count_stmt = conn.prepare("SELECT COUNT(*) FROM messages")?;
-            let count: i64 = count_stmt.query_row([], |row| row.get(0))?;
-            
-            info!("Found {} total messages across all channels", count);
-            
-            // Calculate the offset to get only the most recent messages
-            let offset = if count > limit as i64 { count - limit as i64 } else { 0 };
-            
-            info!("Using offset {} to get the most recent {} messages", offset, limit);
-            
-            // Get the most recent messages in chronological order
-            // Use DISTINCT to avoid duplicates and add message_id to ensure uniqueness
+        
+        // First get the total count of messages
+        let count = conn_guard.call(move |conn| {
+            let mut stmt = conn.prepare("SELECT COUNT(*) FROM messages")?;
+            let count: i64 = stmt.query_row([], |row| row.get(0))?;
+            Ok::<_, rusqlite::Error>(count)
+        }).await?;
+        
+        info!("Found {} total messages across all channels", count);
+        
+        // Debug: Check if there are any messages with non-zero message_id
+        let valid_count = conn_guard.call(move |conn| {
             let mut stmt = conn.prepare(
-                "SELECT DISTINCT message_id, author, display_name, content FROM messages 
-                 WHERE message_id != '0'
+                "SELECT COUNT(*) FROM messages WHERE message_id != '0'"
+            )?;
+            let count: i64 = stmt.query_row([], |row| row.get(0))?;
+            Ok::<_, rusqlite::Error>(count)
+        }).await?;
+        
+        info!("Found {} messages with valid message_id across all channels", valid_count);
+        
+        // Calculate the offset to get only the most recent messages
+        let offset = if count > limit as i64 { count - limit as i64 } else { 0 };
+        
+        info!("Using offset {} to get the most recent {} messages", offset, limit);
+        
+        // Get the most recent messages in chronological order
+        // TEMPORARILY REMOVED message_id != '0' filter for debugging
+        let result = conn_guard.call(move |conn| {
+            let mut stmt = conn.prepare(
+                "SELECT message_id, author, display_name, content FROM messages 
                  ORDER BY timestamp ASC
                  LIMIT ? OFFSET ?"
             )?;
             
             let rows = stmt.query_map([&limit.to_string(), &offset.to_string()], |row| {
+                let msg_id = row.get::<_, String>(0)?;
+                let author = row.get::<_, String>(1)?;
+                let display_name = row.get::<_, String>(2).unwrap_or_else(|_| "".to_string());
+                let content = row.get::<_, String>(3)?;
+                
+                info!("Retrieved message: ID={}, Author={}, Content={}", msg_id, author, content);
+                
                 Ok((
-                    row.get::<_, String>(1)?, // author
-                    row.get::<_, String>(2).unwrap_or_else(|_| "".to_string()), // display_name
-                    row.get::<_, String>(3)?, // content
+                    author,
+                    display_name,
+                    content,
                 ))
             })?;
             
@@ -327,10 +420,11 @@ pub async fn get_recent_messages(
                 }
             }
             
-            info!("Retrieved {} messages for context", result.len());
-            
             Ok::<_, rusqlite::Error>(result)
-        }).await?
+        }).await?;
+        
+        info!("Retrieved {} messages for context", result.len());
+        result
     };
     
     Ok(messages)
