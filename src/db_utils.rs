@@ -255,8 +255,9 @@ pub async fn get_recent_messages(
             let offset = if count > limit as i64 { count - limit as i64 } else { 0 };
             
             // Get the most recent messages in chronological order
+            // Use DISTINCT to avoid duplicates and add message_id to ensure uniqueness
             let mut stmt = conn.prepare(
-                "SELECT author, display_name, content FROM messages 
+                "SELECT DISTINCT message_id, author, display_name, content FROM messages 
                  WHERE channel_id = ? 
                  ORDER BY timestamp ASC
                  LIMIT ? OFFSET ?"
@@ -264,9 +265,9 @@ pub async fn get_recent_messages(
             
             let rows = stmt.query_map([&channel, &limit.to_string(), &offset.to_string()], |row| {
                 Ok((
-                    row.get::<_, String>(0)?, // author
-                    row.get::<_, String>(1).unwrap_or_else(|_| "".to_string()), // display_name
-                    row.get::<_, String>(2)?, // content
+                    row.get::<_, String>(1)?, // author
+                    row.get::<_, String>(2).unwrap_or_else(|_| "".to_string()), // display_name
+                    row.get::<_, String>(3)?, // content
                 ))
             })?;
             
@@ -290,17 +291,18 @@ pub async fn get_recent_messages(
             let offset = if count > limit as i64 { count - limit as i64 } else { 0 };
             
             // Get the most recent messages in chronological order
+            // Use DISTINCT to avoid duplicates and add message_id to ensure uniqueness
             let mut stmt = conn.prepare(
-                "SELECT author, display_name, content FROM messages 
+                "SELECT DISTINCT message_id, author, display_name, content FROM messages 
                  ORDER BY timestamp ASC
                  LIMIT ? OFFSET ?"
             )?;
             
             let rows = stmt.query_map([&limit.to_string(), &offset.to_string()], |row| {
                 Ok((
-                    row.get::<_, String>(0)?, // author
-                    row.get::<_, String>(1).unwrap_or_else(|_| "".to_string()), // display_name
-                    row.get::<_, String>(2)?, // content
+                    row.get::<_, String>(1)?, // author
+                    row.get::<_, String>(2).unwrap_or_else(|_| "".to_string()), // display_name
+                    row.get::<_, String>(3)?, // content
                 ))
             })?;
             
