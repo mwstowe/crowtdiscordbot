@@ -3,6 +3,7 @@ use tokio::sync::Mutex;
 use tokio_rusqlite::Connection as SqliteConnection;
 use serenity::model::channel::Message;
 use serenity::model::id::{MessageId, ChannelId, GuildId, UserId};
+use tracing::info;
 // Removed unused imports
 
 // Initialize the SQLite database with enhanced schema
@@ -51,6 +52,7 @@ pub async fn initialize_database(path: &str) -> Result<Arc<Mutex<SqliteConnectio
             
             let mut has_message_id = false;
             let mut has_channel_id = false;
+            let mut has_author_id = false;
             
             for column_result in columns {
                 if let Ok(column_name) = column_result {
@@ -58,30 +60,28 @@ pub async fn initialize_database(path: &str) -> Result<Arc<Mutex<SqliteConnectio
                         has_message_id = true;
                     } else if column_name == "channel_id" {
                         has_channel_id = true;
+                    } else if column_name == "author_id" {
+                        has_author_id = true;
                     }
                 }
             }
             
-            Ok::<_, rusqlite::Error>(!has_message_id || !has_channel_id)
+            Ok::<_, rusqlite::Error>(!has_message_id || !has_channel_id || !has_author_id)
         }).await?;
         
         if needs_migration {
-            // Backup the old table
+            info!("Migrating messages database to enhanced schema...");
+            
+            // Create a backup of the old table
             conn.call(|conn| {
-                conn.execute("CREATE TABLE IF NOT EXISTS messages_backup AS SELECT * FROM messages", [])?;
+                conn.execute("ALTER TABLE messages RENAME TO messages_backup", [])?;
                 Ok::<_, rusqlite::Error>(())
             }).await?;
             
-            // Drop the old table
-            conn.call(|conn| {
-                conn.execute("DROP TABLE IF EXISTS messages", [])?;
-                Ok::<_, rusqlite::Error>(())
-            }).await?;
-            
-            // Create the new enhanced table
+            // Create the new table with the enhanced schema
             conn.call(|conn| {
                 conn.execute(
-                    "CREATE TABLE IF NOT EXISTS messages (
+                    "CREATE TABLE messages (
                         id INTEGER PRIMARY KEY,
                         message_id TEXT NOT NULL,
                         channel_id TEXT NOT NULL,
@@ -241,6 +241,9 @@ pub async fn get_recent_messages(
 ) -> Result<Vec<(String, String, String)>, Box<dyn std::error::Error>> {
     let conn_guard = conn.lock().await;
     
+    // Add debug logging
+    info!("Getting recent messages. Limit: {}, Channel ID: {:?}", limit, channel_id);
+    
     // If channel_id is provided, filter by it
     let messages = if let Some(channel) = channel_id {
         let channel = channel.to_string();
@@ -251,14 +254,18 @@ pub async fn get_recent_messages(
             )?;
             let count: i64 = count_stmt.query_row([&channel], |row| row.get(0))?;
             
+            info!("Found {} messages in channel {}", count, channel);
+            
             // Calculate the offset to get only the most recent messages
             let offset = if count > limit as i64 { count - limit as i64 } else { 0 };
+            
+            info!("Using offset {} to get the most recent {} messages", offset, limit);
             
             // Get the most recent messages in chronological order
             // Use DISTINCT to avoid duplicates and add message_id to ensure uniqueness
             let mut stmt = conn.prepare(
                 "SELECT DISTINCT message_id, author, display_name, content FROM messages 
-                 WHERE channel_id = ? 
+                 WHERE channel_id = ? AND message_id != '0'
                  ORDER BY timestamp ASC
                  LIMIT ? OFFSET ?"
             )?;
@@ -278,6 +285,8 @@ pub async fn get_recent_messages(
                 }
             }
             
+            info!("Retrieved {} messages for context", result.len());
+            
             Ok::<_, rusqlite::Error>(result)
         }).await?
     } else {
@@ -287,13 +296,18 @@ pub async fn get_recent_messages(
             let mut count_stmt = conn.prepare("SELECT COUNT(*) FROM messages")?;
             let count: i64 = count_stmt.query_row([], |row| row.get(0))?;
             
+            info!("Found {} total messages across all channels", count);
+            
             // Calculate the offset to get only the most recent messages
             let offset = if count > limit as i64 { count - limit as i64 } else { 0 };
+            
+            info!("Using offset {} to get the most recent {} messages", offset, limit);
             
             // Get the most recent messages in chronological order
             // Use DISTINCT to avoid duplicates and add message_id to ensure uniqueness
             let mut stmt = conn.prepare(
                 "SELECT DISTINCT message_id, author, display_name, content FROM messages 
+                 WHERE message_id != '0'
                  ORDER BY timestamp ASC
                  LIMIT ? OFFSET ?"
             )?;
@@ -312,6 +326,8 @@ pub async fn get_recent_messages(
                     result.push(row);
                 }
             }
+            
+            info!("Retrieved {} messages for context", result.len());
             
             Ok::<_, rusqlite::Error>(result)
         }).await?
