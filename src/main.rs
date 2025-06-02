@@ -2510,6 +2510,21 @@ Don't explain your reasoning or include your rating in the response."#)
     let message_db = match db_utils::initialize_database(db_path).await {
         Ok(conn) => {
             info!("Successfully connected to message history database");
+            
+            // Clean up duplicates and add unique index
+            match db_utils::clean_up_duplicates(conn.clone()).await {
+                Ok(count) => {
+                    if count > 0 {
+                        info!("Cleaned up {} duplicate messages in the database", count);
+                    } else {
+                        info!("No duplicate messages found in the database");
+                    }
+                },
+                Err(e) => {
+                    error!("Failed to clean up duplicate messages: {}", e);
+                }
+            }
+            
             Some(conn) // Don't wrap in another Arc<Mutex>
         },
         Err(e) => {

@@ -3,7 +3,7 @@ use tokio::sync::Mutex;
 use tokio_rusqlite::Connection as SqliteConnection;
 use serenity::model::channel::Message;
 use serenity::model::id::{MessageId, ChannelId, GuildId, UserId};
-use tracing::info;
+use tracing::{info, error};
 use std::collections::HashSet;
 // Removed unused imports
 
@@ -157,25 +157,51 @@ pub async fn save_message(
         let author_id = msg.author.id.to_string();
         let referenced_message_id = msg.referenced_message.as_ref().map(|m| m.id.to_string()).unwrap_or_default();
         
-        conn_guard.call(move |conn| {
-            conn.execute(
-                "INSERT INTO messages (
-                    message_id, channel_id, guild_id, author_id, author, display_name, content, timestamp, referenced_message_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                [
-                    &message_id,
-                    &channel_id,
-                    &guild_id,
-                    &author_id,
-                    &author,
-                    &clean_display_name,
-                    &content,
-                    &timestamp.to_string(),
-                    &referenced_message_id,
-                ],
-            )?;
-            Ok::<_, rusqlite::Error>(())
+        // Check if this message already exists in the database
+        let exists = conn_guard.call({
+            let message_id = message_id.clone();
+            move |conn| {
+                let result: Result<i64, _> = conn.query_row(
+                    "SELECT 1 FROM messages WHERE message_id = ?",
+                    [&message_id],
+                    |_| Ok(1)
+                );
+                Ok::<_, rusqlite::Error>(result.is_ok())
+            }
         }).await?;
+        
+        if exists {
+            // Message already exists, update it instead of inserting a new record
+            info!("Message {} already exists, updating content", message_id);
+            conn_guard.call(move |conn| {
+                conn.execute(
+                    "UPDATE messages SET content = ? WHERE message_id = ?",
+                    [&content, &message_id],
+                )?;
+                Ok::<_, rusqlite::Error>(())
+            }).await?;
+        } else {
+            // Message doesn't exist, insert it
+            conn_guard.call(move |conn| {
+                conn.execute(
+                    "INSERT INTO messages (
+                        message_id, channel_id, guild_id, author_id, author, display_name, content, timestamp, referenced_message_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    [
+                        &message_id,
+                        &channel_id,
+                        &guild_id,
+                        &author_id,
+                        &author,
+                        &clean_display_name,
+                        &content,
+                        &timestamp.to_string(),
+                        &referenced_message_id,
+                    ],
+                )?;
+                Ok::<_, rusqlite::Error>(())
+            }).await?;
+        }
     } else {
         // Fallback to basic fields if no Message object is provided
         conn_guard.call(move |conn| {
@@ -584,4 +610,95 @@ pub async fn update_message(
     }).await?;
     
     Ok(())
+}
+
+// Add a function to clean up duplicate messages and add a unique index
+pub async fn clean_up_duplicates(conn: Arc<Mutex<SqliteConnection>>) -> Result<usize, Box<dyn std::error::Error>> {
+    let conn_guard = conn.lock().await;
+    
+    info!("Starting database cleanup to remove duplicate messages...");
+    
+    // First, identify duplicate message_ids
+    let duplicate_count = conn_guard.call(move |conn| {
+        // Count how many duplicates we have
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) - COUNT(DISTINCT message_id) FROM messages WHERE message_id != '0'",
+            [],
+            |row| row.get(0)
+        )?;
+        
+        info!("Found {} duplicate message IDs", count);
+        
+        if count > 0 {
+            // Create a temporary table with unique messages
+            conn.execute("CREATE TEMPORARY TABLE temp_messages AS 
+                          SELECT MIN(id) as min_id, message_id
+                          FROM messages 
+                          WHERE message_id != '0'
+                          GROUP BY message_id", [])?;
+            
+            // Delete all duplicates (keeping only the first occurrence of each message_id)
+            let deleted = conn.execute(
+                "DELETE FROM messages 
+                 WHERE message_id != '0' AND id NOT IN (SELECT min_id FROM temp_messages)",
+                []
+            )?;
+            
+            // Drop the temporary table
+            conn.execute("DROP TABLE temp_messages", [])?;
+            
+            info!("Deleted {} duplicate messages", deleted);
+            
+            // Now try to create a unique index
+            match conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_message_id ON messages(message_id) 
+                 WHERE message_id != '0'",
+                []
+            ) {
+                Ok(_) => info!("Successfully created unique index on message_id"),
+                Err(e) => {
+                    error!("Failed to create unique index: {}", e);
+                    // If we still have duplicates, we need to handle them differently
+                    if let rusqlite::Error::SqliteFailure(_, Some(msg)) = &e {
+                        if msg.contains("UNIQUE constraint failed") {
+                            info!("Still have duplicates, using more aggressive cleanup...");
+                            
+                            // More aggressive approach: keep only the latest message for each message_id
+                            conn.execute(
+                                "DELETE FROM messages WHERE id NOT IN (
+                                    SELECT MAX(id) FROM messages 
+                                    WHERE message_id != '0'
+                                    GROUP BY message_id
+                                )",
+                                []
+                            )?;
+                            
+                            // Try creating the index again
+                            conn.execute(
+                                "CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_message_id ON messages(message_id) 
+                                 WHERE message_id != '0'",
+                                []
+                            )?;
+                            
+                            info!("Successfully created unique index after aggressive cleanup");
+                        }
+                    }
+                }
+            }
+            
+            Ok::<_, rusqlite::Error>(deleted as usize)
+        } else {
+            // No duplicates, just create the index
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_message_id ON messages(message_id) 
+                 WHERE message_id != '0'",
+                []
+            )?;
+            
+            info!("No duplicates found. Successfully created unique index on message_id");
+            Ok(0)
+        }
+    }).await?;
+    
+    Ok(duplicate_count)
 }
