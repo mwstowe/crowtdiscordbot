@@ -136,6 +136,47 @@ impl GeminiClient {
         // Parse the response
         let response_json: serde_json::Value = response.json().await?;
         
+        // Log the full raw response if logging is enabled
+        if self.log_prompts {
+            if let Ok(pretty_json) = serde_json::to_string_pretty(&response_json) {
+                info!("Gemini API Raw Response: {}", pretty_json);
+            } else {
+                info!("Gemini API Raw Response: {}", response_json);
+            }
+        }
+        
+        // Check for error in response
+        if let Some(error) = response_json.get("error") {
+            let error_message = error.get("message")
+                .and_then(|m| m.as_str())
+                .unwrap_or("Unknown API error");
+            let error_code = error.get("code")
+                .and_then(|c| c.as_u64())
+                .unwrap_or(0);
+            
+            error!("Gemini API error (code {}): {}", error_code, error_message);
+            return Err(anyhow::anyhow!("Gemini API error: {}", error_message));
+        }
+        
+        // Check for finish reason
+        if let Some(candidates) = response_json.get("candidates") {
+            if let Some(candidate) = candidates.get(0) {
+                if let Some(finish_reason) = candidate.get("finishReason") {
+                    if finish_reason != "STOP" {
+                        let reason = finish_reason.as_str().unwrap_or("UNKNOWN");
+                        error!("Gemini API response has non-STOP finish reason: {}", reason);
+                        if reason == "SAFETY" {
+                            return Err(anyhow::anyhow!("Gemini API safety filters triggered. The prompt may contain inappropriate content."));
+                        } else if reason == "RECITATION" {
+                            return Err(anyhow::anyhow!("Gemini API detected content recitation. The response may contain copied content."));
+                        } else if reason == "OTHER" {
+                            return Err(anyhow::anyhow!("Gemini API terminated the response for an unspecified reason."));
+                        }
+                    }
+                }
+            }
+        }
+        
         // Extract the generated text
         if let Some(text) = response_json
             .get("candidates")
@@ -148,15 +189,26 @@ impl GeminiClient {
             
             // Log the response if enabled
             if self.log_prompts {
-                info!("Gemini API Response: {}", text);
+                info!("Gemini API Response Text: {}", text);
             } else {
                 info!("Successfully generated content from Gemini API");
             }
             
             Ok(text.to_string())
         } else {
-            error!("Failed to extract text from Gemini API response");
-            Err(anyhow::anyhow!("Failed to extract text from Gemini API response"))
+            // Check for prompt feedback
+            let prompt_feedback = if let Some(feedback) = response_json.get("promptFeedback") {
+                if let Some(block_reason) = feedback.get("blockReason") {
+                    format!("Prompt blocked: {}", block_reason.as_str().unwrap_or("UNKNOWN"))
+                } else {
+                    "Prompt feedback present but no block reason specified".to_string()
+                }
+            } else {
+                "No prompt feedback available".to_string()
+            };
+            
+            error!("Failed to extract text from Gemini API response: {}", prompt_feedback);
+            Err(anyhow::anyhow!("Failed to extract text from Gemini API response: {}", prompt_feedback))
         }
     }
 
