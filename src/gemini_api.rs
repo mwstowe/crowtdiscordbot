@@ -13,6 +13,7 @@ pub struct GeminiClient {
     prompt_wrapper: String,
     bot_name: String,
     rate_limiter: RateLimiter,
+    #[allow(dead_code)]
     context_messages: usize,
     log_prompts: bool,
 }
@@ -76,17 +77,8 @@ impl GeminiClient {
     ) -> Result<String> {
         // Format the context messages - already in chronological order from the database query
         let context = if !context_messages.is_empty() {
-            // Take only the configured number of messages
-            let limited_messages = if context_messages.len() > self.context_messages {
-                // Take the most recent messages (which are at the end since we changed the order)
-                let start_idx = context_messages.len() - self.context_messages;
-                &context_messages[start_idx..]
-            } else {
-                context_messages
-            };
-            
             // Format each message as "DisplayName: Message" using the display_name field
-            limited_messages.iter()
+            context_messages.iter()
                 .map(|(_, display_name, msg)| format!("{}: {}", display_name, msg))
                 .collect::<Vec<_>>()
                 .join("\n")

@@ -1130,7 +1130,7 @@ impl Bot {
                     
                     // Get recent messages for context
                     let context_messages = if let Some(db) = &self.message_db {
-                        // Get the last 5 messages from the database
+                        // Get the last self.gemini_context_messages messages from the database
                         match db_utils::get_recent_messages(db.clone(), 5, Some(msg.channel_id.to_string().as_str())).await {
                             Ok(messages) => messages,
                             Err(e) => {
@@ -2024,7 +2024,7 @@ Don't use markdown formatting or explain why you chose this fact."#)
                     
                     // Get recent messages for context
                     let context_messages = if let Some(db) = &self.message_db {
-                        // Get the last 5 messages from the database
+                        // Get the last self.gemini_context_messages messages from the database
                         match db_utils::get_recent_messages(db.clone(), 5, Some(msg.channel_id.to_string().as_str())).await {
                             Ok(messages) => messages,
                             Err(e) => {

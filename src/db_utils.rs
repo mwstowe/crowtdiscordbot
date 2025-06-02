@@ -233,7 +233,7 @@ pub async fn trim_database(
     Ok(0)
 }
 
-// Get recent messages from the database
+// Get recent messages from the database in chronological order
 pub async fn get_recent_messages(
     conn: Arc<Mutex<SqliteConnection>>,
     limit: usize,
@@ -245,13 +245,24 @@ pub async fn get_recent_messages(
     let messages = if let Some(channel) = channel_id {
         let channel = channel.to_string();
         conn_guard.call(move |conn| {
+            // First get the total count of messages for this channel
+            let mut count_stmt = conn.prepare(
+                "SELECT COUNT(*) FROM messages WHERE channel_id = ?"
+            )?;
+            let count: i64 = count_stmt.query_row([&channel], |row| row.get(0))?;
+            
+            // Calculate the offset to get only the most recent messages
+            let offset = if count > limit as i64 { count - limit as i64 } else { 0 };
+            
+            // Get the most recent messages in chronological order
             let mut stmt = conn.prepare(
                 "SELECT author, display_name, content FROM messages 
                  WHERE channel_id = ? 
-                 ORDER BY timestamp ASC LIMIT ?"
+                 ORDER BY timestamp ASC
+                 LIMIT ? OFFSET ?"
             )?;
             
-            let rows = stmt.query_map([&channel, &limit.to_string()], |row| {
+            let rows = stmt.query_map([&channel, &limit.to_string(), &offset.to_string()], |row| {
                 Ok((
                     row.get::<_, String>(0)?, // author
                     row.get::<_, String>(1).unwrap_or_else(|_| "".to_string()), // display_name
@@ -271,11 +282,21 @@ pub async fn get_recent_messages(
     } else {
         // If no channel_id is provided, get messages from all channels
         conn_guard.call(move |conn| {
+            // First get the total count of messages
+            let mut count_stmt = conn.prepare("SELECT COUNT(*) FROM messages")?;
+            let count: i64 = count_stmt.query_row([], |row| row.get(0))?;
+            
+            // Calculate the offset to get only the most recent messages
+            let offset = if count > limit as i64 { count - limit as i64 } else { 0 };
+            
+            // Get the most recent messages in chronological order
             let mut stmt = conn.prepare(
-                "SELECT author, display_name, content FROM messages ORDER BY timestamp ASC LIMIT ?"
+                "SELECT author, display_name, content FROM messages 
+                 ORDER BY timestamp ASC
+                 LIMIT ? OFFSET ?"
             )?;
             
-            let rows = stmt.query_map([limit], |row| {
+            let rows = stmt.query_map([&limit.to_string(), &offset.to_string()], |row| {
                 Ok((
                     row.get::<_, String>(0)?, // author
                     row.get::<_, String>(1).unwrap_or_else(|_| "".to_string()), // display_name
