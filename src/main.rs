@@ -1131,7 +1131,7 @@ impl Bot {
                     // Get recent messages for context
                     let context_messages = if let Some(db) = &self.message_db {
                         // Get the last self.gemini_context_messages messages from the database
-                        match db_utils::get_recent_messages(db.clone(), 5, Some(msg.channel_id.to_string().as_str())).await {
+                        match db_utils::get_recent_messages(db.clone(), self.gemini_context_messages, Some(msg.channel_id.to_string().as_str())).await {
                             Ok(messages) => messages,
                             Err(e) => {
                                 error!("Error retrieving recent messages: {:?}", e);
@@ -1522,7 +1522,7 @@ impl Bot {
                     
                     // Get recent messages for context - use more messages for better context
                     let context_messages = if let Some(db) = &self.message_db {
-                        match db_utils::get_recent_messages(db.clone(), 5, Some(msg.channel_id.to_string().as_str())).await {
+                        match db_utils::get_recent_messages(db.clone(), self.gemini_context_messages, Some(msg.channel_id.to_string().as_str())).await {
                             Ok(messages) => messages,
                             Err(e) => {
                                 error!("Error retrieving recent messages for AI interjection: {:?}", e);
@@ -1605,7 +1605,7 @@ impl Bot {
                 
                 // Get recent messages for context
                 let context_messages = if let Some(db) = &self.message_db {
-                    match db_utils::get_recent_messages(db.clone(), 5, Some(msg.channel_id.to_string().as_str())).await {
+                    match db_utils::get_recent_messages(db.clone(), self.gemini_context_messages, Some(msg.channel_id.to_string().as_str())).await {
                         Ok(messages) => messages,
                         Err(e) => {
                             error!("Error retrieving recent messages for fact interjection: {:?}", e);
@@ -2179,7 +2179,7 @@ Don't use markdown formatting or explain why you chose this fact."#)
                     
                     // Get recent messages for context
                     let context_messages = if let Some(db) = &self.message_db {
-                        match db_utils::get_recent_messages(db.clone(), 5, Some(msg.channel_id.to_string().as_str())).await {
+                        match db_utils::get_recent_messages(db.clone(), self.gemini_context_messages, Some(msg.channel_id.to_string().as_str())).await {
                             Ok(messages) => messages,
                             Err(e) => {
                                 error!("Error retrieving recent messages: {:?}", e);
