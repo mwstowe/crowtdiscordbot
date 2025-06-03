@@ -804,30 +804,17 @@ impl Bot {
     
     // Process a message
     async fn process_message(&self, ctx: &Context, msg: &Message) -> Result<()> {
-        // Store message in database if configured
-        if let Some(db) = &self.message_db {
-            let db_clone = Arc::clone(db);
-            let msg_clone = msg.clone();
-            
-            tokio::spawn(async move {
-                if let Err(e) = db_utils::save_message(db_clone, 
-                                           &msg_clone.author.name,
-                                           &crate::display_name::get_best_display_name_sync(&msg_clone),
-                                           &msg_clone.content,
-                                           Some(&msg_clone)).await {
-                    error!("Error storing message in database: {:?}", e);
-                }
-            });
-            
-            // Also update the in-memory message history
-            let data = ctx.data.read().await;
-            if let Some(message_history) = data.get::<MessageHistoryKey>() {
-                let mut history = message_history.write().await;
-                if history.len() >= self.message_history_limit {
-                    history.pop_front();
-                }
-                history.push_back(msg.clone());
+        // Note: Message is already stored in the database in the message() event handler
+        // No need to store it again here
+        
+        // Update the in-memory message history
+        let data = ctx.data.read().await;
+        if let Some(message_history) = data.get::<MessageHistoryKey>() {
+            let mut history = message_history.write().await;
+            if history.len() >= self.message_history_limit {
+                history.pop_front();
             }
+            history.push_back(msg.clone());
         }
         
         // IMPORTANT: Process all explicit triggers first, before any random interjections
@@ -2301,6 +2288,39 @@ impl EventHandler for Bot {
         // Process the message
         if let Err(e) = self.process_message(&ctx, &msg).await {
             error!("Error processing message: {:?}", e);
+        }
+    }
+
+    // Handle message updates (edits)
+    async fn message_update(&self, ctx: Context, _old: Option<Message>, new: Option<Message>, _event: MessageUpdateEvent) {
+        // Only process if we have the new message content
+        if let Some(msg) = new {
+            // Store the updated message in the database
+            if let Some(db) = &self.message_db {
+                // Get the display name
+                let display_name = get_best_display_name(&ctx, &msg).await;
+                
+                // Save the message to the database (will update if it already exists)
+                if let Err(e) = db_utils::save_message(
+                    db.clone(),
+                    &msg.author.name,
+                    &display_name,
+                    &msg.content,
+                    Some(&msg)
+                ).await {
+                    error!("Error saving updated message to database: {:?}", e);
+                }
+            }
+            
+            // Only process messages in the followed channels
+            if !self.followed_channels.contains(&msg.channel_id) {
+                return;
+            }
+            
+            // Process the updated message
+            if let Err(e) = self.process_message(&ctx, &msg).await {
+                error!("Error processing updated message: {:?}", e);
+            }
         }
     }
 
