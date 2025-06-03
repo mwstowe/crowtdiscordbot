@@ -172,7 +172,7 @@ pub async fn save_message(
         
         if exists {
             // Message already exists, update it instead of inserting a new record
-            info!("Message {} already exists, updating content", message_id);
+            info!("Message {} already exists, updating content (caller: {})", message_id, std::backtrace::Backtrace::capture().to_string());
             conn_guard.call(move |conn| {
                 conn.execute(
                     "UPDATE messages SET content = ? WHERE message_id = ?",

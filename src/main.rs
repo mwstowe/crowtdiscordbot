@@ -2235,6 +2235,9 @@ Don't use markdown formatting or explain why you chose this fact."#)
 #[async_trait]
 impl EventHandler for Bot {
     async fn message(&self, ctx: Context, msg: Message) {
+        // Add diagnostic logging to track message events
+        info!("EVENT: message() handler called for message ID: {}", msg.id);
+        
         // Store all messages in the database, including our own
         if let Some(db) = &self.message_db {
             // Get the display name
@@ -2295,6 +2298,9 @@ impl EventHandler for Bot {
     async fn message_update(&self, ctx: Context, _old: Option<Message>, new: Option<Message>, _event: MessageUpdateEvent) {
         // Only process if we have the new message content
         if let Some(msg) = new {
+            // Add diagnostic logging to track message update events
+            info!("EVENT: message_update() handler called for message ID: {}", msg.id);
+            
             // Store the updated message in the database
             if let Some(db) = &self.message_db {
                 // Get the display name
