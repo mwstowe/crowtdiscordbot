@@ -136,7 +136,7 @@ pub async fn save_message(
     display_name: &str,
     content: &str,
     message: Option<&Message>, // Optional Message object for enhanced fields
-    operation_id: Option<String> // Optional operation ID for tracking
+    _operation_id: Option<String> // Optional operation ID for tracking (no longer used)
 ) -> Result<(), Box<dyn std::error::Error>> {
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)?
@@ -146,7 +146,6 @@ pub async fn save_message(
     // Use the display_name::clean_display_name function for consistency
     let clean_display_name = crate::display_name::clean_display_name(display_name);
     let content = content.to_string();
-    let op_id = operation_id.unwrap_or_else(|| "unknown".to_string());
     
     let conn_guard = conn.lock().await;
     
@@ -158,8 +157,6 @@ pub async fn save_message(
         let guild_id = msg.guild_id.map(|id| id.to_string()).unwrap_or_default();
         let author_id = msg.author.id.to_string();
         let referenced_message_id = msg.referenced_message.as_ref().map(|m| m.id.to_string()).unwrap_or_default();
-        
-        info!("DB_CHECK: Checking if message ID {} exists (operation: {})", message_id, op_id);
         
         // Check if this message already exists in the database
         let exists = conn_guard.call({
@@ -176,7 +173,6 @@ pub async fn save_message(
         
         if exists {
             // Message already exists, update it instead of inserting a new record
-            info!("DB_UPDATE: Message {} already exists, updating content (operation: {})", message_id, op_id);
             conn_guard.call(move |conn| {
                 conn.execute(
                     "UPDATE messages SET content = ? WHERE message_id = ?",
@@ -186,7 +182,6 @@ pub async fn save_message(
             }).await?;
         } else {
             // Message doesn't exist, insert it
-            info!("DB_INSERT: Inserting new message ID {} (operation: {})", message_id, op_id);
             conn_guard.call(move |conn| {
                 conn.execute(
                     "INSERT INTO messages (
@@ -209,7 +204,6 @@ pub async fn save_message(
         }
     } else {
         // Fallback to basic fields if no Message object is provided
-        info!("DB_INSERT: Inserting message without ID (operation: {})", op_id);
         conn_guard.call(move |conn| {
             conn.execute(
                 "INSERT INTO messages (

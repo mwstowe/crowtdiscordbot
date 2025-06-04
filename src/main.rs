@@ -18,7 +18,7 @@ use rand::Rng;
 
 // Import modules
 mod db_utils;
-use uuid::Uuid;mod config;
+mod config;
 mod database;
 mod response_timing;
 mod google_search;
@@ -2227,17 +2227,10 @@ Don't use markdown formatting or explain why you chose this fact."#)
 #[async_trait]
 impl EventHandler for Bot {
     async fn message(&self, ctx: Context, msg: Message) {
-        // Add diagnostic logging to track message events
-        info!("EVENT: message() handler called for message ID: {} (content: {})", msg.id, msg.content);
-        
         // Store all messages in the database, including our own
         if let Some(db) = &self.message_db {
             // Get the display name
             let display_name = get_best_display_name(&ctx, &msg).await;
-            
-            // Add a unique identifier to track this specific save operation
-            let operation_id = Uuid::new_v4();
-            info!("SAVE_OPERATION: Starting database save for message ID: {} (operation: {})", msg.id, operation_id);
             
             // Save the message to the database
             if let Err(e) = db_utils::save_message(
@@ -2246,12 +2239,10 @@ impl EventHandler for Bot {
                 &display_name,
                 &msg.content,
                 Some(&msg),
-                Some(operation_id.to_string())
+                None
             ).await {
                 error!("Error saving message to database: {:?}", e);
             }
-            
-            info!("SAVE_OPERATION: Completed database save for message ID: {} (operation: {})", msg.id, operation_id);
         }
         
         // Check if the message is from a bot
@@ -2297,17 +2288,10 @@ impl EventHandler for Bot {
     async fn message_update(&self, ctx: Context, _old: Option<Message>, new: Option<Message>, _event: MessageUpdateEvent) {
         // Only process if we have the new message content
         if let Some(msg) = new {
-            // Add diagnostic logging to track message update events
-            info!("EVENT: message_update() handler called for message ID: {} (content: {})", msg.id, msg.content);
-            
             // Store the updated message in the database
             if let Some(db) = &self.message_db {
                 // Get the display name
                 let display_name = get_best_display_name(&ctx, &msg).await;
-                
-                // Add a unique identifier to track this specific save operation
-                let operation_id = Uuid::new_v4();
-                info!("SAVE_OPERATION: Starting database save for updated message ID: {} (operation: {})", msg.id, operation_id);
                 
                 // Save the message to the database (will update if it already exists)
                 if let Err(e) = db_utils::save_message(
@@ -2316,12 +2300,10 @@ impl EventHandler for Bot {
                     &display_name,
                     &msg.content,
                     Some(&msg),
-                    Some(operation_id.to_string())
+                    None
                 ).await {
                     error!("Error saving updated message to database: {:?}", e);
                 }
-                
-                info!("SAVE_OPERATION: Completed database save for updated message ID: {} (operation: {})", msg.id, operation_id);
             }
             
             // Only process messages in the followed channels
