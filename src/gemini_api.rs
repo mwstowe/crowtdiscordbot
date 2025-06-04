@@ -78,11 +78,15 @@ impl GeminiClient {
         // Format the context messages - already in chronological order from the database query
         let context = if !context_messages.is_empty() {
             // Format each message as "DisplayName: Message" using the display_name field
-            context_messages.iter()
+            let formatted_messages = context_messages.iter()
                 .map(|(_, display_name, msg)| format!("{}: {}", display_name, msg))
                 .collect::<Vec<_>>()
-                .join("\n")
+                .join("\n");
+            
+            info!("Using context for response generation: {} messages", context_messages.len());
+            formatted_messages
         } else {
+            info!("No context available for response generation to user: {}", user_name);
             "No context available.".to_string()
         };
         
