@@ -1532,6 +1532,7 @@ impl Bot {
                             .collect();
                         formatted_messages.join("\n")
                     } else {
+                        info!("No context available for AI interjection in channel_id: {}", msg.channel_id);
                         "No recent messages".to_string()
                     };
                     
@@ -1615,6 +1616,7 @@ impl Bot {
                         .collect();
                     formatted_messages.join("\n")
                 } else {
+                    info!("No context available for fact interjection in channel_id: {}", msg.channel_id);
                     "No recent messages".to_string()
                 };
                 
