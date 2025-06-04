@@ -353,14 +353,44 @@ pub async fn get_recent_messages(
         let result = conn_guard.call({
             let channel_str = channel_str.clone();
             move |conn| {
+                // Debug: Print the exact channel_id string we're using in the query
+                info!("Querying messages with channel_id = '{}'", channel_str);
+                
+                // Debug: Check if the channel_id exists in the database with an exact match
+                let channel_exists = conn.query_row(
+                    "SELECT 1 FROM messages WHERE channel_id = ? LIMIT 1",
+                    [&channel_str],
+                    |_| Ok(true)
+                ).unwrap_or(false);
+                
+                info!("Channel ID '{}' exists in database: {}", channel_str, channel_exists);
+                
+                // If the channel doesn't exist with an exact match, try to find similar channel IDs
+                if !channel_exists {
+                    let mut stmt = conn.prepare("SELECT DISTINCT channel_id FROM messages")?;
+                    let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+                    let mut similar_channels = Vec::new();
+                    for row_result in rows {
+                        if let Ok(id) = row_result {
+                            if id.contains(&channel_str) || channel_str.contains(&id) {
+                                similar_channels.push(id);
+                            }
+                        }
+                    }
+                    
+                    if !similar_channels.is_empty() {
+                        info!("Found similar channel IDs: {:?}", similar_channels);
+                    }
+                }
+                
                 let mut stmt = conn.prepare(
                     "SELECT message_id, author, display_name, content FROM messages 
                      WHERE channel_id = ? 
-                     ORDER BY timestamp ASC
-                     LIMIT ? OFFSET ?"
+                     ORDER BY timestamp DESC
+                     LIMIT ?"
                 )?;
                 
-                let rows = stmt.query_map([&channel_str, &limit.to_string(), &offset.to_string()], |row| {
+                let rows = stmt.query_map([&channel_str, &limit.to_string()], |row| {
                     let msg_id = row.get::<_, String>(0)?;
                     let author = row.get::<_, String>(1)?;
                     let display_name = row.get::<_, String>(2).unwrap_or_else(|_| "".to_string());
