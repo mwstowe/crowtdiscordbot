@@ -45,12 +45,13 @@ A Discord bot that follows specific channels and responds to various triggers in
 1. Create a `CrowConfig.toml` file based on the `CrowConfig.toml.example` template
 ## Random Interjections
 
-The bot occasionally makes random interjections in the conversation. There are four types of interjections, each with its own configurable probability:
+The bot occasionally makes random interjections in the conversation. There are five types of interjections, each with its own configurable probability:
 
 1. **MST3K Quotes** - Random quotes from Mystery Science Theater 3000
 2. **Channel Memory** - Quotes something someone previously said in the channel
 3. **Message Pondering** - Thoughtful comments about the conversation
 4. **AI Interjection** - AI-generated comments using the Gemini API
+5. **Fact Interjection** - AI-generated interesting facts related to the conversation
 
 Each interjection type can be configured separately in the `CrowConfig.toml` file:
 
@@ -61,6 +62,7 @@ INTERJECTION_MST3K_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
 INTERJECTION_MEMORY_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
 INTERJECTION_PONDERING_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
 INTERJECTION_AI_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
+INTERJECTION_FACT_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
 ```
 
 Setting any probability to 0 will disable that type of interjection completely.
@@ -79,13 +81,24 @@ The bot will occasionally make thoughtful comments about the conversation, such 
 
 ### AI Interjection
 
-The most sophisticated type of interjection, where the bot uses the Gemini API to generate contextually relevant comments based on the recent conversation. The bot analyzes the conversation context and provides an interesting fact or comment related to the discussion.
+The bot uses the Gemini API to generate contextually relevant comments based on the recent conversation. The bot analyzes the conversation context and provides a comment that feels like a natural part of the discussion.
 
 For AI interjections, the bot:
 1. Retrieves recent conversation context
 2. Sends a specialized prompt to the Gemini API
 3. Evaluates whether to interject (the AI can decide to "pass" if it doesn't have a relevant comment)
-4. Applies a realistic typing delay before sending the response2. Add your Discord bot token to the `DISCORD_TOKEN` field
+4. Applies a realistic typing delay before sending the response
+
+### Fact Interjection
+
+The most educational type of interjection, where the bot uses the Gemini API to generate interesting facts related to the conversation. Unlike the general AI interjection, fact interjections are specifically focused on providing informative content.
+
+For fact interjections, the bot:
+1. Retrieves recent conversation context
+2. Sends a specialized prompt to the Gemini API asking for a relevant fact
+3. Evaluates whether to interject (the AI can decide to "pass" if it can't find a relevant fact)
+4. Applies a realistic typing delay before sending the response
+5. Delivers a concise, interesting fact that relates to the conversation topic2. Add your Discord bot token to the `DISCORD_TOKEN` field
    - Privileged Gateway Intents: Message Content Intent
    - Scopes: `bot`, `messages.read`, `applications.commands`
 3. Configure channels to follow using one of these options:
