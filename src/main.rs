@@ -1663,23 +1663,8 @@ Don't use markdown formatting or explain why you chose this fact."#)
             }
         }
         
-        // Store the message in the database if available
-        if let Some(db) = &self.message_db {
-            let author = msg.author.name.clone();
-            let display_name = get_best_display_name(ctx, msg).await;
-            let content = msg.content.clone();
-            let db_clone = db.clone();
-            
-            // Add a unique identifier to track this specific save operation
-            let operation_id = Uuid::new_v4();
-            info!("SAVE_OPERATION: Starting database save from process_message for message ID: {} (operation: {})", msg.id, operation_id);
-            
-            if let Err(e) = db_utils::save_message(db_clone, &author, &display_name, &content, Some(msg), Some(operation_id.to_string())).await {
-                error!("Error storing message: {:?}", e);
-            }
-            
-            info!("SAVE_OPERATION: Completed database save from process_message for message ID: {} (operation: {})", msg.id, operation_id);
-        }
+        // Note: Message is already stored in the database in the message() event handler
+        // No need to store it again here
         
         // Update recent speakers list
         {
