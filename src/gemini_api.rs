@@ -75,10 +75,15 @@ impl GeminiClient {
         context_messages: &Vec<(String, String, String)>,
         _user_pronouns: Option<&str>
     ) -> Result<String> {
-        // Format the context messages - already in chronological order from the database query
+        // Format the context messages
         let context = if !context_messages.is_empty() {
+            // Get the messages in chronological order (oldest first)
+            // The database query returns newest first, so we need to reverse
+            let mut chronological_messages = context_messages.clone();
+            chronological_messages.reverse();
+            
             // Format each message as "DisplayName: Message" using the display_name field
-            let formatted_messages = context_messages.iter()
+            let formatted_messages = chronological_messages.iter()
                 .map(|(_, display_name, msg)| format!("{}: {}", display_name, msg))
                 .collect::<Vec<_>>()
                 .join("\n");
