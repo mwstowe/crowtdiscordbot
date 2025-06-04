@@ -1670,9 +1670,15 @@ Don't use markdown formatting or explain why you chose this fact."#)
             let content = msg.content.clone();
             let db_clone = db.clone();
             
-            if let Err(e) = db_utils::save_message(db_clone, &author, &display_name, &content, Some(msg), None).await {
+            // Add a unique identifier to track this specific save operation
+            let operation_id = Uuid::new_v4();
+            info!("SAVE_OPERATION: Starting database save from process_message for message ID: {} (operation: {})", msg.id, operation_id);
+            
+            if let Err(e) = db_utils::save_message(db_clone, &author, &display_name, &content, Some(msg), Some(operation_id.to_string())).await {
                 error!("Error storing message: {:?}", e);
             }
+            
+            info!("SAVE_OPERATION: Completed database save from process_message for message ID: {} (operation: {})", msg.id, operation_id);
         }
         
         // Update recent speakers list
