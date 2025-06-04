@@ -43,7 +43,49 @@ A Discord bot that follows specific channels and responds to various triggers in
 ## Setup Instructions
 
 1. Create a `CrowConfig.toml` file based on the `CrowConfig.toml.example` template
-2. Add your Discord bot token to the `DISCORD_TOKEN` field
+## Random Interjections
+
+The bot occasionally makes random interjections in the conversation. There are four types of interjections, each with its own configurable probability:
+
+1. **MST3K Quotes** - Random quotes from Mystery Science Theater 3000
+2. **Channel Memory** - Quotes something someone previously said in the channel
+3. **Message Pondering** - Thoughtful comments about the conversation
+4. **AI Interjection** - AI-generated comments using the Gemini API
+
+Each interjection type can be configured separately in the `CrowConfig.toml` file:
+
+```toml
+# Random Interjection Probabilities (chance per message)
+# Each type has its own probability - set to 0 to disable
+INTERJECTION_MST3K_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
+INTERJECTION_MEMORY_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
+INTERJECTION_PONDERING_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
+INTERJECTION_AI_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
+```
+
+Setting any probability to 0 will disable that type of interjection completely.
+
+### MST3K Quotes
+
+These are random quotes from Mystery Science Theater 3000, a cult classic TV show. The bot will occasionally interject with one of these quotes, adding humor to the conversation.
+
+### Channel Memory
+
+The bot will occasionally quote something that was previously said in the channel. This creates a sense of continuity and can bring up relevant past discussions.
+
+### Message Pondering
+
+The bot will occasionally make thoughtful comments about the conversation, such as "That's an interesting point" or "I was just thinking about that." These interjections make the bot feel more engaged in the conversation.
+
+### AI Interjection
+
+The most sophisticated type of interjection, where the bot uses the Gemini API to generate contextually relevant comments based on the recent conversation. The bot analyzes the conversation context and provides an interesting fact or comment related to the discussion.
+
+For AI interjections, the bot:
+1. Retrieves recent conversation context
+2. Sends a specialized prompt to the Gemini API
+3. Evaluates whether to interject (the AI can decide to "pass" if it doesn't have a relevant comment)
+4. Applies a realistic typing delay before sending the response2. Add your Discord bot token to the `DISCORD_TOKEN` field
    - Privileged Gateway Intents: Message Content Intent
    - Scopes: `bot`, `messages.read`, `applications.commands`
 3. Configure channels to follow using one of these options:
