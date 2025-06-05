@@ -37,14 +37,16 @@ pub async fn handle_unknown_command(
     // Create prompt for Gemini API based on whether there are parameters
     let prompt = if !params.is_empty() {
         format!(
-            "Create a humorous description of what a Discord bot command '!{}' with parameter '{}' would do, \
-            followed by a funny reason why it was disabled. Format as: \
-            '!{} {}: [description of what the command would do with this specific parameter]\\n\\nDisabled because [funny reason]'. \
+            "You are analyzing an unknown Discord bot command '!{}' with parameter '{}'. \
+            First, determine what category of parameter this is (e.g., [username], [time], [location], [item], etc.). \
+            Then create a humorous description of what this command would do, followed by a funny reason why it was disabled. \
+            Format your response as: \
+            '!{} [parameter_category]: [description of what the command would do with this type of parameter]\\n\\nDisabled because [funny reason]'. \
             Keep it concise (2-3 sentences max) and make it genuinely funny. \
             Examples: \
-            '!time 1985: Travel back in time specifically to 1985.\\n\\nDisabled because too many users were trying to meet Marty McFly' \
-            '!weather Mars: Check the current weather conditions on Mars.\\n\\nDisabled after the bot kept reporting \"dusty with a chance of rovers\"'",
-            command_name, params, command_name, params
+            '!time [year]: Travel back in time to the specified year.\\n\\nDisabled because too many users were trying to meet dinosaurs' \
+            '!weather [location]: Check the current weather conditions at the specified location.\\n\\nDisabled after the bot kept reporting \"cloudy with a chance of server crashes\"'",
+            command_name, params, command_name
         )
     } else {
         format!(
