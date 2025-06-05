@@ -70,7 +70,17 @@ pub async fn handle_unknown_command(
         },
         Err(e) => {
             error!("Error generating unknown command response: {:?}", e);
-            // Don't send an error message to avoid confusion for unknown commands
+            
+            // Only show error message if it's not an overload error
+            if !e.to_string().contains("overloaded") && !e.to_string().contains("try again later") {
+                // Send a generic error message
+                if let Err(e) = msg.channel_id.say(http, "Sorry, I couldn't process that command right now.").await {
+                    error!("Error sending error message: {:?}", e);
+                }
+            } else {
+                // For overload errors, just log and don't send a message to the channel
+                error!("Gemini API overloaded, not sending error message to channel");
+            }
         }
     }
     
