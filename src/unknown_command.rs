@@ -48,7 +48,7 @@ pub async fn handle_unknown_command(
         )
     };
     
-    match gemini_client.generate_response(&prompt, "").await {
+    match gemini_client.generate_response_with_context(&prompt, "", &Vec::new(), None).await {
         Ok(response) => {
             // Send the response immediately without typing delay
             if let Err(e) = msg.channel_id.say(http, response).await {

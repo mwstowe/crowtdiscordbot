@@ -55,16 +55,11 @@ impl GeminiClient {
         }
     }
     
-    // Generate a response using the Gemini API
+    // Generate a response using the Gemini API - deprecated, use generate_response_with_context instead
+    #[deprecated(note = "Use generate_response_with_context instead")]
     pub async fn generate_response(&self, prompt: &str, user_name: &str) -> Result<String> {
-        // Format the prompt using the wrapper
-        let formatted_prompt = self.prompt_wrapper
-            .replace("{message}", prompt)
-            .replace("{bot_name}", &self.bot_name)
-            .replace("{user}", user_name)
-            .replace("{context}", "");
-            
-        self.generate_content(&formatted_prompt).await
+        // Call generate_response_with_context with empty context
+        self.generate_response_with_context(prompt, user_name, &Vec::new(), None).await
     }
     
     // Generate a response with conversation context
@@ -75,6 +70,9 @@ impl GeminiClient {
         context_messages: &Vec<(String, String, String)>,
         _user_pronouns: Option<&str>
     ) -> Result<String> {
+        // Check if the prompt already contains context (like in interjection prompts)
+        let has_context_in_prompt = prompt.contains("{context}");
+        
         // Format the context messages
         let context = if !context_messages.is_empty() {
             // Get the messages in chronological order (oldest first)
@@ -90,17 +88,29 @@ impl GeminiClient {
             
             info!("Using context for response generation: {} messages", context_messages.len());
             formatted_messages
+        } else if has_context_in_prompt {
+            // If the prompt already contains context placeholder but we have no messages,
+            // use an empty string to avoid adding "No context available"
+            info!("No database context available, but prompt contains context placeholder");
+            "".to_string()
         } else {
             info!("No context available for response generation to user: {}", user_name);
             "No context available.".to_string()
         };
         
         // Format the prompt using the wrapper
-        let formatted_prompt = self.prompt_wrapper
-            .replace("{message}", prompt)
-            .replace("{bot_name}", &self.bot_name)
-            .replace("{user}", user_name)
-            .replace("{context}", &context);
+        let formatted_prompt = if has_context_in_prompt {
+            // If the prompt already contains {context}, use it directly
+            prompt.replace("{bot_name}", &self.bot_name)
+                 .replace("{context}", &context)
+        } else {
+            // Otherwise use the standard wrapper
+            self.prompt_wrapper
+                .replace("{message}", prompt)
+                .replace("{bot_name}", &self.bot_name)
+                .replace("{user}", user_name)
+                .replace("{context}", &context)
+        };
             
         self.generate_content(&formatted_prompt).await
     }

@@ -1542,7 +1542,7 @@ impl Bot {
                         .replace("{context}", &context_text);
                     
                     // Call Gemini API with the custom prompt
-                    match gemini_client.generate_response(&prompt, "").await {
+                    match gemini_client.generate_response_with_context(&prompt, "", &Vec::new(), None).await {
                         Ok(response) => {
                             // Check if the response is "pass" - if so, don't send anything
                             if response.trim().to_lowercase() == "pass" {
@@ -1639,7 +1639,7 @@ Don't use markdown formatting or explain why you chose this fact."#)
                     .replace("{context}", &context_text);
                 
                 // Call Gemini API with the fact prompt
-                match gemini_client.generate_response(&fact_prompt, "").await {
+                match gemini_client.generate_response_with_context(&fact_prompt, "", &Vec::new(), None).await {
                     Ok(response) => {
                         // Check if the response is "pass" - if so, don't send anything
                         if response.trim().to_lowercase() == "pass" {
