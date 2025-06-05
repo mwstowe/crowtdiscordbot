@@ -62,7 +62,7 @@ impl GeminiClient {
             .replace("{message}", prompt)
             .replace("{bot_name}", &self.bot_name)
             .replace("{user}", user_name)
-            .replace("{context}", "No context available.");
+            .replace("{context}", "");
             
         self.generate_content(&formatted_prompt).await
     }
