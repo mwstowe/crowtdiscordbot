@@ -105,6 +105,12 @@ pub async fn handle_imagine_command(ctx: &Context, msg: &Message, gemini_client:
                     Err(e) => {
                         error!("Failed to generate image (attempt {}/{}): {:?}", attempt, max_attempts, e);
                         
+                        // Check if this is a safety block
+                        if e.to_string().contains("SAFETY_BLOCKED") {
+                            msg.reply(&ctx.http, "Denied!").await?;
+                            break;
+                        }
+                        
                         // If we've used all our attempts, notify the user
                         if attempt >= max_attempts {
                             msg.reply(&ctx.http, "Sorry, I couldn't generate that image after several attempts.").await?;

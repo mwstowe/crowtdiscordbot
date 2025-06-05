@@ -327,6 +327,32 @@ impl GeminiClient {
         // Log the redacted response
         info!("Image generation API response: {}", serde_json::to_string_pretty(&log_json)?);
         
+        // Check for safety blocks or other issues
+        if let Some(candidates) = response_json.get("candidates") {
+            if let Some(candidate) = candidates.get(0) {
+                // Check for finish reason
+                if let Some(finish_reason) = candidate.get("finishReason") {
+                    let reason = finish_reason.as_str().unwrap_or("UNKNOWN");
+                    if reason == "IMAGE_SAFETY" {
+                        error!("Image generation blocked due to safety concerns");
+                        return Err(anyhow::anyhow!("SAFETY_BLOCKED"));
+                    }
+                }
+                
+                // Check for safety ratings with blocked=true
+                if let Some(safety_ratings) = candidate.get("safetyRatings") {
+                    if safety_ratings.as_array().map_or(false, |ratings| {
+                        ratings.iter().any(|rating| {
+                            rating.get("blocked").and_then(|b| b.as_bool()).unwrap_or(false)
+                        })
+                    }) {
+                        error!("Image generation blocked due to safety ratings");
+                        return Err(anyhow::anyhow!("SAFETY_BLOCKED"));
+                    }
+                }
+            }
+        }
+        
         // Extract the text description
         let text_description = response_json
             .get("candidates")
