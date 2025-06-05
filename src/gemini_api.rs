@@ -190,10 +190,15 @@ impl GeminiClient {
                         
                         // Continue to the next retry attempt
                         continue;
+                    } else {
+                        // If we've exhausted retries for overload errors, return a special error
+                        // that callers can check for to avoid showing error messages to users
+                        error!("Gemini API overloaded, maximum retries ({}) exceeded", MAX_RETRIES);
+                        return Err(anyhow::anyhow!("SILENT_ERROR: Gemini API overloaded after {} retries", MAX_RETRIES));
                     }
                 }
                 
-                // If we've exhausted retries or it's not a retryable error, return the error
+                // If it's not a retryable error, return the error
                 error!("Gemini API error (code {}): {}", error_code, error_message);
                 return Err(anyhow::anyhow!("Gemini API error: {}", error_message));
             }
