@@ -2368,7 +2368,7 @@ impl EventHandler for Bot {
             .map(|k| format!("!{}", k))
             .collect::<Vec<_>>()
             .join(", ");
-        info!("Available commands: {}", command_list);
+        debug!("Available commands: {}", command_list);
         
         // Log keyword triggers
         info!("Keyword triggers:");
