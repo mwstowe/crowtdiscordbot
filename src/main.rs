@@ -33,6 +33,18 @@ mod display_name;
 mod buzz;
 mod lastseen;
 mod image_generation;
+
+// Helper function to check if a response looks like a prompt
+fn is_prompt_echo(response: &str) -> bool {
+    response.contains("{bot_name}") || 
+    response.contains("{user}") || 
+    response.contains("{message}") || 
+    response.contains("{context}") ||
+    response.contains("You should ONLY respond with an interjection if") ||
+    response.contains("For criterion #2") ||
+    response.contains("Guidelines for your fact") ||
+    response.contains("If you can't think of a good fact")
+}
 mod regex_substitution;
 mod bandname;
 mod mst3k_quotes;
@@ -1550,6 +1562,16 @@ impl Bot {
                                 return Ok(());
                             }
                             
+                            // Check if the response looks like the prompt itself (API error)
+                            if response.contains("{bot_name}") || 
+                               response.contains("{context}") || 
+                               response.contains("You should ONLY respond with an interjection if") ||
+                               response.contains("For criterion #2") ||
+                               response.contains("If none of these criteria are met") {
+                                error!("AI interjection error: API returned the prompt instead of a response");
+                                return Ok(());
+                            }
+                            
                             // Apply realistic typing delay
                             apply_realistic_delay(&response, ctx, msg.channel_id).await;
                             
@@ -1644,6 +1666,15 @@ Don't use markdown formatting or explain why you chose this fact."#)
                         // Check if the response is "pass" - if so, don't send anything
                         if response.trim().to_lowercase() == "pass" {
                             info!("Fact interjection evaluation: decided to PASS - no response sent");
+                            return Ok(());
+                        }
+                        
+                        // Check if the response looks like the prompt itself (API error)
+                        if response.contains("{bot_name}") || 
+                           response.contains("{context}") || 
+                           response.contains("Guidelines for your fact") ||
+                           response.contains("If you can't think of a good fact") {
+                            error!("Fact interjection error: API returned the prompt instead of a response");
                             return Ok(());
                         }
                         

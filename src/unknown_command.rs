@@ -3,6 +3,7 @@ use serenity::all::Http;
 use serenity::model::channel::Message;
 use tracing::error;
 use crate::gemini_api::GeminiClient;
+use crate::is_prompt_echo;
 
 pub async fn handle_unknown_command(
     http: &Http, 
@@ -63,6 +64,17 @@ pub async fn handle_unknown_command(
     
     match gemini_client.generate_response_with_context(&prompt, "", &Vec::new(), None).await {
         Ok(response) => {
+            // Check if the response looks like a prompt echo
+            if is_prompt_echo(&response) {
+                error!("Unknown command response error: API returned the prompt instead of a response");
+                
+                // Send a generic error message
+                if let Err(e) = msg.channel_id.say(http, "Sorry, I couldn't process that command right now.").await {
+                    error!("Error sending error message: {:?}", e);
+                }
+                return Ok(());
+            }
+            
             // Send the response immediately without typing delay
             if let Err(e) = msg.channel_id.say(http, response).await {
                 error!("Error sending unknown command response: {:?}", e);
