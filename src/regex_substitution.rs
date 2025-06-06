@@ -137,15 +137,23 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
                     let display_name = if i == 0 && is_bot_regex_response {
                         // If this is a bot regex response, extract the original author's name
                         if let Some(name_end) = prev_msg.content.find(" meant: ") {
-                            prev_msg.content[0..name_end].to_string()
+                            let extracted_name = prev_msg.content[0..name_end].to_string();
+                            info!("Extracted author name from bot response: {}", extracted_name);
+                            extracted_name
                         } else if let Some(name_end) = prev_msg.content.find(" *really* meant: ") {
-                            prev_msg.content[0..name_end].to_string()
+                            let extracted_name = prev_msg.content[0..name_end].to_string();
+                            info!("Extracted author name from bot response: {}", extracted_name);
+                            extracted_name
                         } else {
-                            get_best_display_name(ctx, prev_msg).await
+                            let name = get_best_display_name(ctx, prev_msg).await;
+                            info!("Using display name for bot response: {}", name);
+                            name
                         }
                     } else {
                         // For regular messages, get the display name of the original author
-                        get_best_display_name(ctx, prev_msg).await
+                        let name = get_best_display_name(ctx, prev_msg).await;
+                        info!("Using display name for message {}: {}", i, name);
+                        name
                     };
                     
                     // Clean the display name

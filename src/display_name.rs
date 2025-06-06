@@ -1,22 +1,36 @@
 use serenity::model::channel::Message;
 use serenity::prelude::*;
 use regex::Regex;
+use tracing::info;
 
 // Helper function to get the best display name for a user
 pub async fn get_best_display_name(ctx: &Context, msg: &Message) -> String {
+    // Log the available name options for debugging
+    let username = &msg.author.name;
+    let global_name = msg.author.global_name.as_deref().unwrap_or("None");
+    
     // Prioritize server nickname over global name over username
     if let Some(guild_id) = msg.guild_id {
         // Get member data which includes the nickname
         if let Ok(member) = guild_id.member(&ctx.http, msg.author.id).await {
             // Use nickname if available, otherwise fall back to global name or username
-            if let Some(nick) = member.nick {
-                return nick;
+            if let Some(nick) = &member.nick {
+                info!("Using server nickname for {}: {} (username={}, global_name={})", 
+                      msg.author.id, nick, username, global_name);
+                return nick.clone();
             }
         }
     }
     
     // Fall back to global name or username if no nickname or couldn't get member data
-    msg.author.global_name.clone().unwrap_or_else(|| msg.author.name.clone())
+    if let Some(global_name) = &msg.author.global_name {
+        info!("Using global display name for {}: {} (username={})", 
+              msg.author.id, global_name, username);
+        global_name.clone()
+    } else {
+        info!("Using username for {}: {}", msg.author.id, username);
+        msg.author.name.clone()
+    }
 }
 
 // Synchronous version of get_best_display_name for use in non-async contexts
