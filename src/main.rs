@@ -2483,7 +2483,7 @@ async fn main() -> Result<()> {
     // Get custom interjection prompt if available
     let gemini_interjection_prompt = config.gemini_interjection_prompt.clone().unwrap_or_else(|| {
         info!("No custom Gemini interjection prompt provided, using default");
-        String::from(r#"You are {bot_name}, a sarcastic and witty Discord bot with a dark sense of humor.
+        String::from(r#"You are {bot_name}, a kind and witty Discord bot with a dark sense of humor.
 Review the recent conversation context and determine if you can make a relevant interjection.
 
 {context}
