@@ -1648,7 +1648,6 @@ impl Bot {
                 let fact_prompt = String::from(r#"You are {bot_name}, a Discord bot with a wealth of interesting knowledge.
 Review the recent conversation context and provide an interesting fact that's related to the conversation.
 
-Recent conversation context:
 {context}
 
 Guidelines for your fact:
@@ -2487,7 +2486,6 @@ async fn main() -> Result<()> {
         String::from(r#"You are {bot_name}, a sarcastic and witty Discord bot with a dark sense of humor.
 Review the recent conversation context and determine if you can make a relevant interjection.
 
-Recent conversation context:
 {context}
 
 You should ONLY respond with an interjection if ONE of the following criteria is met:
