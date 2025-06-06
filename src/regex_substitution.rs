@@ -61,9 +61,14 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
     let is_bot_regex_response = messages.first()
         .map(|m| {
             m.author.id == bot_id && 
-            m.content.contains(" meant: ")
+            (m.content.contains(" meant: ") || m.content.contains(" *really* meant: "))
         })
         .unwrap_or(false);
+    
+    // Debug log the messages we're considering
+    for (i, m) in messages.iter().enumerate() {
+        info!("Message {}: author={}, content={}", i, m.author.name, m.content);
+    }
     
     // Filter out commands and bot messages (except regex responses if they're the most recent)
     let valid_messages: Vec<&Message> = messages.iter()
@@ -139,9 +144,11 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
                             get_best_display_name(ctx, prev_msg).await
                         }
                     } else {
+                        // For regular messages, get the display name of the original author
                         get_best_display_name(ctx, prev_msg).await
                     };
                     
+                    // Clean the display name
                     let clean_display_name = crate::display_name::clean_display_name(&display_name).trim().to_string();
                     
                     // Format and send the response
