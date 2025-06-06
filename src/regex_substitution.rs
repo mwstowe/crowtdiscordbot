@@ -10,6 +10,13 @@ const URL_PATTERN: &str = r"https?://[^\s/$.?#].[^\s]*";
 
 // Handle regex substitution for messages starting with !s/, .s/, !/, or ./
 pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<()> {
+    // Log the guild ID for debugging
+    if let Some(guild_id) = msg.guild_id {
+        info!("Processing regex substitution in guild: {}", guild_id);
+    } else {
+        info!("Processing regex substitution in DM or group");
+    }
+    
     // Extract the regex pattern and replacement
     let content = &msg.content;
     
