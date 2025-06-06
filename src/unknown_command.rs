@@ -42,28 +42,28 @@ pub async fn handle_unknown_command(
             First, determine what category of parameter this is (e.g., [username], [time], [location], [item], etc.). \
             Then create a humorous description of what this command would do, followed by a funny reason why it was disabled. \
             Format your response EXACTLY as: \
-            '!{} [parameter_category]: [description of what the command would do with this type of parameter]\\n\\nDisabled because [funny reason]'. \
+            '!{} [parameter_category]: [description of what the command would do with this type of parameter]\n\nDisabled because [funny reason]'. \
             Keep it concise (2-3 sentences max) and make it genuinely funny. \
             DO NOT include any introductory text, commentary, or explanations. \
             DO NOT include phrases like 'Here's my attempt' or 'I've got more'. \
             ONLY return the formatted command description. \
             Examples: \
-            '!time [year]: Travel back in time to the specified year.\\n\\nDisabled because too many users were trying to meet dinosaurs' \
-            '!weather [location]: Check the current weather conditions at the specified location.\\n\\nDisabled after the bot kept reporting \"cloudy with a chance of server crashes\"'",
+            '!time [year]: Travel back in time to the specified year.\n\nDisabled because too many users were trying to meet dinosaurs' \
+            '!weather [location]: Check the current weather conditions at the specified location.\n\nDisabled after the bot kept reporting \"cloudy with a chance of server crashes\"'",
             command_name, params, command_name
         )
     } else {
         format!(
             "Create a humorous description of what a Discord bot command '!{}' would do, \
             followed by a funny reason why it was disabled. Format EXACTLY as: \
-            '!{}: [description of what the command would do]\\n\\nDisabled because [funny reason]'. \
+            '!{}: [description of what the command would do]\n\nDisabled because [funny reason]'. \
             Keep it concise (2-3 sentences max) and make it genuinely funny. \
             DO NOT include any introductory text, commentary, or explanations. \
             DO NOT include phrases like 'Here's my attempt' or 'I've got more'. \
             ONLY return the formatted command description. \
             Examples: \
-            '!time: Travel back in time to the specified period or a random period in history.\\n\\nDisabled because it keeps going back before it was implemented' \
-            '!auto: Select and purchase an automobile on behalf of the user.\\n\\nDisabled after some poor sod received a cybertruck'",
+            '!time: Travel back in time to the specified period or a random period in history.\n\nDisabled because it keeps going back before it was implemented' \
+            '!auto: Select and purchase an automobile on behalf of the user.\n\nDisabled after some poor sod received a cybertruck'",
             command_name, command_name
         )
     };
@@ -81,8 +81,11 @@ pub async fn handle_unknown_command(
                 return Ok(());
             }
             
+            // Replace literal "\n\n" with actual newlines
+            let fixed_response = response.replace("\\n\\n", "\n\n");
+            
             // Send the response immediately without typing delay
-            if let Err(e) = msg.channel_id.say(http, response).await {
+            if let Err(e) = msg.channel_id.say(http, fixed_response).await {
                 error!("Error sending unknown command response: {:?}", e);
             }
         },
