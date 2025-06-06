@@ -2371,9 +2371,9 @@ impl EventHandler for Bot {
         debug!("Available commands: {}", command_list);
         
         // Log keyword triggers
-        info!("Keyword triggers:");
+        debug!("Keyword triggers:");
         for (keywords, _) in &self.keyword_triggers {
-            info!("  - {}", keywords.join(" + "));
+            debug!("  - {}", keywords.join(" + "));
         }
     }
 }
