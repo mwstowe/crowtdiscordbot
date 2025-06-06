@@ -1545,7 +1545,8 @@ impl Bot {
                         formatted_messages.join("\n")
                     } else {
                         info!("No context available for AI interjection in channel_id: {}", msg.channel_id);
-                        "No recent messages".to_string()
+                        // Use empty string instead of "No recent messages" to avoid showing this in logs
+                        "".to_string()
                     };
                     
                     // Replace placeholders in the custom prompt
@@ -1639,7 +1640,8 @@ impl Bot {
                     formatted_messages.join("\n")
                 } else {
                     info!("No context available for fact interjection in channel_id: {}", msg.channel_id);
-                    "No recent messages".to_string()
+                    // Use empty string instead of "No recent messages" to avoid showing this in logs
+                    "".to_string()
                 };
                 
                 // Create the fact prompt
