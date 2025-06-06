@@ -72,11 +72,6 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
         })
         .unwrap_or(false);
     
-    // Debug log the messages we're considering
-    for (i, m) in messages.iter().enumerate() {
-        info!("Message {}: author={}, content={}", i, m.author.name, m.content);
-    }
-    
     // Filter out commands and bot messages (except regex responses if they're the most recent)
     let valid_messages: Vec<&Message> = messages.iter()
         .enumerate()
@@ -144,30 +139,20 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
                     let display_name = if i == 0 && is_bot_regex_response {
                         // If this is a bot regex response, extract the original author's name
                         if let Some(name_end) = prev_msg.content.find(" meant: ") {
-                            let extracted_name = prev_msg.content[0..name_end].to_string();
-                            info!("Extracted author name from bot response: {}", extracted_name);
-                            extracted_name
+                            prev_msg.content[0..name_end].to_string()
                         } else if let Some(name_end) = prev_msg.content.find(" *really* meant: ") {
-                            let extracted_name = prev_msg.content[0..name_end].to_string();
-                            info!("Extracted author name from bot response: {}", extracted_name);
-                            extracted_name
+                            prev_msg.content[0..name_end].to_string()
                         } else {
-                            let name = get_best_display_name(ctx, prev_msg).await;
-                            info!("Using display name for bot response: {}", name);
-                            name
+                            get_best_display_name(ctx, prev_msg).await
                         }
                     } else {
                         // For regular messages, get the display name of the original author
                         // Use the guild ID from the current message since it's more reliable
                         if let Some(guild_id) = msg.guild_id {
-                            let name = crate::display_name::get_best_display_name_with_guild(
-                                ctx, prev_msg.author.id, guild_id).await;
-                            info!("Using display name for message {} with guild ID {}: {}", i, guild_id, name);
-                            name
+                            crate::display_name::get_best_display_name_with_guild(
+                                ctx, prev_msg.author.id, guild_id).await
                         } else {
-                            let name = get_best_display_name(ctx, prev_msg).await;
-                            info!("Using display name for message {} (no guild ID): {}", i, name);
-                            name
+                            get_best_display_name(ctx, prev_msg).await
                         }
                     };
                     

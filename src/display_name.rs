@@ -2,48 +2,30 @@ use serenity::model::channel::Message;
 use serenity::model::id::{UserId, GuildId};
 use serenity::prelude::*;
 use regex::Regex;
-use tracing::{info, error, warn};
+use tracing::{error, debug};
 
 // Helper function to get the best display name for a user
 pub async fn get_best_display_name(ctx: &Context, msg: &Message) -> String {
-    // Log the available name options for debugging
-    let username = &msg.author.name;
-    let global_name = msg.author.global_name.as_deref().unwrap_or("None");
     let user_id = msg.author.id;
     
     // Prioritize server nickname over global name over username
     if let Some(guild_id) = msg.guild_id {
-        info!("Attempting to get nickname for user {} in guild {}", user_id, guild_id);
-        
         // Get member data which includes the nickname
         match guild_id.member(&ctx.http, user_id).await {
             Ok(member) => {
                 // Use nickname if available, otherwise fall back to global name or username
                 if let Some(nick) = &member.nick {
-                    info!("SUCCESS: Using server nickname for {}: {} (username={}, global_name={})", 
-                          user_id, nick, username, global_name);
                     return nick.clone();
-                } else {
-                    info!("Member found for {} in guild {}, but no nickname set", user_id, guild_id);
                 }
             },
             Err(e) => {
                 error!("Failed to get member data for {} in guild {}: {:?}", user_id, guild_id, e);
             }
         }
-    } else {
-        warn!("No guild_id available for message from {}, cannot get nickname", user_id);
     }
     
     // Fall back to global name or username if no nickname or couldn't get member data
-    if let Some(global_name) = &msg.author.global_name {
-        info!("Using global display name for {}: {} (username={})", 
-              user_id, global_name, username);
-        global_name.clone()
-    } else {
-        info!("Using username for {}: {}", user_id, username);
-        msg.author.name.clone()
-    }
+    msg.author.global_name.clone().unwrap_or_else(|| msg.author.name.clone())
 }
 
 // Get the best display name for a user with explicit guild ID
@@ -53,19 +35,15 @@ pub async fn get_best_display_name_with_guild(ctx: &Context, user_id: UserId, gu
         Ok(member) => {
             // Use nickname if available
             if let Some(nick) = &member.nick {
-                info!("SUCCESS: Using server nickname for {} in guild {}: {}", 
-                      user_id, guild_id, nick);
+                debug!("Using server nickname for {} in guild {}", user_id, guild_id);
                 return nick.clone();
             }
             
             // Fall back to global name or username
             if let Some(global_name) = &member.user.global_name {
-                info!("Using global display name for {} in guild {}: {}", 
-                      user_id, guild_id, global_name);
                 return global_name.clone();
             }
             
-            info!("Using username for {} in guild {}: {}", user_id, guild_id, member.user.name);
             member.user.name
         },
         Err(e) => {
@@ -73,13 +51,7 @@ pub async fn get_best_display_name_with_guild(ctx: &Context, user_id: UserId, gu
             // Try to get user data directly
             match ctx.http.get_user(user_id).await {
                 Ok(user) => {
-                    if let Some(global_name) = &user.global_name {
-                        info!("Fallback: Using global display name for {}: {}", user_id, global_name);
-                        global_name.clone()
-                    } else {
-                        info!("Fallback: Using username for {}: {}", user_id, user.name);
-                        user.name
-                    }
+                    user.global_name.clone().unwrap_or_else(|| user.name.clone())
                 },
                 Err(e) => {
                     error!("Failed to get user data for {}: {:?}", user_id, e);
