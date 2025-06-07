@@ -444,8 +444,36 @@ async fn search_celebrity(name: &str) -> Result<Option<String>> {
     // A person is considered dead if:
     // 1. We have a death date from parentheses, OR
     // 2. The text uses past tense ("was") and not present tense ("is") and has parentheses (likely birth-death dates)
-    let is_dead = death_date.is_some() || 
-                 (contains_was && !contains_is && raw_extract.contains("(") && raw_extract.contains(")"));
+    // 3. BUT we need to handle special cases where "was" is used in past events for living people
+    let is_dead = if death_date.is_some() {
+        true
+    } else if contains_was && !contains_is && raw_extract.contains("(") && raw_extract.contains(")") {
+        // Check for special cases where "was" might be used for living people
+        // If the text contains phrases like "is an American" or "is best known", the person is likely alive
+        let alive_indicators = [
+            " is an ", " is a ", " is best known", " is known", " is currently ",
+            " has been ", " has toured", " has played", " has recorded", " has released",
+            " continues to ", " lives in ", " resides in ", " is the ", " is also ",
+            " is active", " is married", " is working", " is touring", " is recording",
+            " is performing", " is based in", " is a member of", " is the founder",
+            " is the author", " is the creator", " is the owner", " is the director",
+            " is the producer", " is the host", " is the presenter", " is the leader",
+            " is the ceo", " is the president", " is the chairman", " is the founder",
+            " is the head", " is the chief", " is the manager", " is the coach",
+            " is the instructor", " is the teacher", " is the professor",
+            " since ", " as of ", " to date ", " to present", " present day",
+            " currently ", " nowadays ", " these days ", " recently ",
+            " today ", " now ", " still ", " ongoing ", " active ",
+        ];
+        
+        let text_lower = raw_extract.to_lowercase();
+        let has_alive_indicator = alive_indicators.iter().any(|&indicator| text_lower.contains(indicator));
+        
+        // If we find any alive indicators, the person is likely alive despite the "was" usage
+        !has_alive_indicator
+    } else {
+        false
+    };
     
     info!("Is dead determination: {}", is_dead);
     
