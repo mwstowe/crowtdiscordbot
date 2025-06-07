@@ -445,8 +445,20 @@ async fn search_celebrity(name: &str) -> Result<Option<String>> {
     // 1. We have a death date from parentheses, OR
     // 2. The text uses past tense ("was") and not present tense ("is") and has parentheses (likely birth-death dates)
     // 3. BUT we need to handle special cases where "was" is used in past events for living people
-    let is_dead = if death_date.is_some() {
-        true
+    let is_dead = if let Some(death_year) = death_date.as_ref().and_then(|d| {
+        // Extract year from death date
+        let year_regex = Regex::new(r"\b(\d{4})\b").ok()?;
+        year_regex.captures(d)?.get(1).map(|m| m.as_str().parse::<i32>().ok())
+    }).flatten() {
+        // Check if the death year is in the future (which would be an error)
+        let current_year = chrono::Local::now().year();
+        if death_year > current_year {
+            info!("Found death year {} which is in the future, ignoring", death_year);
+            false
+        } else {
+            info!("Found valid death year: {}", death_year);
+            true
+        }
     } else if contains_was && !contains_is && raw_extract.contains("(") && raw_extract.contains(")") {
         // Check for special cases where "was" might be used for living people
         // If the text contains phrases like "is an American" or "is best known", the person is likely alive
@@ -642,20 +654,52 @@ pub fn extract_dates_from_parentheses(text: &str) -> (Option<String>, Option<Str
                 // Check if both parts look like dates (contain years)
                 let year_regex = Regex::new(r"\d{4}").unwrap();
                 if year_regex.is_match(birth_part) && year_regex.is_match(death_part) {
-                    // Create cleaned text without this parenthetical section
-                    let mut cleaned_text = text.to_string();
-                    for (start, end, sect) in &parentheses_sections {
-                        if sect == section {
-                            cleaned_text = format!("{}{}", 
-                                &text[0..*start], 
-                                &text[*end+1..]);
-                            break;
-                        }
-                    }
-                    cleaned_text = cleaned_text.replace("  ", " ").trim().to_string();
+                    // Check if this is likely a birth-death range rather than a band membership or other date range
+                    // Birth-death ranges typically:
+                    // 1. Are near the beginning of the text (in the first 100 characters)
+                    // 2. Are not preceded by words like "band", "group", "member", "career", etc.
+                    // 3. Often have month/day information or are just years (1946-2021)
                     
-                    info!("Found birth-death dates in parentheses: {} - {}", birth_part, death_part);
-                    return (Some(birth_part.to_string()), Some(death_part.to_string()), cleaned_text);
+                    // Calculate position in text
+                    let section_pos = section.as_ptr() as usize - text.as_ptr() as usize;
+                    let is_near_beginning = section_pos < 100;
+                    
+                    // Get preceding text to check for band/career indicators
+                    let start_pos = if section_pos > 30 { section_pos - 30 } else { 0 };
+                    let preceding_text = &text[start_pos..section_pos];
+                    let preceding_text_lower = preceding_text.to_lowercase();
+                    
+                    // Define band/career indicators
+                    let band_indicators = ["band", "group", "member", "career", "tour", "album", 
+                                          "record", "release", "project", "formed", "founded", 
+                                          "joined", "left", "played with", "performed with",
+                                          "worked with", "collaborated", "session", "studio"];
+                    
+                    // Check if any indicators are present
+                    let has_band_indicator = band_indicators.iter()
+                        .any(|&indicator| preceding_text_lower.contains(indicator));
+                    
+                    // If it's near the beginning and doesn't have band indicators, it's likely birth-death
+                    let is_likely_birth_death = is_near_beginning && !has_band_indicator;
+                    
+                    if is_likely_birth_death {
+                        // Create cleaned text without this parenthetical section
+                        let mut cleaned_text = text.to_string();
+                        for (start, end, sect) in &parentheses_sections {
+                            if sect == section {
+                                cleaned_text = format!("{}{}", 
+                                    &text[0..*start], 
+                                    &text[*end+1..]);
+                                break;
+                            }
+                        }
+                        cleaned_text = cleaned_text.replace("  ", " ").trim().to_string();
+                        
+                        info!("Found birth-death dates in parentheses: {} - {}", birth_part, death_part);
+                        return (Some(birth_part.to_string()), Some(death_part.to_string()), cleaned_text);
+                    } else {
+                        info!("Found date range but it appears to be for a band/career: {} - {}", birth_part, death_part);
+                    }
                 }
             }
         }
