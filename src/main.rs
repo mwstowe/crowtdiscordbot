@@ -642,9 +642,17 @@ impl Bot {
             };
             
             // If we found a message, send it
-            if let Some((_, display_name, content)) = messages.first() {
+            if let Some((author, display_name, content)) = messages.first() {
+                // Use the display name if available, otherwise fall back to author name
+                let name_to_use = if !display_name.is_empty() {
+                    display_name
+                } else {
+                    author
+                };
+                
                 // Use the display_name::clean_display_name function for consistency
-                let clean_display_name = display_name::clean_display_name(display_name);
+                // This will also strip angle brackets if the name is in gateway format
+                let clean_display_name = display_name::clean_display_name(name_to_use);
                 
                 msg.channel_id.say(http, format!("<{}> {}", clean_display_name, content)).await?;
             } else {

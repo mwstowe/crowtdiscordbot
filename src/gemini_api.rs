@@ -81,8 +81,16 @@ impl GeminiClient {
             chronological_messages.reverse();
             
             // Format each message as "DisplayName: Message" using the display_name field
+            // If display_name is empty, fall back to author name
             let formatted_messages = chronological_messages.iter()
-                .map(|(_, display_name, msg)| format!("{}: {}", display_name, msg))
+                .map(|(author, display_name, msg)| {
+                    let name_to_use = if !display_name.is_empty() {
+                        display_name
+                    } else {
+                        author
+                    };
+                    format!("{}: {}", name_to_use, msg)
+                })
                 .collect::<Vec<_>>()
                 .join("\n");
             

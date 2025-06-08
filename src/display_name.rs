@@ -6,6 +6,15 @@ use tracing::{error, debug};
 
 // Helper function to get the best display name for a user
 pub async fn get_best_display_name(ctx: &Context, msg: &Message) -> String {
+    // Check if the username is already in gateway format (within <> brackets)
+    // If so, strip the brackets and return the clean username without trying to look up member data
+    let username = &msg.author.name;
+    if username.starts_with('<') && username.ends_with('>') {
+        let clean_username = username[1..username.len()-1].to_string();
+        debug!("Username '{}' is in gateway format, using cleaned version: '{}'", username, clean_username);
+        return clean_username;
+    }
+    
     let user_id = msg.author.id;
     
     // Prioritize server nickname over global name over username
@@ -33,6 +42,14 @@ pub async fn get_best_display_name_with_guild(ctx: &Context, user_id: UserId, gu
     // Get member data which includes the nickname
     match guild_id.member(&ctx.http, user_id).await {
         Ok(member) => {
+            // Check if the username is already in gateway format (within <> brackets)
+            let username = &member.user.name;
+            if username.starts_with('<') && username.ends_with('>') {
+                let clean_username = username[1..username.len()-1].to_string();
+                debug!("Username '{}' is in gateway format, using cleaned version: '{}'", username, clean_username);
+                return clean_username;
+            }
+            
             // Use nickname if available
             if let Some(nick) = &member.nick {
                 debug!("Using server nickname for {} in guild {}", user_id, guild_id);
@@ -51,6 +68,14 @@ pub async fn get_best_display_name_with_guild(ctx: &Context, user_id: UserId, gu
             // Try to get user data directly
             match ctx.http.get_user(user_id).await {
                 Ok(user) => {
+                    // Check if the username is already in gateway format
+                    let username = &user.name;
+                    if username.starts_with('<') && username.ends_with('>') {
+                        let clean_username = username[1..username.len()-1].to_string();
+                        debug!("Username '{}' is in gateway format, using cleaned version: '{}'", username, clean_username);
+                        return clean_username;
+                    }
+                    
                     user.global_name.clone().unwrap_or_else(|| user.name.clone())
                 },
                 Err(e) => {
@@ -64,12 +89,24 @@ pub async fn get_best_display_name_with_guild(ctx: &Context, user_id: UserId, gu
 
 // Synchronous version of get_best_display_name for use in non-async contexts
 pub fn get_best_display_name_sync(msg: &Message) -> String {
+    // Check if the username is already in gateway format (within <> brackets)
+    let username = &msg.author.name;
+    if username.starts_with('<') && username.ends_with('>') {
+        let clean_username = username[1..username.len()-1].to_string();
+        return clean_username;
+    }
+    
     // Just use the global name or username since we can't access guild data synchronously
     msg.author.global_name.clone().unwrap_or_else(|| msg.author.name.clone())
 }
 
 // Clean a display name by removing IRC formatting, brackets, and pronouns
 pub fn clean_display_name(name: &str) -> String {
+    // If the name is already in gateway format (within <> brackets), strip the brackets
+    if name.starts_with('<') && name.ends_with('>') {
+        return name[1..name.len()-1].to_string();
+    }
+    
     // First remove IRC formatting
     let mut clean_name = name.to_string();
     clean_name = clean_name.replace("[irc]", "").trim().to_string();
