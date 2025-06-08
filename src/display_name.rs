@@ -80,7 +80,9 @@ pub async fn get_best_display_name_with_guild(ctx: &Context, user_id: UserId, gu
                 },
                 Err(e) => {
                     error!("Failed to get user data for {}: {:?}", user_id, e);
-                    format!("User-{}", user_id) // Last resort fallback
+                    // Instead of using User-ID format, just return the user ID as a string
+                    // This is better than nothing and avoids the User- prefix
+                    user_id.to_string()
                 }
             }
         }
