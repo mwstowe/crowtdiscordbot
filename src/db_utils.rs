@@ -493,7 +493,7 @@ pub async fn get_recent_messages(
     let mut seen_content = HashSet::new();
     let mut deduplicated_messages = Vec::new();
     
-    for (msg_id, author, display_name, content) in raw_messages {
+    for (_msg_id, author, display_name, content) in raw_messages {
         if seen_content.insert(content.clone()) {
             // This is a new message content, add it to the result
             deduplicated_messages.push((author, display_name, content));

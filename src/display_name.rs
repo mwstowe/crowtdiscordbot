@@ -89,19 +89,6 @@ pub async fn get_best_display_name_with_guild(ctx: &Context, user_id: UserId, gu
     }
 }
 
-// Synchronous version of get_best_display_name for use in non-async contexts
-pub fn get_best_display_name_sync(msg: &Message) -> String {
-    // Check if the username is already in gateway format (within <> brackets)
-    let username = &msg.author.name;
-    if username.starts_with('<') && username.ends_with('>') {
-        let clean_username = username[1..username.len()-1].to_string();
-        return clean_username;
-    }
-    
-    // Just use the global name or username since we can't access guild data synchronously
-    msg.author.global_name.clone().unwrap_or_else(|| msg.author.name.clone())
-}
-
 // Clean a display name by removing IRC formatting, brackets, and pronouns
 pub fn clean_display_name(name: &str) -> String {
     // If the name is already in gateway format (within <> brackets), strip the brackets

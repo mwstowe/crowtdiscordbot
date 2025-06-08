@@ -55,13 +55,6 @@ impl GeminiClient {
         }
     }
     
-    // Generate a response using the Gemini API - deprecated, use generate_response_with_context instead
-    #[deprecated(note = "Use generate_response_with_context instead")]
-    pub async fn generate_response(&self, prompt: &str, user_name: &str) -> Result<String> {
-        // Call generate_response_with_context with empty context
-        self.generate_response_with_context(prompt, user_name, &Vec::new(), None).await
-    }
-    
     // Generate a response with conversation context
     pub async fn generate_response_with_context(
         &self, 
