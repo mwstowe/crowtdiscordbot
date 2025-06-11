@@ -2289,8 +2289,19 @@ impl EventHandler for Bot {
         
         // Check if the message is from a bot
         if msg.author.bot {
-            // Add detailed logging for bot messages
+            // Get the current bot's user ID
+            let current_user_id = ctx.http.get_current_user().await.map(|u| u.id).unwrap_or_default();
             let bot_id = msg.author.id.get();
+            
+            // Check if this message is from the bot itself
+            if msg.author.id == current_user_id {
+                info!("🤖 Received message from SELF ({}): {}", msg.author.name, msg.content);
+                // We still want to store our own messages in the database for context,
+                // but we don't need to process them further
+                return;
+            }
+            
+            // Add detailed logging for other bot messages
             info!("📝 Received message from bot ID: {} ({})", bot_id, msg.author.name);
             info!("📝 Gateway bot IDs configured: {:?}", self.gateway_bot_ids);
             info!("📝 Is this bot in our gateway list? {}", self.gateway_bot_ids.contains(&bot_id));
