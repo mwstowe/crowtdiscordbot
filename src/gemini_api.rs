@@ -335,8 +335,19 @@ impl GeminiClient {
                 if let Some(finish_reason) = candidate.get("finishReason") {
                     let reason = finish_reason.as_str().unwrap_or("UNKNOWN");
                     if reason == "IMAGE_SAFETY" {
-                        error!("Image generation blocked due to safety concerns");
-                        return Err(anyhow::anyhow!("SAFETY_BLOCKED"));
+                        // Extract the text response which contains the safety explanation
+                        let safety_message = response_json
+                            .get("candidates")
+                            .and_then(|c| c.get(0))
+                            .and_then(|c| c.get("content"))
+                            .and_then(|c| c.get("parts"))
+                            .and_then(|p| p.get(0))
+                            .and_then(|p| p.get("text"))
+                            .and_then(|t| t.as_str())
+                            .unwrap_or("I'm unable to generate that image due to content policy restrictions.");
+                            
+                        error!("Image generation blocked due to safety concerns: {}", safety_message);
+                        return Err(anyhow::anyhow!("SAFETY_BLOCKED: \"{}\"", safety_message));
                     }
                 }
                 
@@ -347,8 +358,19 @@ impl GeminiClient {
                             rating.get("blocked").and_then(|b| b.as_bool()).unwrap_or(false)
                         })
                     }) {
-                        error!("Image generation blocked due to safety ratings");
-                        return Err(anyhow::anyhow!("SAFETY_BLOCKED"));
+                        // Extract the text response which contains the safety explanation
+                        let safety_message = response_json
+                            .get("candidates")
+                            .and_then(|c| c.get(0))
+                            .and_then(|c| c.get("content"))
+                            .and_then(|c| c.get("parts"))
+                            .and_then(|p| p.get(0))
+                            .and_then(|p| p.get("text"))
+                            .and_then(|t| t.as_str())
+                            .unwrap_or("I'm unable to generate that image due to content policy restrictions.");
+                            
+                        error!("Image generation blocked due to safety ratings: {}", safety_message);
+                        return Err(anyhow::anyhow!("SAFETY_BLOCKED: \"{}\"", safety_message));
                     }
                 }
             }
@@ -364,6 +386,17 @@ impl GeminiClient {
             .and_then(|p| p.get("text"))
             .and_then(|t| t.as_str())
             .unwrap_or("").to_string();
+            
+        // Check if the text response indicates a safety block
+        // This handles cases where the API returns a text explanation instead of an image
+        if text_description.contains("unable to create") || 
+           text_description.contains("can't generate") || 
+           text_description.contains("cannot generate") ||
+           text_description.contains("policy violation") ||
+           text_description.contains("content policy") {
+            error!("Image generation blocked based on text response: {}", text_description);
+            return Err(anyhow::anyhow!("SAFETY_BLOCKED: \"{}\"", text_description));
+        }
         
         // Extract the generated image data - handle both possible response formats
         let mut image_data = None;

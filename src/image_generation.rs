@@ -107,7 +107,16 @@ pub async fn handle_imagine_command(ctx: &Context, msg: &Message, gemini_client:
                         
                         // Check if this is a safety block
                         if e.to_string().contains("SAFETY_BLOCKED") {
-                            msg.reply(&ctx.http, "Denied!").await?;
+                            // Extract the actual error message from the Gemini API if available
+                            let error_message = if let Some(message) = e.to_string().split('"').nth(1) {
+                                message.to_string()
+                            } else {
+                                // Fallback to a generic message if we can't extract the specific error
+                                "I'm unable to generate that image due to content policy restrictions.".to_string()
+                            };
+                            
+                            // Reply with the actual error message from the API
+                            msg.reply(&ctx.http, error_message).await?;
                             break;
                         }
                         
