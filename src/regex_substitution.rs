@@ -149,8 +149,18 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
                         // For regular messages, get the display name of the original author
                         // Use the guild ID from the current message since it's more reliable
                         if let Some(guild_id) = msg.guild_id {
-                            crate::display_name::get_best_display_name_with_guild(
-                                ctx, prev_msg.author.id, guild_id).await
+                            // Try to get the display name with guild context first
+                            let name = crate::display_name::get_best_display_name_with_guild(
+                                ctx, prev_msg.author.id, guild_id).await;
+                            
+                            // If the name looks like a user ID (all digits), try to get a better name
+                            if crate::display_name::is_user_id(&name) {
+                                // Fall back to the username from the message if available
+                                prev_msg.author.global_name.clone()
+                                    .unwrap_or_else(|| prev_msg.author.name.clone())
+                            } else {
+                                name
+                            }
                         } else {
                             get_best_display_name(ctx, prev_msg).await
                         }

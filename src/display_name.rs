@@ -80,9 +80,9 @@ pub async fn get_best_display_name_with_guild(ctx: &Context, user_id: UserId, gu
                 },
                 Err(e) => {
                     error!("Failed to get user data for {}: {:?}", user_id, e);
-                    // Instead of using User-ID format, just return the user ID as a string
-                    // This is better than nothing and avoids the User- prefix
-                    user_id.to_string()
+                    // Instead of returning just the user ID, use a more user-friendly fallback
+                    // This prevents showing raw IDs in messages
+                    format!("User-{}", user_id.to_string().chars().take(4).collect::<String>())
                 }
             }
         }
@@ -175,4 +175,9 @@ pub fn extract_pronouns(name: &str) -> Option<String> {
 pub async fn get_clean_display_name(ctx: &Context, msg: &Message) -> String {
     let display_name = get_best_display_name(ctx, msg).await;
     clean_display_name(&display_name)
+}
+
+// Check if a string looks like a user ID (all digits)
+pub fn is_user_id(name: &str) -> bool {
+    !name.is_empty() && name.chars().all(|c| c.is_digit(10))
 }
