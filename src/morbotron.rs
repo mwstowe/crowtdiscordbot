@@ -167,6 +167,62 @@ impl MorbotronClient {
     pub async fn search(&self, query: &str) -> Result<Option<MorbotronResult>> {
         info!("Morbotron search for: {}", query);
         
+        // Try different search strategies in order of preference
+        
+        // 1. Try exact phrase search with quotes
+        if let Some(result) = self.search_with_strategy(&format!("\"{}\"", query)).await? {
+            info!("Found result with exact phrase search");
+            return Ok(Some(result));
+        }
+        
+        // 2. Try exact phrase search without quotes (in case API handles it differently)
+        if let Some(result) = self.search_with_strategy(query).await? {
+            info!("Found result with standard search");
+            return Ok(Some(result));
+        }
+        
+        // 3. Try with plus signs between words to force word boundaries
+        let plus_query = query.split_whitespace().collect::<Vec<&str>>().join("+");
+        if let Some(result) = self.search_with_strategy(&plus_query).await? {
+            info!("Found result with plus-separated search");
+            return Ok(Some(result));
+        }
+        
+        // 4. If the query has multiple words, try searching for pairs of consecutive words
+        let words: Vec<&str> = query.split_whitespace().collect();
+        if words.len() > 1 {
+            for i in 0..words.len() - 1 {
+                let pair_query = format!("{} {}", words[i], words[i + 1]);
+                info!("Trying pair search: {}", pair_query);
+                if let Some(result) = self.search_with_strategy(&pair_query).await? {
+                    info!("Found result with word pair search");
+                    return Ok(Some(result));
+                }
+            }
+        }
+        
+        // 5. If all else fails, try individual words (but only if there are multiple words)
+        if words.len() > 1 {
+            for word in words {
+                // Skip very short words as they're likely to give irrelevant results
+                if word.len() <= 2 {
+                    continue;
+                }
+                info!("Trying single word search: {}", word);
+                if let Some(result) = self.search_with_strategy(word).await? {
+                    info!("Found result with single word search");
+                    return Ok(Some(result));
+                }
+            }
+        }
+        
+        // No results found with any strategy
+        info!("No Morbotron results found for query: {}", query);
+        Ok(None)
+    }
+
+    // Internal method to perform the actual API call with a specific search strategy
+    async fn search_with_strategy(&self, query: &str) -> Result<Option<MorbotronResult>> {
         // URL encode the query
         let encoded_query = urlencoding::encode(query);
         let search_url = format!("{}?q={}", MORBOTRON_BASE_URL, encoded_query);
@@ -188,7 +244,6 @@ impl MorbotronClient {
             
         // If no results, return None
         if search_results.is_empty() {
-            info!("No Morbotron results found for query: {}", query);
             return Ok(None);
         }
         
@@ -362,7 +417,7 @@ pub async fn handle_morbotron_command(
     info!("Morbotron request with search term: {}", term);
     
     // Send a "searching" message
-    let searching_msg = match msg.channel_id.say(http, format!("Searching for: {}...", term)).await {
+    let searching_msg = match msg.channel_id.say(http, format!("Searching for Futurama scene: \"{}\"...", term)).await {
         Ok(msg) => Some(msg),
         Err(e) => {
             error!("Error sending searching message: {:?}", e);
@@ -392,7 +447,7 @@ pub async fn handle_morbotron_command(
             }
         },
         Ok(None) => {
-            let error_msg = format!("No Morbotron results found for '{}'.", term);
+            let error_msg = format!("No Futurama scenes found for '{}'. Try a different phrase or wording.", term);
             
             // Edit the searching message if we have one, otherwise send a new message
             if let Some(mut search_msg) = searching_msg {
@@ -410,7 +465,7 @@ pub async fn handle_morbotron_command(
             }
         },
         Err(e) => {
-            let error_msg = format!("Error performing Morbotron search: {}", e);
+            let error_msg = format!("Error searching for Futurama scene: {}", e);
             error!("{}", &error_msg);
             
             // Edit the searching message if we have one, otherwise send a new message
