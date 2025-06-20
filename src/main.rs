@@ -33,7 +33,6 @@ mod display_name;
 mod buzz;
 mod lastseen;
 mod image_generation;
-mod typing_indicator;
 
 // Helper function to check if a response looks like a prompt
 fn is_prompt_echo(response: &str) -> bool {
@@ -59,7 +58,6 @@ use google_search::GoogleSearchClient;
 use gemini_api::GeminiClient;
 use crime_fighting::CrimeFightingGenerator;
 use frinkiac::{FrinkiacClient, handle_frinkiac_command};
-use typing_indicator::stop_typing;
 use morbotron::{MorbotronClient, handle_morbotron_command};
 use response_timing::apply_realistic_delay;
 use masterofallscience::{MasterOfAllScienceClient, handle_masterofallscience_command};
@@ -1388,10 +1386,7 @@ impl Bot {
             if let (Some(db), Some(gemini_client)) = (&self.message_db, &self.gemini_client) {
                 let db_clone = Arc::clone(db);
                 
-                // Start typing indicator
-                if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
-                    error!("Failed to send typing indicator for memory interjection: {:?}", e);
-                }
+                // We'll start the typing indicator only after we decide to send a message
                 
                 // Query the database for a random message with minimum length of 20 characters
                 let result = db_clone.lock().await.call(|conn| {
@@ -1454,9 +1449,12 @@ impl Bot {
                                     // Check if we should skip this one
                                     if response.to_lowercase() == "pass" {
                                         info!("Memory interjection evaluation: decided to PASS");
-                                        // Stop typing indicator
-                                        stop_typing(&ctx, msg.channel_id).await;
                                         return Ok(());
+                                    }
+                                    
+                                    // Start typing indicator now that we've decided to send a message
+                                    if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
+                                        error!("Failed to send typing indicator for memory interjection: {:?}", e);
                                     }
                                     
                                     // Send the processed memory
@@ -1527,10 +1525,7 @@ impl Bot {
                 if let Some(interjection_prompt) = &self.gemini_interjection_prompt {
                     info!("Processing AI interjection with custom prompt");
                     
-                    // Start typing indicator
-                    if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
-                        error!("Failed to send typing indicator for AI interjection: {:?}", e);
-                    }
+                    // We'll start typing indicator only after we decide to send a message
                     
                     // Get recent messages for context - use more messages for better context
                     let context_messages = if let Some(db) = &self.message_db {
@@ -1572,8 +1567,6 @@ impl Bot {
                             // Check if the response is "pass" - if so, don't send anything
                             if response.trim().to_lowercase() == "pass" {
                                 info!("AI interjection evaluation: decided to PASS - no response sent");
-                                // Stop typing indicator
-                                stop_typing(&ctx, msg.channel_id).await;
                                 return Ok(());
                             }
                             
@@ -1584,9 +1577,12 @@ impl Bot {
                                response.contains("For criterion #2") ||
                                response.contains("If none of these criteria are met") {
                                 error!("AI interjection error: API returned the prompt instead of a response");
-                                // Stop typing indicator
-                                stop_typing(&ctx, msg.channel_id).await;
                                 return Ok(());
+                            }
+                            
+                            // Start typing indicator now that we've decided to send a message
+                            if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
+                                error!("Failed to send typing indicator for AI interjection: {:?}", e);
                             }
                             
                             // Apply realistic typing delay
@@ -1626,10 +1622,7 @@ impl Bot {
             info!("Triggered fact interjection ({:.2}% chance, {})", probability_percent, odds);
             
             if let Some(gemini_client) = &self.gemini_client {
-                // Start typing indicator
-                if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
-                    error!("Failed to send typing indicator for fact interjection: {:?}", e);
-                }
+                // We'll start typing indicator only after we decide to send a message
                 
                 // Get recent messages for context
                 let context_messages = if let Some(db) = &self.message_db {
@@ -1686,8 +1679,6 @@ Just state the fact directly and concisely."#)
                         // Check if the response is "pass" - if so, don't send anything
                         if response.trim().to_lowercase() == "pass" {
                             info!("Fact interjection evaluation: decided to PASS - no response sent");
-                            // Stop typing indicator
-                            stop_typing(&ctx, msg.channel_id).await;
                             return Ok(());
                         }
                         
@@ -1697,9 +1688,12 @@ Just state the fact directly and concisely."#)
                            response.contains("Guidelines for your fact") ||
                            response.contains("If you can't think of a good fact") {
                             error!("Fact interjection error: API returned the prompt instead of a response");
-                            // Stop typing indicator
-                            stop_typing(&ctx, msg.channel_id).await;
                             return Ok(());
+                        }
+                        
+                        // Start typing indicator now that we've decided to send a message
+                        if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
+                            error!("Failed to send typing indicator for fact interjection: {:?}", e);
                         }
                         
                         // Apply realistic typing delay
