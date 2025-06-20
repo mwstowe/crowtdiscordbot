@@ -7,6 +7,7 @@ use anyhow::{Result, anyhow};
 use tracing::{info, warn};
 
 /// A rate limiter that enforces both per-minute and per-day limits
+#[derive(Clone)]
 pub struct RateLimiter {
     // Per-minute tracking
     minute_limit: u32,
@@ -97,6 +98,17 @@ impl RateLimiter {
         let now_utc = Utc::now();
         let mut day_requests = self.day_requests.lock().await;
         day_requests.push_back(now_utc);
+    }
+    
+    /// Try to acquire a rate limit slot without waiting
+    pub async fn try_acquire(&self) -> bool {
+        match self.check().await {
+            Ok(_) => {
+                self.record_request().await;
+                true
+            },
+            Err(_) => false
+        }
     }
     
     /// Wait until a request can be made, then record it

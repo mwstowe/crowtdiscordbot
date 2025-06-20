@@ -6,6 +6,7 @@ use tracing::{error, info};
 use crate::rate_limiter::RateLimiter;
 use base64::Engine;
 
+#[derive(Clone)]
 pub struct GeminiClient {
     api_key: String,
     api_endpoint: String,
@@ -53,6 +54,63 @@ impl GeminiClient {
             context_messages,
             log_prompts,
         }
+    }
+    
+    // Generate a simple response without context
+    pub async fn generate_response(&self, prompt: &str) -> Result<String> {
+        // Check rate limits
+        if !self.rate_limiter.try_acquire().await {
+            return Err(anyhow::anyhow!("Rate limit exceeded"));
+        }
+        
+        // Log the prompt if enabled
+        if self.log_prompts {
+            info!("Gemini prompt: {}", prompt);
+        }
+        
+        // Create the request body
+        let request_body = serde_json::json!({
+            "contents": [
+                {
+                    "parts": [
+                        {
+                            "text": prompt
+                        }
+                    ]
+                }
+            ]
+        });
+        
+        // Send the request to the Gemini API
+        let client = reqwest::Client::new();
+        let response = client.post(&format!("{}?key={}", self.api_endpoint, self.api_key))
+            .json(&request_body)
+            .timeout(Duration::from_secs(30))
+            .send()
+            .await?;
+            
+        // Check if the request was successful
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await?;
+            return Err(anyhow::anyhow!("Gemini API error: {} - {}", status, error_text));
+        }
+        
+        // Parse the response
+        let response_json: serde_json::Value = response.json().await?;
+        
+        // Extract the response text
+        let response_text = response_json
+            .get("candidates")
+            .and_then(|candidates| candidates.get(0))
+            .and_then(|candidate| candidate.get("content"))
+            .and_then(|content| content.get("parts"))
+            .and_then(|parts| parts.get(0))
+            .and_then(|part| part.get("text"))
+            .and_then(|text| text.as_str())
+            .ok_or_else(|| anyhow::anyhow!("Failed to extract response text from Gemini API response"))?;
+            
+        Ok(response_text.to_string())
     }
     
     // Generate a response with conversation context

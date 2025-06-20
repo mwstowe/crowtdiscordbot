@@ -34,6 +34,7 @@ mod buzz;
 mod lastseen;
 mod image_generation;
 mod news_interjection;
+mod enhanced_frinkiac_search;
 
 // Helper function to check if a response looks like a prompt
 fn is_prompt_echo(response: &str) -> bool {
@@ -1013,7 +1014,13 @@ impl Bot {
                     };
                     
                     // Handle the frinkiac command
-                    if let Err(e) = handle_frinkiac_command(&ctx.http, &msg, search_term, &self.frinkiac_client).await {
+                    if let Err(e) = handle_frinkiac_command(
+                        &ctx.http, 
+                        &msg, 
+                        search_term, 
+                        &self.frinkiac_client,
+                        self.gemini_client.as_ref()
+                    ).await {
                         error!("Error handling frinkiac command: {:?}", e);
                         if let Err(e) = msg.channel_id.say(&ctx.http, "Error searching Frinkiac").await {
                             error!("Error sending error message: {:?}", e);
@@ -1963,7 +1970,13 @@ Just state the fact directly and concisely."#)
                     };
                     
                     // Handle the frinkiac command
-                    if let Err(e) = handle_frinkiac_command(&ctx.http, &msg, search_term, &self.frinkiac_client).await {
+                    if let Err(e) = handle_frinkiac_command(
+                        &ctx.http, 
+                        &msg, 
+                        search_term, 
+                        &self.frinkiac_client,
+                        self.gemini_client.as_ref()
+                    ).await {
                         error!("Error handling frinkiac command: {:?}", e);
                         if let Err(e) = msg.channel_id.say(&ctx.http, "Error searching Frinkiac").await {
                             error!("Error sending error message: {:?}", e);

@@ -7,6 +7,8 @@ use serde::Deserialize;
 use serde_json;
 use std::time::Duration;
 use rand::seq::SliceRandom;
+use crate::enhanced_frinkiac_search::EnhancedFrinkiacSearch;
+use crate::gemini_api::GeminiClient;
 
 // API endpoints
 const FRINKIAC_BASE_URL: &str = "https://frinkiac.com/api/search";
@@ -27,6 +29,13 @@ const RANDOM_SEARCH_TERMS: &[&str] = &[
 
 pub struct FrinkiacClient {
     http_client: HttpClient,
+}
+
+impl Clone for FrinkiacClient {
+    fn clone(&self) -> Self {
+        // Create a new HTTP client when cloning
+        Self::new()
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -82,6 +91,7 @@ struct FrinkiacSubtitle {
 }
 
 #[allow(dead_code)]
+#[derive(Debug, Clone)]
 pub struct FrinkiacResult {
     pub episode: String,
     pub episode_title: String,
@@ -386,7 +396,8 @@ pub async fn handle_frinkiac_command(
     http: &Http, 
     msg: &Message, 
     search_term: Option<String>,
-    frinkiac_client: &FrinkiacClient
+    frinkiac_client: &FrinkiacClient,
+    gemini_client: Option<&GeminiClient>
 ) -> Result<()> {
     // If no search term is provided, get a random screenshot
     if search_term.is_none() {
@@ -477,8 +488,18 @@ pub async fn handle_frinkiac_command(
         }
     };
     
-    // Perform the search
-    match frinkiac_client.search(&term).await {
+    // Determine whether to use enhanced search or regular search
+    let search_result = if let Some(gemini) = gemini_client {
+        info!("Using enhanced search with Gemini API");
+        let enhanced_search = EnhancedFrinkiacSearch::new(gemini.clone(), frinkiac_client.clone());
+        enhanced_search.search(&term).await
+    } else {
+        info!("Using regular search (Gemini API not available)");
+        frinkiac_client.search(&term).await
+    };
+    
+    // Process the search result
+    match search_result {
         Ok(Some(result)) => {
             // Format the response
             let response = format_frinkiac_result(&result);
