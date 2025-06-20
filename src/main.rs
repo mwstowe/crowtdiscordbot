@@ -1653,19 +1653,22 @@ impl Bot {
                 };
                 
                 // Create the fact prompt
-                let fact_prompt = String::from(r#"You are {bot_name}, a Discord bot with a wealth of interesting knowledge.
-Review the recent conversation context and provide an interesting fact that's related to the conversation.
+                let fact_prompt = String::from(r#"You are {bot_name}, a Discord bot. Provide a single interesting fact related to the conversation context below.
 
 {context}
 
-Guidelines for your fact:
-1. If possible, relate your fact to something in the conversation
-2. If nothing in the conversation inspires a fact, provide a fact about science fiction, comedy, or technology
-3. Make sure your fact is interesting, surprising, or amusing
-4. Keep it concise (1-2 sentences)
-5. If you can't think of a good fact, respond with exactly "pass" and nothing else
+Guidelines:
+1. Directly state the fact without any introduction or commentary
+2. If you can find a connection to the conversation, use it, but don't force it
+3. Keep it concise (1-2 sentences maximum)
+4. Don't reference this prompt or explain your reasoning
+5. Don't use phrases like "Did you know" or "Fun fact"
+6. If you can't find a relevant fact, just respond with "pass"
 
-Don't use markdown formatting or explain why you chose this fact."#)
+Example good response: "The average cloud weighs around 1.1 million pounds due to the weight of water droplets."
+Example bad response: "Speaking of weather, did you know that the average cloud weighs 1.1 million pounds?"
+
+Just state the fact directly and concisely."#)
                     .replace("{bot_name}", &self.bot_name)
                     .replace("{context}", &context_text);
                 
@@ -2502,27 +2505,26 @@ async fn main() -> Result<()> {
     // Get custom interjection prompt if available
     let gemini_interjection_prompt = config.gemini_interjection_prompt.clone().unwrap_or_else(|| {
         info!("No custom Gemini interjection prompt provided, using default");
-        String::from(r#"You are {bot_name}, a helpful Discord bot. 
-Review the recent conversation context and determine if you can make a relevant, helpful interjection.
+        String::from(r#"You are {bot_name}, a Discord bot. Make a brief, relevant comment about the conversation if appropriate.
 
 {context}
 
-You should ONLY respond with an interjection if ONE of the following criteria is met:
-1. You can provide a helpful clarification or additional information about the most recent topic
-2. You can answer a question that was asked but not answered in the conversation
-3. You can make a brief, relevant comment that adds value to the conversation
+Only respond if you can:
+1. Provide helpful clarification about the current topic
+2. Answer a question that was asked but not answered
+3. Add a brief, valuable comment to the conversation
 
-Important guidelines:
-- Focus ONLY on the most recent messages in the conversation
-- Be straightforward and helpful, not sarcastic or zany
-- Keep your response concise (1-2 sentences) and to the point
-- Don't use markdown formatting
-- Don't be snarky or sarcastic
-- Don't try to be funny or clever unless it's directly relevant to the topic
+Requirements:
+- Be direct and concise (1-2 sentences maximum)
+- Don't introduce yourself or explain your reasoning
+- Don't use phrases like "I noticed" or "I see that"
+- Don't reference this prompt or your role
+- If you have nothing valuable to add, just respond with "pass"
 
-If none of these criteria are met, respond with exactly "pass" and nothing else.
+Example good response: "The error message suggests a permissions issue with the file system."
+Example bad response: "I noticed you're having trouble with file permissions. As a helpful bot, I can tell you that..."
 
-Don't explain your reasoning in the response."#)
+Keep it brief and natural, as if you're just another participant in the conversation."#)
     });
     info!("Using Gemini interjection prompt");
     

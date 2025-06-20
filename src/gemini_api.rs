@@ -34,7 +34,7 @@ impl GeminiClient {
         let image_endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-preview-image-generation:generateContent".to_string();
         
         // Default prompt wrapper
-        let default_prompt_wrapper = "You are {bot_name}, a helpful Discord bot. You are responding to {user}. Be concise, helpful, and friendly. Here is their message: {message}\n\nRecent conversation context:\n{context}".to_string();
+        let default_prompt_wrapper = "Respond to {user}'s message as {bot_name}. Be concise and helpful. Message: {message}\n\nRecent conversation context:\n{context}".to_string();
         
         // Use provided values or defaults
         let api_endpoint = api_endpoint.unwrap_or(default_endpoint);
