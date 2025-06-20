@@ -33,6 +33,7 @@ mod display_name;
 mod buzz;
 mod lastseen;
 mod image_generation;
+mod typing_indicator;
 
 // Helper function to check if a response looks like a prompt
 fn is_prompt_echo(response: &str) -> bool {
@@ -58,6 +59,7 @@ use google_search::GoogleSearchClient;
 use gemini_api::GeminiClient;
 use crime_fighting::CrimeFightingGenerator;
 use frinkiac::{FrinkiacClient, handle_frinkiac_command};
+use typing_indicator::stop_typing;
 use morbotron::{MorbotronClient, handle_morbotron_command};
 use response_timing::apply_realistic_delay;
 use masterofallscience::{MasterOfAllScienceClient, handle_masterofallscience_command};
@@ -1452,6 +1454,8 @@ impl Bot {
                                     // Check if we should skip this one
                                     if response.to_lowercase() == "pass" {
                                         info!("Memory interjection evaluation: decided to PASS");
+                                        // Stop typing indicator
+                                        stop_typing(&ctx, msg.channel_id).await;
                                         return Ok(());
                                     }
                                     
@@ -1568,6 +1572,8 @@ impl Bot {
                             // Check if the response is "pass" - if so, don't send anything
                             if response.trim().to_lowercase() == "pass" {
                                 info!("AI interjection evaluation: decided to PASS - no response sent");
+                                // Stop typing indicator
+                                stop_typing(&ctx, msg.channel_id).await;
                                 return Ok(());
                             }
                             
@@ -1578,6 +1584,8 @@ impl Bot {
                                response.contains("For criterion #2") ||
                                response.contains("If none of these criteria are met") {
                                 error!("AI interjection error: API returned the prompt instead of a response");
+                                // Stop typing indicator
+                                stop_typing(&ctx, msg.channel_id).await;
                                 return Ok(());
                             }
                             
@@ -1678,6 +1686,8 @@ Just state the fact directly and concisely."#)
                         // Check if the response is "pass" - if so, don't send anything
                         if response.trim().to_lowercase() == "pass" {
                             info!("Fact interjection evaluation: decided to PASS - no response sent");
+                            // Stop typing indicator
+                            stop_typing(&ctx, msg.channel_id).await;
                             return Ok(());
                         }
                         
@@ -1687,6 +1697,8 @@ Just state the fact directly and concisely."#)
                            response.contains("Guidelines for your fact") ||
                            response.contains("If you can't think of a good fact") {
                             error!("Fact interjection error: API returned the prompt instead of a response");
+                            // Stop typing indicator
+                            stop_typing(&ctx, msg.channel_id).await;
                             return Ok(());
                         }
                         
