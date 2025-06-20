@@ -176,10 +176,10 @@ impl Bot {
         // Generate a comprehensive help message with all commands
         let help_message = if !imagine_channels.is_empty() {
             // Include the imagine command if channels are configured
-            "Available commands:\n!help - Show help\n!hello - Say hello\n!buzz - Generate corporate buzzwords\n!fightcrime - Generate a crime fighting duo\n!trump - Generate a Trump insult\n!bandname [name] - Generate music genre for a band\n!lastseen [name] - Find when a user was last active\n!quote [term] - Get a random quote\n!quote -show [show] - Get quote from specific show\n!quote -dud [user] - Get random message from a user\n!slogan [term] - Get a random advertising slogan\n!frinkiac [term] - Get a Simpsons screenshot\n!morbotron [term] - Get a Futurama screenshot\n!masterofallscience [term] - Get a Rick and Morty screenshot\n!imagine [text] - Generate an image\n!alive [name] - Check if a celebrity is alive or dead\n!info - Show bot statistics"
+            "Available commands:\n!help - Show help\n!hello - Say hello\n!buzz - Generate corporate buzzwords\n!fightcrime - Generate a crime fighting duo\n!trump - Generate a Trump insult\n!bandname [name] - Generate music genre for a band\n!lastseen [name] - Find when a user was last active\n!quote [term] - Get a random quote\n!quote -show [show] - Get quote from specific show\n!quote -dud [user] - Get random message from a user\n!slogan [term] - Get a random advertising slogan\n!frinkiac [term] [-s season] [-e episode] - Get a Simpsons screenshot\n!morbotron [term] - Get a Futurama screenshot\n!masterofallscience [term] - Get a Rick and Morty screenshot\n!imagine [text] - Generate an image\n!alive [name] - Check if a celebrity is alive or dead\n!info - Show bot statistics"
         } else {
             // Exclude the imagine command if no channels are configured
-            "Available commands:\n!help - Show help\n!hello - Say hello\n!buzz - Generate corporate buzzwords\n!fightcrime - Generate a crime fighting duo\n!trump - Generate a Trump insult\n!bandname [name] - Generate music genre for a band\n!lastseen [name] - Find when a user was last active\n!quote [term] - Get a random quote\n!quote -show [show] - Get quote from specific show\n!quote -dud [user] - Get random message from a user\n!slogan [term] - Get a random advertising slogan\n!frinkiac [term] - Get a Simpsons screenshot\n!morbotron [term] - Get a Futurama screenshot\n!masterofallscience [term] - Get a Rick and Morty screenshot\n!alive [name] - Check if a celebrity is alive or dead\n!info - Show bot statistics"
+            "Available commands:\n!help - Show help\n!hello - Say hello\n!buzz - Generate corporate buzzwords\n!fightcrime - Generate a crime fighting duo\n!trump - Generate a Trump insult\n!bandname [name] - Generate music genre for a band\n!lastseen [name] - Find when a user was last active\n!quote [term] - Get a random quote\n!quote -show [show] - Get quote from specific show\n!quote -dud [user] - Get random message from a user\n!slogan [term] - Get a random advertising slogan\n!frinkiac [term] [-s season] [-e episode] - Get a Simpsons screenshot\n!morbotron [term] - Get a Futurama screenshot\n!masterofallscience [term] - Get a Rick and Morty screenshot\n!alive [name] - Check if a celebrity is alive or dead\n!info - Show bot statistics"
         };
         
         commands.insert("help".to_string(), help_message.to_string());
@@ -1007,7 +1007,7 @@ impl Bot {
                     }
                 } else if command == "frinkiac" {
                     // Extract search term if provided
-                    let search_term = if parts.len() > 1 {
+                    let args = if parts.len() > 1 {
                         Some(parts[1..].join(" "))
                     } else {
                         None
@@ -1017,7 +1017,7 @@ impl Bot {
                     if let Err(e) = handle_frinkiac_command(
                         &ctx.http, 
                         &msg, 
-                        search_term, 
+                        args, 
                         &self.frinkiac_client,
                         self.gemini_client.as_ref()
                     ).await {
@@ -1962,8 +1962,8 @@ Just state the fact directly and concisely."#)
                         }
                     }
                 } else if command == "frinkiac" {
-                    // Extract search term if provided
-                    let search_term = if parts.len() > 1 {
+                    // Extract args if provided
+                    let args = if parts.len() > 1 {
                         Some(parts[1..].join(" "))
                     } else {
                         None
@@ -1973,7 +1973,7 @@ Just state the fact directly and concisely."#)
                     if let Err(e) = handle_frinkiac_command(
                         &ctx.http, 
                         &msg, 
-                        search_term, 
+                        args, 
                         &self.frinkiac_client,
                         self.gemini_client.as_ref()
                     ).await {

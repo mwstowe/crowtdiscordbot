@@ -7,6 +7,7 @@ use serde::Deserialize;
 use serde_json;
 use std::time::Duration;
 use rand::seq::SliceRandom;
+use crate::google_search::GoogleSearchClient;
 use crate::enhanced_frinkiac_search::EnhancedFrinkiacSearch;
 use crate::gemini_api::GeminiClient;
 
@@ -395,12 +396,19 @@ fn format_frinkiac_result(result: &FrinkiacResult) -> String {
 pub async fn handle_frinkiac_command(
     http: &Http, 
     msg: &Message, 
-    search_term: Option<String>,
+    args: Option<String>,
     frinkiac_client: &FrinkiacClient,
     gemini_client: Option<&GeminiClient>
 ) -> Result<()> {
+    // Parse arguments to support filtering by season/episode
+    let (search_term, season_filter, episode_filter) = if let Some(args_str) = args {
+        parse_frinkiac_args(&args_str)
+    } else {
+        (None, None, None)
+    };
+    
     // If no search term is provided, get a random screenshot
-    if search_term.is_none() {
+    if search_term.is_none() && season_filter.is_none() && episode_filter.is_none() {
         info!("Frinkiac request for random screenshot");
         
         // Send a "searching" message
@@ -475,12 +483,20 @@ pub async fn handle_frinkiac_command(
         return Ok(());
     }
     
-    // If a search term is provided, search for it
-    let term = search_term.unwrap();
-    info!("Frinkiac request with search term: {}", term);
+    // Construct a search message based on filters and terms
+    let search_message = match (&search_term, &season_filter, &episode_filter) {
+        (Some(term), None, None) => format!("Searching for Simpsons scene: \"{}\"...", term),
+        (Some(term), Some(s), None) => format!("Searching for \"{}\" in season {}...", term, s),
+        (Some(term), None, Some(e)) => format!("Searching for \"{}\" in episode {}...", term, e),
+        (Some(term), Some(s), Some(e)) => format!("Searching for \"{}\" in S{}E{}...", term, s, e),
+        (None, Some(s), None) => format!("Finding a random scene from season {}...", s),
+        (None, None, Some(e)) => format!("Finding a random scene from episode {}...", e),
+        (None, Some(s), Some(e)) => format!("Finding a random scene from S{}E{}...", s, e),
+        (None, None, None) => "Finding a random Simpsons moment...".to_string(),
+    };
     
     // Send a "searching" message
-    let searching_msg = match msg.channel_id.say(http, format!("Searching for Simpsons scene: \"{}\"...", term)).await {
+    let searching_msg = match msg.channel_id.say(http, &search_message).await {
         Ok(msg) => Some(msg),
         Err(e) => {
             error!("Error sending searching message: {:?}", e);
@@ -489,14 +505,46 @@ pub async fn handle_frinkiac_command(
     };
     
     // Determine whether to use enhanced search or regular search
-    let search_result = if let Some(gemini) = gemini_client {
-        info!("Using enhanced search with Gemini API");
-        let enhanced_search = EnhancedFrinkiacSearch::new(gemini.clone(), frinkiac_client.clone());
-        enhanced_search.search(&term).await
+    let mut search_result = if let Some(term) = &search_term {
+        if let Some(gemini) = gemini_client {
+            info!("Using enhanced search with Gemini API and Google Search");
+            let google_client = GoogleSearchClient::new();
+            let enhanced_search = EnhancedFrinkiacSearch::new(gemini.clone(), frinkiac_client.clone(), google_client);
+            enhanced_search.search(term).await
+        } else {
+            info!("Using regular search (Gemini API not available)");
+            frinkiac_client.search(term).await
+        }
     } else {
-        info!("Using regular search (Gemini API not available)");
-        frinkiac_client.search(&term).await
+        // If no search term but we have filters, get a random screenshot
+        frinkiac_client.random().await
     };
+    
+    // Apply filters if needed
+    if let Ok(Some(ref mut result)) = search_result {
+        let mut filtered_out = false;
+        
+        // Filter by season if specified
+        if let Some(season) = season_filter {
+            if result.season != season {
+                filtered_out = true;
+                info!("Result filtered out: season {} doesn't match filter {}", result.season, season);
+            }
+        }
+        
+        // Filter by episode if specified
+        if let Some(episode) = episode_filter {
+            if result.episode_number != episode {
+                filtered_out = true;
+                info!("Result filtered out: episode {} doesn't match filter {}", result.episode_number, episode);
+            }
+        }
+        
+        // If filtered out, return appropriate message
+        if filtered_out {
+            search_result = Ok(None);
+        }
+    }
     
     // Process the search result
     match search_result {
@@ -520,7 +568,16 @@ pub async fn handle_frinkiac_command(
             }
         },
         Ok(None) => {
-            let error_msg = format!("No Simpsons scenes found for '{}'. Try a different phrase or wording.", term);
+            let error_msg = match (&search_term, &season_filter, &episode_filter) {
+                (Some(term), None, None) => format!("No Simpsons scenes found for '{}'. Try a different phrase or wording.", term),
+                (Some(term), Some(s), None) => format!("No Simpsons scenes found for '{}' in season {}.", term, s),
+                (Some(term), None, Some(e)) => format!("No Simpsons scenes found for '{}' in episode {}.", term, e),
+                (Some(term), Some(s), Some(e)) => format!("No Simpsons scenes found for '{}' in S{}E{}.", term, s, e),
+                (None, Some(s), None) => format!("No Simpsons scenes found for season {}.", s),
+                (None, None, Some(e)) => format!("No Simpsons scenes found for episode {}.", e),
+                (None, Some(s), Some(e)) => format!("No Simpsons scenes found for S{}E{}.", s, e),
+                (None, None, None) => "Couldn't find any Simpsons screenshots. D'oh!".to_string(),
+            };
             
             // Edit the searching message if we have one, otherwise send a new message
             if let Some(mut search_msg) = searching_msg {
@@ -559,4 +616,68 @@ pub async fn handle_frinkiac_command(
     }
     
     Ok(())
+}
+
+// Parse arguments for the frinkiac command
+// Format: !frinkiac [search term] [-s season] [-e episode]
+fn parse_frinkiac_args(args: &str) -> (Option<String>, Option<u32>, Option<u32>) {
+    let mut search_term = None;
+    let mut season = None;
+    let mut episode = None;
+    
+    // Split the args by spaces
+    let parts: Vec<&str> = args.split_whitespace().collect();
+    
+    // Process the parts
+    let mut i = 0;
+    while i < parts.len() {
+        match parts[i] {
+            "-s" | "--season" => {
+                // Next part should be the season number
+                if i + 1 < parts.len() {
+                    if let Ok(s) = parts[i + 1].parse::<u32>() {
+                        season = Some(s);
+                    }
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            },
+            "-e" | "--episode" => {
+                // Next part should be the episode number
+                if i + 1 < parts.len() {
+                    if let Ok(e) = parts[i + 1].parse::<u32>() {
+                        episode = Some(e);
+                    }
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            },
+            // If it's not a flag, it's part of the search term
+            _ => {
+                // If we haven't set the search term yet, start collecting it
+                if search_term.is_none() {
+                    let mut term = String::new();
+                    
+                    // Collect all parts until we hit a flag or the end
+                    let mut j = i;
+                    while j < parts.len() && !parts[j].starts_with('-') {
+                        if !term.is_empty() {
+                            term.push(' ');
+                        }
+                        term.push_str(parts[j]);
+                        j += 1;
+                    }
+                    
+                    search_term = Some(term);
+                    i = j;
+                } else {
+                    i += 1;
+                }
+            }
+        }
+    }
+    
+    (search_term, season, episode)
 }
