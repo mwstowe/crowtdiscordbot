@@ -81,7 +81,9 @@ impl EnhancedMasterOfAllScienceSearch {
         
         // Add the original query as a fallback, but with lower priority
         let mut all_terms = enhanced_terms.clone();
-        all_terms.push(query.to_string());
+        if !all_terms.contains(&query.to_string()) {
+            all_terms.push(query.to_string());
+        }
         
         // Try each term and collect ALL results
         let mut results = Vec::new();
@@ -90,7 +92,7 @@ impl EnhancedMasterOfAllScienceSearch {
             info!("Trying search term: {}", term);
             match self.masterofallscience_client.search(term).await {
                 Ok(Some(result)) => {
-                    // Calculate relevance score based on how well the caption matches the query
+                    // Calculate relevance score based on how well the caption matches the original query
                     let relevance_score = self.calculate_relevance_score(&result, query);
                     
                     // Calculate popularity score
@@ -99,16 +101,20 @@ impl EnhancedMasterOfAllScienceSearch {
                     // Calculate quote match score - how well the caption matches the search term
                     let quote_match_score = self.calculate_quote_match_score(&result, term);
                     
-                    // Calculate total score (weighted combination of relevance, popularity, and quote match)
+                    // Calculate exact word match score - how many words from the original query are in the caption
+                    let exact_word_match_score = self.calculate_exact_word_match_score(&result, query);
+                    
+                    // Calculate total score (weighted combination of all scores)
                     // Give higher weight to search engine and Gemini terms
-                    let priority_bonus = if term == query { 0.0 } else { 0.2 };
-                    let total_score = (relevance_score * 0.3) + 
-                                     (popularity_score * 0.2) + 
-                                     (quote_match_score * 0.3) + 
+                    let priority_bonus = if term == query { 0.0 } else { 0.1 };
+                    let total_score = (relevance_score * 0.25) + 
+                                     (popularity_score * 0.15) + 
+                                     (quote_match_score * 0.25) + 
+                                     (exact_word_match_score * 0.35) +
                                      priority_bonus;
                     
-                    info!("Found result for '{}' with scores - relevance: {:.2}, popularity: {:.2}, quote match: {:.2}, total: {:.2}", 
-                          term, relevance_score, popularity_score, quote_match_score, total_score);
+                    info!("Found result for '{}' with scores - relevance: {:.2}, popularity: {:.2}, quote match: {:.2}, exact word match: {:.2}, total: {:.2}", 
+                          term, relevance_score, popularity_score, quote_match_score, exact_word_match_score, total_score);
                     
                     results.push(RankedMasterOfAllScienceResult {
                         result,
@@ -142,6 +148,33 @@ impl EnhancedMasterOfAllScienceSearch {
         self.masterofallscience_client.search(query).await
     }
     
+    // Calculate a score based on how many exact words from the query are in the caption
+    fn calculate_exact_word_match_score(&self, result: &MasterOfAllScienceResult, query: &str) -> f32 {
+        let query_lower = query.to_lowercase();
+        let caption_lower = result.caption.to_lowercase();
+        
+        // Split query into words
+        let query_words: Vec<&str> = query_lower.split_whitespace().collect();
+        if query_words.is_empty() {
+            return 0.0;
+        }
+        
+        // Count how many words from the query appear in the caption
+        let matching_words = query_words.iter()
+            .filter(|&word| caption_lower.contains(word))
+            .count();
+        
+        // Calculate score based on proportion of matching words
+        let proportion = matching_words as f32 / query_words.len() as f32;
+        
+        // Give a bonus if all words match
+        if matching_words == query_words.len() {
+            proportion * 1.5
+        } else {
+            proportion
+        }
+    }
+    
     // Use Google search to find Rick and Morty quotes related to the query
     async fn find_quotes_via_search(&self, query: &str) -> Result<Vec<String>> {
         // Try multiple search queries to increase chances of finding good quotes
@@ -149,6 +182,8 @@ impl EnhancedMasterOfAllScienceSearch {
             format!("rick and morty quote \"{}\"", query),
             format!("rick and morty scene \"{}\"", query),
             format!("famous rick and morty quote {}", query),
+            format!("rick and morty {} quote", query),  // Added this variation
+            format!("\"{}\" rick and morty episode", query),  // Added this variation
         ];
         
         let mut all_quotes = Vec::new();
@@ -182,6 +217,12 @@ impl EnhancedMasterOfAllScienceSearch {
                         quotes.extend(potential_quotes);
                     }
                     
+                    // Also add the exact search query as a potential search term
+                    // This helps with specific phrases
+                    if !quotes.contains(&query.to_string()) {
+                        quotes.push(query.to_string());
+                    }
+                    
                     all_quotes.extend(quotes);
                 },
                 Ok(None) => {
@@ -199,7 +240,7 @@ impl EnhancedMasterOfAllScienceSearch {
         }
         
         // Add the original query as a fallback
-        if !query.is_empty() {
+        if !query.is_empty() && !all_quotes.contains(&query.to_string()) {
             all_quotes.push(query.to_string());
         }
         
@@ -254,9 +295,65 @@ impl EnhancedMasterOfAllScienceSearch {
                     quotes.push(sentence.to_string());
                 }
             }
+            
+            // If we couldn't find any quotes using the above methods, try to extract key phrases
+            if quotes.is_empty() {
+                // Look for phrases that might be quotes based on context
+                if let Some(key_phrase) = self.extract_key_phrase_from_text(&combined_text) {
+                    quotes.push(key_phrase);
+                }
+            }
         }
         
         quotes
+    }
+    
+    // Extract a key phrase that might be a quote based on context
+    fn extract_key_phrase_from_text(&self, text: &str) -> Option<String> {
+        let text_lower = text.to_lowercase();
+        
+        // Look for phrases that are likely to be quotes
+        let indicators = [
+            "famous quote", "memorable quote", "popular quote", "iconic quote",
+            "famous line", "memorable line", "popular line", "iconic line",
+            "says", "said", "utters", "uttered", "exclaims", "exclaimed"
+        ];
+        
+        for indicator in &indicators {
+            if let Some(index) = text_lower.find(indicator) {
+                // Look for a reasonable phrase after the indicator
+                let after_indicator = &text[index + indicator.len()..];
+                let phrase = after_indicator.trim_start_matches(|c: char| !c.is_alphanumeric())
+                                          .split(&['.', '!', '?', ';', '\n'])
+                                          .next()
+                                          .unwrap_or("")
+                                          .trim();
+                
+                // If we found a reasonable phrase, return it
+                if phrase.len() > 5 && phrase.len() < 100 {
+                    return Some(phrase.to_string());
+                }
+            }
+        }
+        
+        // If we couldn't find a phrase using indicators, look for phrases in quotes
+        // (This is a fallback if the extract_quote_from_text method didn't find anything)
+        let quote_patterns = [
+            ("\"", "\""), ("'", "'")
+        ];
+        
+        for (start_quote, end_quote) in &quote_patterns {
+            if let Some(start_idx) = text.find(start_quote) {
+                if let Some(end_idx) = text[start_idx + start_quote.len()..].find(end_quote) {
+                    let quote = &text[start_idx + start_quote.len()..start_idx + start_quote.len() + end_idx];
+                    if quote.len() > 3 && quote.len() < 100 {
+                        return Some(quote.to_string());
+                    }
+                }
+            }
+        }
+        
+        None
     }
     
     // Extract a quote from text (looking for quotation marks)
@@ -265,11 +362,6 @@ impl EnhancedMasterOfAllScienceSearch {
         let patterns = [
             r#""([^"]+)""#,           // Standard double quotes
             r#"'([^']+)'"#,           // Single quotes
-            r#""([^"]+)""#,           // Curly double quotes
-            r#"'([^']+)'"#,           // Curly single quotes
-            r#"«([^»]+)»"#,           // Guillemets
-            r#"„([^"]+)""#,           // German quotes
-            r#"「([^」]+)」"#,         // Japanese quotes
         ];
         
         for pattern in &patterns {
@@ -330,8 +422,9 @@ impl EnhancedMasterOfAllScienceSearch {
         
         // Count how many words from the query appear in the caption
         let query_words: Vec<&str> = query_lower.split_whitespace().collect();
+        
         let matching_words = query_words.iter()
-            .filter(|word| caption_lower.contains(*word))
+            .filter(|&word| caption_lower.contains(word))
             .count();
         
         // Calculate a score based on the proportion of matching words
@@ -361,8 +454,15 @@ impl EnhancedMasterOfAllScienceSearch {
             0.0
         };
         
+        // Bonus if ALL words in the query are found in the caption
+        let all_words_bonus = if matching_words == query_words.len() && !query_words.is_empty() {
+            0.4 // Significant bonus for matching all words
+        } else {
+            0.0
+        };
+        
         // Combine scores (capped at 1.0)
-        (word_match_score + exact_phrase_bonus + consecutive_words_bonus + episode_title_bonus).min(1.0)
+        (word_match_score * 0.4 + exact_phrase_bonus + consecutive_words_bonus + episode_title_bonus + all_words_bonus).min(1.0)
     }
     
     // Calculate bonus for consecutive words matching
@@ -457,7 +557,7 @@ impl EnhancedMasterOfAllScienceSearch {
         
         // Check for exact substring match
         let contains_term = caption_lower.contains(&term_lower);
-        let contains_bonus = if contains_term { 0.3 } else { 0.0 };
+        let contains_bonus = if contains_term { 0.5 } else { 0.0 }; // Increased from 0.3 to 0.5
         
         // Check for word-by-word matches
         let term_words: Vec<&str> = term_lower.split_whitespace().collect();
@@ -473,7 +573,14 @@ impl EnhancedMasterOfAllScienceSearch {
             matching_words as f32 / term_words.len() as f32
         };
         
+        // Add a bonus if ALL words in the search term are found in the caption
+        let all_words_bonus = if matching_words == term_words.len() && !term_words.is_empty() {
+            0.4 // Significant bonus for matching all words
+        } else {
+            0.0
+        };
+        
         // Combine scores (capped at 1.0)
-        (similarity * 0.5 + contains_bonus + word_match_score * 0.2).min(1.0)
+        (similarity * 0.3 + contains_bonus + word_match_score * 0.4 + all_words_bonus).min(1.0)
     }
 }
