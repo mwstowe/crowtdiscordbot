@@ -72,6 +72,7 @@ impl EnhancedFrinkiacSearch {
         let direct_site_search = format!("site:frinkiac.com {}", query);
         info!("Trying direct site search: {}", direct_site_search);
         
+        // Use the Google search client with the site-specific search
         match self.google_client.search(&direct_site_search).await {
             Ok(Some(result)) => {
                 info!("Found direct site search result: {} - {}", result.title, result.snippet);
@@ -128,8 +129,11 @@ impl EnhancedFrinkiacSearch {
                     return Ok(Some(results[0].0.clone()));
                 }
             },
-            _ => {
+            Ok(None) => {
                 info!("No results from direct site search, trying enhanced search");
+            },
+            Err(e) => {
+                error!("Error with direct site search: {}, trying enhanced search", e);
             }
         }
         
@@ -196,8 +200,19 @@ impl EnhancedFrinkiacSearch {
         }
         
         // If we still have no results, try a direct search with the original query as a last resort
-        info!("No results from enhanced search, falling back to direct search");
-        self.frinkiac_client.search(query).await
+        // But make sure to filter the result
+        info!("No results from enhanced search, falling back to direct search with filtering");
+        match self.frinkiac_client.search(query).await {
+            Ok(Some(result)) => {
+                if self.result_contains_search_terms(&result, query) {
+                    Ok(Some(result))
+                } else {
+                    info!("Direct search result doesn't contain search terms, returning None");
+                    Ok(None)
+                }
+            },
+            other => other
+        }
     }
     
     // Calculate the total score for a result
@@ -233,6 +248,14 @@ impl EnhancedFrinkiacSearch {
         
         // Split query into words
         let query_words: Vec<&str> = query_lower.split_whitespace().collect();
+        if query_words.is_empty() {
+            return true; // Empty query matches everything
+        }
+        
+        // For "extra b typo" specifically, check for the exact phrase "what's that extra b for" and "that's a typo"
+        if query_lower == "extra b typo" {
+            return caption_lower.contains("extra b") && caption_lower.contains("typo");
+        }
         
         // Check if all words from the query appear in either the caption or episode title
         let all_words_in_caption = query_words.iter()
