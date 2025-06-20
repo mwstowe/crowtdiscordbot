@@ -59,6 +59,7 @@ pub struct Config {
     pub interjection_pondering_probability: Option<String>,
     pub interjection_ai_probability: Option<String>,
     pub interjection_fact_probability: Option<String>,
+    pub interjection_news_probability: Option<String>,
     pub imagine_channels: Option<String>,
     // thinking_message removed - only using typing indicator
     pub google_search_enabled: Option<String>,
@@ -135,7 +136,8 @@ pub fn parse_config(config: &Config) -> (
     f64,                    // interjection_memory_probability
     f64,                    // interjection_pondering_probability
     f64,                    // interjection_ai_probability
-    Vec<String>             // imagine_channels
+    Vec<String>,            // imagine_channels
+    f64                     // interjection_news_probability
 ) {
     // Get the bot name
     let bot_name = config.bot_name.clone().unwrap_or_else(|| "Crow".to_string());
@@ -246,6 +248,12 @@ pub fn parse_config(config: &Config) -> (
           interjection_pondering_probability,
           interjection_ai_probability);
     
+    // Parse news interjection probability
+    let interjection_news_probability = config.interjection_news_probability
+        .as_ref()
+        .and_then(|prob| prob.parse::<f64>().ok())
+        .unwrap_or(0.005); // Default: 0.5% chance (1 in 200)
+    
     // Parse imagine channels
     let imagine_channels = config.imagine_channels
         .as_ref()
@@ -278,6 +286,7 @@ pub fn parse_config(config: &Config) -> (
         interjection_memory_probability,
         interjection_pondering_probability,
         interjection_ai_probability,
-        imagine_channels
+        imagine_channels,
+        interjection_news_probability
     )
 }

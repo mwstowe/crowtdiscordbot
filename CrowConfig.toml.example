@@ -36,6 +36,7 @@ INTERJECTION_MEMORY_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
 INTERJECTION_PONDERING_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
 INTERJECTION_AI_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
 INTERJECTION_FACT_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
+INTERJECTION_NEWS_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
 
 # Google Search Configuration
 GOOGLE_SEARCH_ENABLED = "true"

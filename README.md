@@ -45,13 +45,14 @@ A Discord bot that follows specific channels and responds to various triggers in
 1. Create a `CrowConfig.toml` file based on the `CrowConfig.toml.example` template
 ## Random Interjections
 
-The bot occasionally makes random interjections in the conversation. There are five types of interjections, each with its own configurable probability:
+The bot occasionally makes random interjections in the conversation. There are six types of interjections, each with its own configurable probability:
 
 1. **MST3K Quotes** - Random quotes from Mystery Science Theater 3000
 2. **Channel Memory** - Quotes something someone previously said in the channel
 3. **Message Pondering** - Thoughtful comments about the conversation
 4. **AI Interjection** - AI-generated comments using the Gemini API
 5. **Fact Interjection** - AI-generated interesting facts related to the conversation
+6. **News Interjection** - AI-generated links to interesting technology or weird news articles with commentary
 
 Each interjection type can be configured separately in the `CrowConfig.toml` file:
 
@@ -63,6 +64,7 @@ INTERJECTION_MEMORY_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
 INTERJECTION_PONDERING_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
 INTERJECTION_AI_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
 INTERJECTION_FACT_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
+INTERJECTION_NEWS_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
 ```
 
 Setting any probability to 0 will disable that type of interjection completely.
@@ -98,7 +100,23 @@ For fact interjections, the bot:
 2. Sends a specialized prompt to the Gemini API asking for a relevant fact
 3. Evaluates whether to interject (the AI can decide to "pass" if it can't find a relevant fact)
 4. Applies a realistic typing delay before sending the response
-5. Delivers a concise, interesting fact that relates to the conversation topic2. Add your Discord bot token to the `DISCORD_TOKEN` field
+5. Delivers a concise, interesting fact that relates to the conversation topic
+
+### News Interjection
+
+The news interjection feature shares links to interesting technology or weird news articles (excluding sports) with commentary on why they're interesting and how they relate to the conversation.
+
+For news interjections, the bot:
+1. Retrieves recent conversation context
+2. Sends a specialized prompt to the Gemini API asking for a fictional but plausible news article link
+3. Evaluates whether to interject (the AI can decide to "pass" if it can't find a relevant article idea)
+4. Applies a realistic typing delay before sending the response
+5. Delivers a fictional article title, URL, and brief commentary on why it's interesting or relevant to the conversation
+
+The news interjection format looks like:
+"Article title: https://example.com/article-path This shows how [technology/topic] is advancing in interesting ways."
+
+2. Add your Discord bot token to the `DISCORD_TOKEN` field
    - Privileged Gateway Intents: Message Content Intent
    - Scopes: `bot`, `messages.read`, `applications.commands`
 3. Configure channels to follow using one of these options:
@@ -283,12 +301,14 @@ This feature makes the bot feel more natural in conversations and helps it remem
 
 ## Random Interjections
 
-The bot occasionally makes random interjections in the conversation. There are four types of interjections, each with its own configurable probability:
+The bot occasionally makes random interjections in the conversation. There are six types of interjections, each with its own configurable probability:
 
 1. **MST3K Quotes** - Random quotes from Mystery Science Theater 3000
 2. **Channel Memory** - Quotes something someone previously said in the channel
 3. **Message Pondering** - Thoughtful comments about the conversation
 4. **AI Interjection** - AI-generated comments using the Gemini API
+5. **Fact Interjection** - AI-generated interesting facts related to the conversation
+6. **News Interjection** - AI-generated links to interesting technology or weird news articles with commentary
 
 Each interjection type can be configured separately in the `CrowConfig.toml` file:
 
@@ -299,6 +319,8 @@ INTERJECTION_MST3K_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
 INTERJECTION_MEMORY_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
 INTERJECTION_PONDERING_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
 INTERJECTION_AI_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
+INTERJECTION_FACT_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
+INTERJECTION_NEWS_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
 ```
 
 Setting any probability to 0 will disable that type of interjection completely.

@@ -33,6 +33,7 @@ mod display_name;
 mod buzz;
 mod lastseen;
 mod image_generation;
+mod news_interjection;
 
 // Helper function to check if a response looks like a prompt
 fn is_prompt_echo(response: &str) -> bool {
@@ -57,6 +58,7 @@ use database::DatabaseManager;
 use google_search::GoogleSearchClient;
 use gemini_api::GeminiClient;
 use crime_fighting::CrimeFightingGenerator;
+use news_interjection::handle_news_interjection;
 use frinkiac::{FrinkiacClient, handle_frinkiac_command};
 use morbotron::{MorbotronClient, handle_morbotron_command};
 use response_timing::apply_realistic_delay;
@@ -114,6 +116,7 @@ struct Bot {
     interjection_ai_probability: f64,
     #[allow(dead_code)]
     _interjection_fact_probability: f64,
+    interjection_news_probability: f64,
 }
 
 impl Bot {
@@ -161,6 +164,7 @@ impl Bot {
         interjection_pondering_probability: f64,
         interjection_ai_probability: f64,
         _interjection_fact_probability: f64,
+        interjection_news_probability: f64,
         log_prompts: bool,
         imagine_channels: Vec<String>
     ) -> Self {
@@ -262,7 +266,8 @@ impl Bot {
             interjection_memory_probability,
             interjection_pondering_probability,
             interjection_ai_probability,
-            _interjection_fact_probability: 0.005, // Default value
+            _interjection_fact_probability,
+            interjection_news_probability,
         }
     }
     
@@ -1714,6 +1719,35 @@ Just state the fact directly and concisely."#)
             }
         }
         
+        // News interjection
+        if rand::thread_rng().gen_bool(self.interjection_news_probability) {
+            let probability_percent = self.interjection_news_probability * 100.0;
+            let odds = if self.interjection_news_probability > 0.0 {
+                format!("1 in {:.0}", 1.0 / self.interjection_news_probability)
+            } else {
+                "disabled".to_string()
+            };
+            
+            info!("Triggered news interjection ({:.2}% chance, {})", probability_percent, odds);
+            
+            if let Some(gemini_client) = &self.gemini_client {
+                // Call the news interjection handler
+                if let Err(e) = handle_news_interjection(
+                    ctx, 
+                    msg, 
+                    gemini_client, 
+                    &self.message_db, 
+                    &self.bot_name, 
+                    self.gemini_context_messages
+                ).await {
+                    error!("Error in news interjection: {:?}", e);
+                }
+            } else {
+                // If Gemini API is not configured
+                info!("News Interjection not available (Gemini API not configured) - no response sent");
+            }
+        }
+        
         // Note: Message is already stored in the database in the message() event handler
         // No need to store it again here
         
@@ -2475,8 +2509,10 @@ async fn main() -> Result<()> {
     let token = &config.discord_token;
     
     // Parse config values
-    let (bot_name, message_history_limit, db_trim_interval, gemini_rate_limit_minute, gemini_rate_limit_day, gateway_bot_ids, google_search_enabled, gemini_context_messages, interjection_mst3k_probability, interjection_memory_probability, interjection_pondering_probability, interjection_ai_probability, imagine_channels) = 
+    let (bot_name, message_history_limit, db_trim_interval, gemini_rate_limit_minute, gemini_rate_limit_day, gateway_bot_ids, google_search_enabled, gemini_context_messages, interjection_mst3k_probability, interjection_memory_probability, interjection_pondering_probability, interjection_ai_probability, imagine_channels, interjection_news_probability) = 
         parse_config(&config);
+        
+    info!("News interjection probability: {}%", interjection_news_probability * 100.0);
         
     // Get fact interjection probability
     let interjection_fact_probability = config.interjection_fact_probability.clone()
@@ -2484,6 +2520,13 @@ async fn main() -> Result<()> {
         .parse::<f64>()
         .unwrap_or(0.005);
     info!("Fact interjection probability: {}%", interjection_fact_probability * 100.0);
+    
+    // Get news interjection probability
+    let interjection_news_probability = config.interjection_news_probability.clone()
+        .unwrap_or_else(|| "0.005".to_string())
+        .parse::<f64>()
+        .unwrap_or(0.005);
+    info!("News interjection probability: {}%", interjection_news_probability * 100.0);
     
     // Get Gemini API key
     let gemini_api_key = config.gemini_api_key.clone();
@@ -2574,6 +2617,8 @@ Keep it brief and natural, as if you're just another participant in the conversa
     info!("Pondering interjection probability: {}%", interjection_pondering_probability * 100.0);
     info!("AI interjection probability: {}%", interjection_ai_probability * 100.0);
     info!("Fact interjection probability: {}%", interjection_fact_probability * 100.0);
+    info!("News interjection probability: {}%", interjection_news_probability * 100.0);
+    info!("News interjection probability: {}%", interjection_news_probability * 100.0);
 
     // Log database configuration
     info!("Database configuration: host={:?}, db={:?}, user={:?}, password={}", 
@@ -2747,6 +2792,7 @@ Keep it brief and natural, as if you're just another participant in the conversa
         interjection_pondering_probability,
         interjection_ai_probability,
         interjection_fact_probability,
+        interjection_news_probability,
         gemini_log_prompts,
         imagine_channels
     );
