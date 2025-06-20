@@ -7,6 +7,9 @@ use serde::Deserialize;
 use serde_json;
 use std::time::Duration;
 use rand::seq::SliceRandom;
+use crate::google_search::GoogleSearchClient;
+use crate::gemini_api::GeminiClient;
+use crate::enhanced_masterofallscience_search::EnhancedMasterOfAllScienceSearch;
 
 // API endpoints
 const MASTEROFALLSCIENCE_BASE_URL: &str = "https://masterofallscience.com/api/search";
@@ -25,6 +28,7 @@ const RANDOM_SEARCH_TERMS: &[&str] = &[
     "tammy", "phoenix", "person", "scary", "terry", "noob", "noob", "snowball", "snuffles"
 ];
 
+#[derive(Debug, Clone)]
 pub struct MasterOfAllScienceClient {
     http_client: HttpClient,
 }
@@ -40,6 +44,7 @@ struct MasterOfAllScienceSearchResult {
     timestamp: u64,
 }
 
+#[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct MasterOfAllScienceResult {
     pub episode: String,
@@ -336,7 +341,8 @@ pub async fn handle_masterofallscience_command(
     http: &Http, 
     msg: &Message, 
     search_term: Option<String>,
-    masterofallscience_client: &MasterOfAllScienceClient
+    masterofallscience_client: &MasterOfAllScienceClient,
+    gemini_client: Option<&GeminiClient>
 ) -> Result<()> {
     // If no search term is provided, get a random screenshot
     if search_term.is_none() {
@@ -427,8 +433,19 @@ pub async fn handle_masterofallscience_command(
         }
     };
     
-    // Perform the search
-    match masterofallscience_client.search(&term).await {
+    // Determine whether to use enhanced search or regular search
+    let search_result = if let Some(gemini) = gemini_client {
+        info!("Using enhanced search with Gemini API and Google Search");
+        let google_client = GoogleSearchClient::new();
+        let enhanced_search = EnhancedMasterOfAllScienceSearch::new(gemini.clone(), masterofallscience_client.clone(), google_client);
+        enhanced_search.search(&term).await
+    } else {
+        info!("Using regular search (Gemini API not available)");
+        masterofallscience_client.search(&term).await
+    };
+    
+    // Process the search result
+    match search_result {
         Ok(Some(result)) => {
             // Format the response
             let response = format_masterofallscience_result(&result);

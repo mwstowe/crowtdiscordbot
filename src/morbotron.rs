@@ -7,6 +7,9 @@ use serde::Deserialize;
 use serde_json;
 use std::time::Duration;
 use rand::seq::SliceRandom;
+use crate::google_search::GoogleSearchClient;
+use crate::gemini_api::GeminiClient;
+use crate::enhanced_morbotron_search::EnhancedMorbotronSearch;
 
 // API endpoints
 const MORBOTRON_BASE_URL: &str = "https://morbotron.com/api/search";
@@ -23,6 +26,7 @@ const RANDOM_SEARCH_TERMS: &[&str] = &[
     "farnsworth", "brannigan", "planet express", "good news", "bite", "shiny", "metal"
 ];
 
+#[derive(Debug, Clone)]
 pub struct MorbotronClient {
     http_client: HttpClient,
 }
@@ -38,6 +42,7 @@ struct MorbotronSearchResult {
     timestamp: u64,
 }
 
+#[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct MorbotronResult {
     pub episode: String,
@@ -334,7 +339,8 @@ pub async fn handle_morbotron_command(
     http: &Http, 
     msg: &Message, 
     search_term: Option<String>,
-    morbotron_client: &MorbotronClient
+    morbotron_client: &MorbotronClient,
+    gemini_client: Option<&GeminiClient>
 ) -> Result<()> {
     // If no search term is provided, get a random screenshot
     if search_term.is_none() {
@@ -425,8 +431,19 @@ pub async fn handle_morbotron_command(
         }
     };
     
-    // Perform the search
-    match morbotron_client.search(&term).await {
+    // Determine whether to use enhanced search or regular search
+    let search_result = if let Some(gemini) = gemini_client {
+        info!("Using enhanced search with Gemini API and Google Search");
+        let google_client = GoogleSearchClient::new();
+        let enhanced_search = EnhancedMorbotronSearch::new(gemini.clone(), morbotron_client.clone(), google_client);
+        enhanced_search.search(&term).await
+    } else {
+        info!("Using regular search (Gemini API not available)");
+        morbotron_client.search(&term).await
+    };
+    
+    // Process the search result
+    match search_result {
         Ok(Some(result)) => {
             // Format the response
             let response = format_morbotron_result(&result);

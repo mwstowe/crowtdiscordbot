@@ -35,6 +35,8 @@ mod lastseen;
 mod image_generation;
 mod news_interjection;
 mod enhanced_frinkiac_search;
+mod enhanced_morbotron_search;
+mod enhanced_masterofallscience_search;
 
 // Helper function to check if a response looks like a prompt
 fn is_prompt_echo(response: &str) -> bool {
@@ -1035,7 +1037,13 @@ impl Bot {
                     };
                     
                     // Handle the morbotron command
-                    if let Err(e) = handle_morbotron_command(&ctx.http, &msg, search_term, &self.morbotron_client).await {
+                    if let Err(e) = handle_morbotron_command(
+                        &ctx.http, 
+                        &msg, 
+                        search_term, 
+                        &self.morbotron_client,
+                        self.gemini_client.as_ref()
+                    ).await {
                         error!("Error handling morbotron command: {:?}", e);
                         if let Err(e) = msg.channel_id.say(&ctx.http, "Error searching Morbotron").await {
                             error!("Error sending error message: {:?}", e);
@@ -1050,7 +1058,13 @@ impl Bot {
                     };
                     
                     // Handle the masterofallscience command
-                    if let Err(e) = handle_masterofallscience_command(&ctx.http, &msg, search_term, &self.masterofallscience_client).await {
+                    if let Err(e) = handle_masterofallscience_command(
+                        &ctx.http, 
+                        &msg, 
+                        search_term, 
+                        &self.masterofallscience_client,
+                        self.gemini_client.as_ref()
+                    ).await {
                         error!("Error handling masterofallscience command: {:?}", e);
                         if let Err(e) = msg.channel_id.say(&ctx.http, "Error searching Master of All Science").await {
                             error!("Error sending error message: {:?}", e);
@@ -1991,7 +2005,13 @@ Just state the fact directly and concisely."#)
                     };
                     
                     // Handle the morbotron command
-                    if let Err(e) = handle_morbotron_command(&ctx.http, &msg, search_term, &self.morbotron_client).await {
+                    if let Err(e) = handle_morbotron_command(
+                        &ctx.http, 
+                        &msg, 
+                        search_term, 
+                        &self.morbotron_client,
+                        self.gemini_client.as_ref()
+                    ).await {
                         error!("Error handling morbotron command: {:?}", e);
                         if let Err(e) = msg.channel_id.say(&ctx.http, "Error searching Morbotron").await {
                             error!("Error sending error message: {:?}", e);
@@ -2006,7 +2026,13 @@ Just state the fact directly and concisely."#)
                     };
                     
                     // Handle the masterofallscience command
-                    if let Err(e) = handle_masterofallscience_command(&ctx.http, &msg, search_term, &self.masterofallscience_client).await {
+                    if let Err(e) = handle_masterofallscience_command(
+                        &ctx.http, 
+                        &msg, 
+                        search_term, 
+                        &self.masterofallscience_client,
+                        self.gemini_client.as_ref()
+                    ).await {
                         error!("Error handling masterofallscience command: {:?}", e);
                         if let Err(e) = msg.channel_id.say(&ctx.http, "Error searching Master of All Science").await {
                             error!("Error sending error message: {:?}", e);
