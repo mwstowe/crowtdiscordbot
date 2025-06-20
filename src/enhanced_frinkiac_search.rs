@@ -195,14 +195,14 @@ impl EnhancedFrinkiacSearch {
     async fn find_quotes_via_search(&self, query: &str) -> Result<Vec<String>> {
         // Try multiple search queries to increase chances of finding good quotes
         let search_queries = [
-            // Try without quotes first to get more results
-            format!("simpsons {} quote", query),
-            format!("{} simpsons episode", query),
+            // Search directly on frinkiac.com
+            format!("site:frinkiac.com {}", query),
+            // Search for episode information
             format!("simpsons episode {}", query),
-            // Then try with quotes for exact matches
-            format!("simpsons quote \"{}\"", query),
-            format!("simpsons scene \"{}\"", query),
-            format!("famous simpsons quote {}", query),
+            // Search for quotes without quotes
+            format!("simpsons {} quote", query),
+            // Try with quotes as a fallback
+            format!("simpsons quote {}", query),
         ];
         
         let mut all_quotes = Vec::new();
@@ -285,7 +285,12 @@ impl EnhancedFrinkiacSearch {
         let combined_text = format!("{} {}", title, snippet);
         
         // Check if the text contains Simpsons-related keywords
-        if combined_text.to_lowercase().contains("simpsons") {
+        if combined_text.to_lowercase().contains("simpsons") || combined_text.to_lowercase().contains("frinkiac") {
+            // Look for episode information in the format "S##E##" or "Season ## Episode ##"
+            if let Some(episode_info) = self.extract_episode_info(&combined_text) {
+                quotes.push(episode_info);
+            }
+            
             // Split by sentence endings and other punctuation
             let potential_sentences: Vec<&str> = combined_text
                 .split(&['.', '!', '?', ';'])
@@ -299,13 +304,7 @@ impl EnhancedFrinkiacSearch {
                     continue;
                 }
                 
-                // Skip sentences that are likely not quotes
-                if sentence.to_lowercase().contains("episode") || 
-                   sentence.to_lowercase().contains("season") ||
-                   sentence.to_lowercase().contains("wikipedia") ||
-                   sentence.to_lowercase().contains("click") {
-                    continue;
-                }
+                // Don't skip sentences with episode or season info - they might be useful
                 
                 // Check for character names to identify potential quotes
                 let character_names = ["homer", "bart", "lisa", "marge", "burns", "flanders", "ralph", "milhouse"];
@@ -331,6 +330,27 @@ impl EnhancedFrinkiacSearch {
         }
         
         quotes
+    }
+    
+    // Extract episode information from text
+    fn extract_episode_info(&self, text: &str) -> Option<String> {
+        // Look for S##E## format
+        let season_episode_re = Regex::new(r"S(\d+)E(\d+)").ok()?;
+        if let Some(caps) = season_episode_re.captures(text) {
+            if let (Some(season), Some(episode)) = (caps.get(1), caps.get(2)) {
+                return Some(format!("Season {} Episode {}", season.as_str(), episode.as_str()));
+            }
+        }
+        
+        // Look for "Season X Episode Y" format
+        let season_episode_text_re = Regex::new(r"Season\s+(\d+)\s+Episode\s+(\d+)").ok()?;
+        if let Some(caps) = season_episode_text_re.captures(text) {
+            if let (Some(season), Some(episode)) = (caps.get(1), caps.get(2)) {
+                return Some(format!("Season {} Episode {}", season.as_str(), episode.as_str()));
+            }
+        }
+        
+        None
     }
     
     // Extract a key phrase that might be a quote based on context
