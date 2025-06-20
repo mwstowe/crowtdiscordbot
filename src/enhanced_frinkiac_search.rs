@@ -68,7 +68,72 @@ impl EnhancedFrinkiacSearch {
     pub async fn search(&self, query: &str) -> Result<Option<FrinkiacResult>> {
         info!("Enhanced Frinkiac search for: {}", query);
         
-        // First, use Google search to find potential quotes - this is our best approach
+        // First, try direct site search on frinkiac.com
+        let direct_site_search = format!("site:frinkiac.com {}", query);
+        info!("Trying direct site search: {}", direct_site_search);
+        
+        match self.google_client.search(&direct_site_search).await {
+            Ok(Some(result)) => {
+                info!("Found direct site search result: {} - {}", result.title, result.snippet);
+                
+                // Extract potential search terms from the result
+                let mut search_terms = Vec::new();
+                
+                // Look for quotes in the title and snippet
+                if let Some(quote) = self.extract_quote_from_text(&result.title) {
+                    search_terms.push(quote);
+                }
+                
+                if let Some(quote) = self.extract_quote_from_text(&result.snippet) {
+                    search_terms.push(quote);
+                }
+                
+                // Extract episode information
+                if let Some(episode_info) = self.extract_episode_info(&format!("{} {}", result.title, result.snippet)) {
+                    search_terms.push(episode_info);
+                }
+                
+                // Extract potential phrases
+                let potential_phrases = self.extract_potential_quotes(&result.title, &result.snippet);
+                search_terms.extend(potential_phrases);
+                
+                // Add the original query
+                search_terms.push(query.to_string());
+                
+                // Try each search term with Frinkiac
+                let mut results = Vec::new();
+                
+                for term in &search_terms {
+                    info!("Trying search term from direct site search: {}", term);
+                    match self.frinkiac_client.search(term).await {
+                        Ok(Some(result)) => {
+                            // Verify that the result actually contains the search terms
+                            if self.result_contains_search_terms(&result, query) {
+                                let score = self.calculate_total_score(&result, query, term);
+                                results.push((result, score));
+                            } else {
+                                info!("Result doesn't contain search terms, skipping");
+                            }
+                        },
+                        _ => {}
+                    }
+                }
+                
+                // If we have results, return the best one
+                if !results.is_empty() {
+                    // Sort by score (descending)
+                    results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+                    info!("Found {} results from direct site search, returning best match with score {:.2}", 
+                          results.len(), results[0].1);
+                    return Ok(Some(results[0].0.clone()));
+                }
+            },
+            _ => {
+                info!("No results from direct site search, trying enhanced search");
+            }
+        }
+        
+        // Fall back to the regular enhanced search
         let search_terms = self.find_quotes_via_search(query).await?;
         info!("Found {} potential quotes via search", search_terms.len());
         
@@ -93,36 +158,22 @@ impl EnhancedFrinkiacSearch {
             info!("Trying search term: {}", term);
             match self.frinkiac_client.search(term).await {
                 Ok(Some(result)) => {
-                    // Calculate relevance score based on how well the caption matches the original query
-                    let relevance_score = self.calculate_relevance_score(&result, query);
-                    
-                    // Calculate popularity score
-                    let popularity_score = self.calculate_popularity_score(&result);
-                    
-                    // Calculate quote match score - how well the caption matches the search term
-                    let quote_match_score = self.calculate_quote_match_score(&result, term);
-                    
-                    // Calculate exact word match score - how many words from the original query are in the caption
-                    let exact_word_match_score = self.calculate_exact_word_match_score(&result, query);
-                    
-                    // Calculate total score (weighted combination of all scores)
-                    // Give higher weight to search engine and Gemini terms
-                    let priority_bonus = if term == query { 0.0 } else { 0.1 };
-                    let total_score = (relevance_score * 0.2) + 
-                                     (popularity_score * 0.1) + 
-                                     (quote_match_score * 0.2) + 
-                                     (exact_word_match_score * 0.5) +  // Increased from 0.35 to 0.5
-                                     priority_bonus;
-                    
-                    info!("Found result for '{}' with scores - relevance: {:.2}, popularity: {:.2}, quote match: {:.2}, exact word match: {:.2}, total: {:.2}", 
-                          term, relevance_score, popularity_score, quote_match_score, exact_word_match_score, total_score);
-                    
-                    results.push(RankedFrinkiacResult {
-                        result,
-                        relevance_score,
-                        popularity_score,
-                        total_score,
-                    });
+                    // Verify that the result actually contains the search terms
+                    if self.result_contains_search_terms(&result, query) {
+                        // Calculate total score
+                        let total_score = self.calculate_total_score(&result, query, term);
+                        
+                        info!("Found result for '{}' with total score: {:.2}", term, total_score);
+                        
+                        results.push(RankedFrinkiacResult {
+                            result,
+                            relevance_score: 0.0, // Not used directly anymore
+                            popularity_score: 0.0, // Not used directly anymore
+                            total_score,
+                        });
+                    } else {
+                        info!("Result doesn't contain search terms, skipping");
+                    }
                 },
                 Ok(None) => {
                     info!("No results for term: {}", term);
@@ -147,6 +198,51 @@ impl EnhancedFrinkiacSearch {
         // If we still have no results, try a direct search with the original query as a last resort
         info!("No results from enhanced search, falling back to direct search");
         self.frinkiac_client.search(query).await
+    }
+    
+    // Calculate the total score for a result
+    fn calculate_total_score(&self, result: &FrinkiacResult, query: &str, term: &str) -> f32 {
+        // Calculate relevance score based on how well the caption matches the original query
+        let relevance_score = self.calculate_relevance_score(result, query);
+        
+        // Calculate popularity score
+        let popularity_score = self.calculate_popularity_score(result);
+        
+        // Calculate quote match score - how well the caption matches the search term
+        let quote_match_score = self.calculate_quote_match_score(result, term);
+        
+        // Calculate exact word match score - how many words from the original query are in the caption
+        let exact_word_match_score = self.calculate_exact_word_match_score(result, query);
+        
+        // Calculate total score (weighted combination of all scores)
+        // Give higher weight to search engine and Gemini terms
+        let priority_bonus = if term == query { 0.0 } else { 0.1 };
+        
+        (relevance_score * 0.2) + 
+        (popularity_score * 0.1) + 
+        (quote_match_score * 0.2) + 
+        (exact_word_match_score * 0.5) +
+        priority_bonus
+    }
+    
+    // Check if a result contains the search terms
+    fn result_contains_search_terms(&self, result: &FrinkiacResult, query: &str) -> bool {
+        let query_lower = query.to_lowercase();
+        let caption_lower = result.caption.to_lowercase();
+        let episode_title_lower = result.episode_title.to_lowercase();
+        
+        // Split query into words
+        let query_words: Vec<&str> = query_lower.split_whitespace().collect();
+        
+        // Check if all words from the query appear in either the caption or episode title
+        let all_words_in_caption = query_words.iter()
+            .all(|&word| caption_lower.contains(word));
+            
+        let all_words_in_title = query_words.iter()
+            .all(|&word| episode_title_lower.contains(word));
+            
+        // Return true if all words are found in either the caption or title
+        all_words_in_caption || all_words_in_title
     }
     
     // Calculate a score based on how many exact words from the query are in the caption
