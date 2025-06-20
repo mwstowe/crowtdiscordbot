@@ -8,6 +8,25 @@ use regex::Regex;
 // URL pattern for detecting URLs in text
 const URL_PATTERN: &str = r"https?://[^\s/$.?#].[^\s]*";
 
+// Special regex characters that might need escaping
+const REGEX_SPECIAL_CHARS: &[char] = &['.', '+', '*', '?', '^', '$', '(', ')', '[', ']', '{', '}', '|', '\\'];
+
+// Function to handle potential regex special characters in user input
+fn sanitize_regex_pattern(pattern: &str) -> String {
+    // Replace smart quotes with regular quotes
+    let pattern = pattern.replace("'", "'").replace("'", "'");
+    
+    // We don't want to escape everything automatically because users might intentionally
+    // use regex special characters. Just log the presence of special characters.
+    for &c in REGEX_SPECIAL_CHARS {
+        if pattern.contains(c) {
+            info!("Pattern contains regex special character '{}' which may need escaping", c);
+        }
+    }
+    
+    pattern
+}
+
 // Handle regex substitution for messages starting with !s/, .s/, !/, or ./
 pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<()> {
     // Log the guild ID for debugging
@@ -83,13 +102,16 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
         .map(|(_, m)| m)
         .collect();
     
+    // Sanitize the pattern to handle special characters
+    let sanitized_pattern = sanitize_regex_pattern(pattern);
+    
     // Try to build the regex
     let regex_result = if case_insensitive {
-        regex::RegexBuilder::new(pattern)
+        regex::RegexBuilder::new(&sanitized_pattern)
             .case_insensitive(true)
             .build()
     } else {
-        regex::RegexBuilder::new(pattern)
+        regex::RegexBuilder::new(&sanitized_pattern)
             .build()
     };
     
@@ -187,7 +209,13 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
             // If we get here, no substitutions worked - silently give up
         },
         Err(e) => {
-            error!("Invalid regex pattern: {:?}", e);
+            error!("Invalid regex pattern '{}': {:?}", pattern, e);
+            
+            // Check if the error is likely due to an apostrophe
+            if pattern.contains("'") {
+                info!("Pattern contains apostrophes which may cause regex parsing issues");
+            }
+            
             // Silently fail - don't notify the user of regex errors
         }
     }
