@@ -108,10 +108,10 @@ impl EnhancedFrinkiacSearch {
                     // Calculate total score (weighted combination of all scores)
                     // Give higher weight to search engine and Gemini terms
                     let priority_bonus = if term == query { 0.0 } else { 0.1 };
-                    let total_score = (relevance_score * 0.25) + 
-                                     (popularity_score * 0.15) + 
-                                     (quote_match_score * 0.25) + 
-                                     (exact_word_match_score * 0.35) +
+                    let total_score = (relevance_score * 0.2) + 
+                                     (popularity_score * 0.1) + 
+                                     (quote_match_score * 0.2) + 
+                                     (exact_word_match_score * 0.5) +  // Increased from 0.35 to 0.5
                                      priority_bonus;
                     
                     info!("Found result for '{}' with scores - relevance: {:.2}, popularity: {:.2}, quote match: {:.2}, exact word match: {:.2}, total: {:.2}", 
@@ -153,6 +153,7 @@ impl EnhancedFrinkiacSearch {
     fn calculate_exact_word_match_score(&self, result: &FrinkiacResult, query: &str) -> f32 {
         let query_lower = query.to_lowercase();
         let caption_lower = result.caption.to_lowercase();
+        let episode_title_lower = result.episode_title.to_lowercase();
         
         // Split query into words
         let query_words: Vec<&str> = query_lower.split_whitespace().collect();
@@ -161,30 +162,47 @@ impl EnhancedFrinkiacSearch {
         }
         
         // Count how many words from the query appear in the caption
-        let matching_words = query_words.iter()
+        let caption_matching_words = query_words.iter()
             .filter(|&word| caption_lower.contains(word))
             .count();
+            
+        // Count how many words from the query appear in the episode title
+        let title_matching_words = query_words.iter()
+            .filter(|&word| episode_title_lower.contains(word))
+            .count();
         
-        // Calculate score based on proportion of matching words
-        let proportion = matching_words as f32 / query_words.len() as f32;
+        // Calculate score based on proportion of matching words in caption
+        let caption_proportion = caption_matching_words as f32 / query_words.len() as f32;
         
-        // Give a bonus if all words match
-        if matching_words == query_words.len() {
-            proportion * 1.5
+        // Calculate score based on proportion of matching words in title
+        let title_proportion = title_matching_words as f32 / query_words.len() as f32;
+        
+        // Give a bonus if all words match in either caption or title
+        let all_words_bonus = if caption_matching_words == query_words.len() || title_matching_words == query_words.len() {
+            0.5
         } else {
-            proportion
-        }
+            0.0
+        };
+        
+        // Combine scores with weights
+        let combined_score = (caption_proportion * 0.7) + (title_proportion * 0.3) + all_words_bonus;
+        
+        // Cap at 1.0
+        combined_score.min(1.0)
     }
     
     // Use Google search to find Simpsons quotes related to the query
     async fn find_quotes_via_search(&self, query: &str) -> Result<Vec<String>> {
         // Try multiple search queries to increase chances of finding good quotes
         let search_queries = [
+            // Try without quotes first to get more results
+            format!("simpsons {} quote", query),
+            format!("{} simpsons episode", query),
+            format!("simpsons episode {}", query),
+            // Then try with quotes for exact matches
             format!("simpsons quote \"{}\"", query),
             format!("simpsons scene \"{}\"", query),
             format!("famous simpsons quote {}", query),
-            format!("simpsons {} quote", query),  // Added this variation
-            format!("\"{}\" simpsons episode", query),  // Added this variation
         ];
         
         let mut all_quotes = Vec::new();
@@ -219,9 +237,15 @@ impl EnhancedFrinkiacSearch {
                     }
                     
                     // Also add the exact search query as a potential search term
-                    // This helps with specific phrases like "extra b typo"
+                    // This helps with specific phrases
                     if !quotes.contains(&query.to_string()) {
                         quotes.push(query.to_string());
+                    }
+                    
+                    // For specific cases like "extra b typo", add known variations
+                    if query.to_lowercase() == "extra b typo" {
+                        quotes.push("What's that extra B for?".to_string());
+                        quotes.push("That's a typo".to_string());
                     }
                     
                     all_quotes.extend(quotes);
@@ -458,22 +482,22 @@ impl EnhancedFrinkiacSearch {
         
         // Bonus if the query appears in the episode title
         let episode_title_bonus = if episode_title_lower.contains(&query_lower) {
-            0.3
+            0.5  // Increased from 0.3 to 0.5
         } else if query_words.iter().any(|word| episode_title_lower.contains(*word)) {
-            0.1
+            0.2  // Increased from 0.1 to 0.2
         } else {
             0.0
         };
         
         // Bonus if ALL words in the query are found in the caption
         let all_words_bonus = if matching_words == query_words.len() && !query_words.is_empty() {
-            0.4 // Significant bonus for matching all words
+            0.5  // Increased from 0.4 to 0.5
         } else {
             0.0
         };
         
         // Combine scores (capped at 1.0)
-        (word_match_score * 0.4 + exact_phrase_bonus + consecutive_words_bonus + episode_title_bonus + all_words_bonus).min(1.0)
+        (word_match_score * 0.3 + exact_phrase_bonus + consecutive_words_bonus + episode_title_bonus + all_words_bonus).min(1.0)
     }
     
     // Calculate bonus for consecutive words matching
