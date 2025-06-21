@@ -68,9 +68,9 @@ impl EnhancedFrinkiacSearch {
     pub async fn search(&self, query: &str) -> Result<Option<FrinkiacResult>> {
         info!("Enhanced Frinkiac search for: {}", query);
         
-        // First, try direct site search on frinkiac.com
+        // ONLY try direct site search on frinkiac.com
         let direct_site_search = format!("site:frinkiac.com {}", query);
-        info!("Trying direct site search: {}", direct_site_search);
+        info!("Trying ONLY direct site search: {}", direct_site_search);
         
         // Use the Google search client with the site-specific search
         match self.google_client.search(&direct_site_search).await {
@@ -137,139 +137,9 @@ impl EnhancedFrinkiacSearch {
             }
         }
         
-        // Try a second direct site search with a different format
-        let alt_direct_site_search = format!("extra b typo site:frinkiac.com");
-        info!("Trying alternative direct site search: {}", alt_direct_site_search);
-        
-        match self.google_client.search(&alt_direct_site_search).await {
-            Ok(Some(result)) => {
-                info!("Found alternative direct site search result: {} - {}", result.title, result.snippet);
-                
-                // Extract potential search terms from the result
-                let mut search_terms = Vec::new();
-                
-                // Look for quotes in the title and snippet
-                if let Some(quote) = self.extract_quote_from_text(&result.title) {
-                    search_terms.push(quote);
-                }
-                
-                if let Some(quote) = self.extract_quote_from_text(&result.snippet) {
-                    search_terms.push(quote);
-                }
-                
-                // Extract episode information
-                if let Some(episode_info) = self.extract_episode_info(&format!("{} {}", result.title, result.snippet)) {
-                    search_terms.push(episode_info);
-                }
-                
-                // Extract potential phrases
-                let potential_phrases = self.extract_potential_quotes(&result.title, &result.snippet);
-                search_terms.extend(potential_phrases);
-                
-                // Add the original query
-                search_terms.push(query.to_string());
-                
-                // Try each search term with Frinkiac
-                let mut results = Vec::new();
-                
-                for term in &search_terms {
-                    info!("Trying search term from alternative direct site search: {}", term);
-                    match self.frinkiac_client.search(term).await {
-                        Ok(Some(result)) => {
-                            // Verify that the result actually contains the search terms
-                            if self.result_contains_search_terms(&result, query) {
-                                let score = self.calculate_total_score(&result, query, term);
-                                results.push((result, score));
-                            } else {
-                                info!("Result doesn't contain search terms, skipping");
-                            }
-                        },
-                        _ => {}
-                    }
-                }
-                
-                // If we have results, return the best one
-                if !results.is_empty() {
-                    // Sort by score (descending)
-                    results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-                    info!("Found {} results from alternative direct site search, returning best match with score {:.2}", 
-                          results.len(), results[0].1);
-                    return Ok(Some(results[0].0.clone()));
-                }
-            },
-            Ok(None) => {
-                info!("No results from alternative direct site search, trying enhanced search");
-            },
-            Err(e) => {
-                error!("Error with alternative direct site search: {}, trying enhanced search", e);
-            }
-        }
-        
-        // Fall back to the regular enhanced search
-        let search_terms = self.find_quotes_via_search(query).await?;
-        info!("Found {} potential quotes via search", search_terms.len());
-        
-        // If search engine didn't return useful results, try Gemini
-        let enhanced_terms = if search_terms.is_empty() {
-            info!("No quotes found via search, trying Gemini");
-            self.generate_search_terms(query).await?
-        } else {
-            search_terms
-        };
-        
-        // Add the original query as a fallback, but with lower priority
-        let mut all_terms = enhanced_terms.clone();
-        if !all_terms.contains(&query.to_string()) {
-            all_terms.push(query.to_string());
-        }
-        
-        // Try each term and collect ALL results
-        let mut results = Vec::new();
-        
-        for term in &all_terms {
-            info!("Trying search term: {}", term);
-            match self.frinkiac_client.search(term).await {
-                Ok(Some(result)) => {
-                    // Verify that the result actually contains the search terms
-                    if self.result_contains_search_terms(&result, query) {
-                        // Calculate total score
-                        let total_score = self.calculate_total_score(&result, query, term);
-                        
-                        info!("Found result for '{}' with total score: {:.2}", term, total_score);
-                        
-                        results.push(RankedFrinkiacResult {
-                            result,
-                            relevance_score: 0.0, // Not used directly anymore
-                            popularity_score: 0.0, // Not used directly anymore
-                            total_score,
-                        });
-                    } else {
-                        info!("Result doesn't contain search terms, skipping");
-                    }
-                },
-                Ok(None) => {
-                    info!("No results for term: {}", term);
-                },
-                Err(e) => {
-                    error!("Error searching with term '{}': {}", term, e);
-                }
-            }
-        }
-        
-        // If we have results, sort them by total score and return the best one
-        if !results.is_empty() {
-            // Sort by total score (descending)
-            results.sort_by(|a, b| b.total_score.partial_cmp(&a.total_score).unwrap_or(std::cmp::Ordering::Equal));
-            
-            info!("Found {} results, returning best match with score {:.2}", 
-                  results.len(), results[0].total_score);
-            
-            return Ok(Some(results[0].result.clone()));
-        }
-        
         // If we still have no results, try a direct search with the original query as a last resort
         // But make sure to filter the result
-        info!("No results from enhanced search, falling back to direct search with filtering");
+        info!("No results from direct site search, falling back to direct search with filtering");
         match self.frinkiac_client.search(query).await {
             Ok(Some(result)) => {
                 if self.result_contains_search_terms(&result, query) {
