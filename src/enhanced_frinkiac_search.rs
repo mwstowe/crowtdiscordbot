@@ -149,26 +149,31 @@ Instructions:
 2. Find a Simpsons quote that contains these concepts, even if the exact words aren't present
 3. Look for semantic matches, not just literal matches
 4. Consider famous quotes that might relate to these concepts
-5. Return ONLY the exact quote text with no additional commentary
-6. If you can't find a relevant quote, respond with only the word "pass"
+5. Return your response in this exact JSON format:
+   {{
+     "quote": "The exact quote text",
+     "episode": "Season X Episode Y: Episode Title",
+     "character": "Character who said it"
+   }}
+6. If you can't find a relevant quote, respond with: {{"result": "pass"}}
 
 Examples:
 - Search: "money people"
-- Response: "I like money better than people."
+- Response: {{"quote": "I like money better than people.", "episode": "Season 9 Episode 20: The Trouble with Trillions", "character": "Mr. Burns"}}
 
 - Search: "extra b typo"
-- Response: "What's that extra B for? That's a typo."
+- Response: {{"quote": "What's that extra B for? That's a typo.", "episode": "Season 7 Episode 5: Lisa the Vegetarian", "character": "Homer Simpson"}}
 
 - Search: "dental plan"
-- Response: "Dental plan! Lisa needs braces!"
+- Response: {{"quote": "Dental plan! Lisa needs braces!", "episode": "Season 4 Episode 17: Last Exit to Springfield", "character": "Various characters"}}
 
 - Search: "nothing at all"
-- Response: "Feels like I'm wearing nothing at all!"
+- Response: {{"quote": "Feels like I'm wearing nothing at all!", "episode": "Season 10 Episode 13: Homer to the Max", "character": "Ned Flanders"}}
 
 - Search: "unknown phrase"
-- Response: "pass"
+- Response: {{"result": "pass"}}
 
-Remember to return ONLY the quote text or "pass" with no additional text."#,
+Remember to return ONLY the JSON with no additional text."#,
             query
         );
         
@@ -177,65 +182,153 @@ Remember to return ONLY the quote text or "pass" with no additional text."#,
                 info!("Received Gemini API response: {}", response);
                 
                 // Skip if Gemini returned "pass"
-                if response.trim().to_lowercase() == "pass" {
+                if response.trim().to_lowercase().contains("pass") {
                     info!("Gemini API returned 'pass', falling back to direct search");
                 } else {
-                    // Use the entire Gemini response as the primary search term
-                    // This is important because Gemini is returning the exact quote we want
-                    let mut search_terms = Vec::new();
-                    search_terms.push(response.trim().to_string());
+                    // Try to parse the response as JSON
+                    let json_result = serde_json::from_str::<serde_json::Value>(&response);
                     
-                    // Also try with quotes removed (in case there are any)
-                    let cleaned_response = response.trim().replace("\"", "").replace("'", "");
-                    if cleaned_response != response.trim() {
-                        search_terms.push(cleaned_response);
-                    }
-                    
-                    // As a fallback, also extract quotes using our standard methods
-                    if let Some(quote) = self.extract_quote_from_text(&response) {
-                        if !search_terms.contains(&quote) {
-                            search_terms.push(quote);
-                        }
-                    }
-                    
-                    // Try each search term with Frinkiac
-                    let mut results = Vec::new();
-                    
-                    for term in &search_terms {
-                        info!("Trying search term from Gemini API: {}", term);
-                        match self.frinkiac_client.search(term).await {
-                            Ok(Some(result)) => {
-                                // For Gemini-provided quotes, we'll be more lenient with filtering
-                                // since Gemini is already doing semantic matching
-                                let contains_terms = self.result_contains_search_terms(&result, query);
-                                let score = self.calculate_total_score(&result, query, term);
+                    match json_result {
+                        Ok(json) => {
+                            info!("Successfully parsed Gemini response as JSON");
+                            
+                            // Extract quote, episode, and character information
+                            let quote = json.get("quote").and_then(|q| q.as_str()).unwrap_or("");
+                            let episode = json.get("episode").and_then(|e| e.as_str()).unwrap_or("");
+                            let character = json.get("character").and_then(|c| c.as_str()).unwrap_or("");
+                            
+                            info!("Extracted quote: {}", quote);
+                            info!("Extracted episode: {}", episode);
+                            info!("Extracted character: {}", character);
+                            
+                            if !quote.is_empty() {
+                                // Try to extract season and episode numbers
+                                let mut search_terms = Vec::new();
                                 
-                                if contains_terms {
-                                    info!("Result contains search terms, adding with score {:.2}", score);
-                                    results.push((result, score));
-                                } else {
-                                    // For the primary Gemini response, accept it even if it doesn't contain
-                                    // all search terms, but with a lower score
-                                    if term == &search_terms[0] {
-                                        let adjusted_score = score * 0.8;
-                                        info!("Result doesn't contain all search terms, but accepting Gemini's primary response with adjusted score {:.2}", adjusted_score);
-                                        results.push((result, adjusted_score));
-                                    } else {
-                                        info!("Result doesn't contain search terms, skipping");
+                                // Add the quote as a search term
+                                search_terms.push(quote.to_string());
+                                
+                                // Try to extract season and episode numbers from the episode string
+                                if let Some(season_episode) = extract_season_episode_from_text(episode) {
+                                    info!("Extracted season/episode: {}", season_episode);
+                                    search_terms.push(season_episode);
+                                }
+                                
+                                // Try each search term with Frinkiac
+                                let mut results = Vec::new();
+                                
+                                // First, try searching by season and episode if available
+                                if let Some(season_episode) = extract_season_episode_from_text(episode) {
+                                    info!("Trying search by season/episode: {}", season_episode);
+                                    match self.frinkiac_client.search(&season_episode).await {
+                                        Ok(Some(result)) => {
+                                            // For season/episode searches, we'll be more lenient
+                                            let score = 0.9; // High score for episode match
+                                            info!("Found result by season/episode with score {:.2}", score);
+                                            results.push((result, score));
+                                        },
+                                        _ => {}
                                     }
                                 }
-                            },
-                            _ => {}
+                                
+                                // Then try searching by the quote
+                                for term in &search_terms {
+                                    info!("Trying search term from Gemini API: {}", term);
+                                    match self.frinkiac_client.search(term).await {
+                                        Ok(Some(result)) => {
+                                            // For Gemini-provided quotes, we'll be more lenient with filtering
+                                            let contains_terms = self.result_contains_search_terms(&result, query);
+                                            let score = self.calculate_total_score(&result, query, term);
+                                            
+                                            if contains_terms {
+                                                info!("Result contains search terms, adding with score {:.2}", score);
+                                                results.push((result, score));
+                                            } else {
+                                                // For the primary Gemini response, accept it even if it doesn't contain
+                                                // all search terms, but with a lower score
+                                                if term == &search_terms[0] {
+                                                    let adjusted_score = score * 0.8;
+                                                    info!("Result doesn't contain all search terms, but accepting Gemini's primary response with adjusted score {:.2}", adjusted_score);
+                                                    results.push((result, adjusted_score));
+                                                } else {
+                                                    info!("Result doesn't contain search terms, skipping");
+                                                }
+                                            }
+                                        },
+                                        _ => {}
+                                    }
+                                }
+                                
+                                // If we have results, return the best one
+                                if !results.is_empty() {
+                                    // Sort by score (descending)
+                                    results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+                                    info!("Found {} results from Gemini API, returning best match with score {:.2}", 
+                                          results.len(), results[0].1);
+                                    return Ok(Some(results[0].0.clone()));
+                                }
+                            }
+                        },
+                        Err(e) => {
+                            // If JSON parsing fails, try to extract the quote directly
+                            info!("Failed to parse Gemini response as JSON: {}", e);
+                            
+                            // Use the entire Gemini response as the primary search term
+                            let mut search_terms = Vec::new();
+                            search_terms.push(response.trim().to_string());
+                            
+                            // Also try with quotes removed (in case there are any)
+                            let cleaned_response = response.trim().replace("\"", "").replace("'", "");
+                            if cleaned_response != response.trim() {
+                                search_terms.push(cleaned_response);
+                            }
+                            
+                            // As a fallback, also extract quotes using our standard methods
+                            if let Some(quote) = self.extract_quote_from_text(&response) {
+                                if !search_terms.contains(&quote) {
+                                    search_terms.push(quote);
+                                }
+                            }
+                            
+                            // Try each search term with Frinkiac
+                            let mut results = Vec::new();
+                            
+                            for term in &search_terms {
+                                info!("Trying search term from Gemini API (non-JSON): {}", term);
+                                match self.frinkiac_client.search(term).await {
+                                    Ok(Some(result)) => {
+                                        // For Gemini-provided quotes, we'll be more lenient with filtering
+                                        let contains_terms = self.result_contains_search_terms(&result, query);
+                                        let score = self.calculate_total_score(&result, query, term);
+                                        
+                                        if contains_terms {
+                                            info!("Result contains search terms, adding with score {:.2}", score);
+                                            results.push((result, score));
+                                        } else {
+                                            // For the primary Gemini response, accept it even if it doesn't contain
+                                            // all search terms, but with a lower score
+                                            if term == &search_terms[0] {
+                                                let adjusted_score = score * 0.8;
+                                                info!("Result doesn't contain all search terms, but accepting Gemini's primary response with adjusted score {:.2}", adjusted_score);
+                                                results.push((result, adjusted_score));
+                                            } else {
+                                                info!("Result doesn't contain search terms, skipping");
+                                            }
+                                        }
+                                    },
+                                    _ => {}
+                                }
+                            }
+                            
+                            // If we have results, return the best one
+                            if !results.is_empty() {
+                                // Sort by score (descending)
+                                results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+                                info!("Found {} results from Gemini API (non-JSON), returning best match with score {:.2}", 
+                                      results.len(), results[0].1);
+                                return Ok(Some(results[0].0.clone()));
+                            }
                         }
-                    }
-                    
-                    // If we have results, return the best one
-                    if !results.is_empty() {
-                        // Sort by score (descending)
-                        results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-                        info!("Found {} results from Gemini API, returning best match with score {:.2}", 
-                              results.len(), results[0].1);
-                        return Ok(Some(results[0].0.clone()));
                     }
                 }
             },
@@ -808,4 +901,29 @@ Remember to return ONLY the quote text or "pass" with no additional text."#,
         // Combine scores (capped at 1.0)
         (similarity * 0.3 + contains_bonus + word_match_score * 0.4 + all_words_bonus).min(1.0)
     }
+}
+
+// Helper function to extract season and episode information from text
+fn extract_season_episode_from_text(text: &str) -> Option<String> {
+    // Look for "Season X Episode Y" format
+    let season_episode_re = regex::Regex::new(r"Season\s+(\d+)\s+Episode\s+(\d+)").ok()?;
+    if let Some(caps) = season_episode_re.captures(text) {
+        if let (Some(season), Some(episode)) = (caps.get(1), caps.get(2)) {
+            return Some(format!("S{:02}E{:02}", 
+                season.as_str().parse::<u32>().unwrap_or(0),
+                episode.as_str().parse::<u32>().unwrap_or(0)));
+        }
+    }
+    
+    // Look for S##E## format
+    let se_format_re = regex::Regex::new(r"S(\d+)E(\d+)").ok()?;
+    if let Some(caps) = se_format_re.captures(text) {
+        if let (Some(season), Some(episode)) = (caps.get(1), caps.get(2)) {
+            return Some(format!("S{:02}E{:02}", 
+                season.as_str().parse::<u32>().unwrap_or(0),
+                episode.as_str().parse::<u32>().unwrap_or(0)));
+        }
+    }
+    
+    None
 }
