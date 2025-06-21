@@ -140,7 +140,7 @@ impl EnhancedFrinkiacSearch {
         // Try Gemini API as a fallback
         info!("Trying Gemini API for enhanced search");
         let gemini_prompt = format!(
-            "Using the specific search phrase {}, locate a Simpsons quote. Please employ a contextual understanding rather than a strict, linear, word-for-word match. Use the words individually and consider slight variations when locating a quote. Focus on the logical connection and conversational flow between these elements rather than their exact consecutive placement. Find the quote that best fits this interpreted pattern for that specific search phrase. If multiple quotes match, return the most popular quote. If nothing matches, return only the word 'pass'",
+            "Using the specific search phrase '{}', locate a Simpsons quote. IMPORTANT: Treat each word in the search phrase INDEPENDENTLY. Do not require the exact phrase to appear in the quote. Please employ a contextual understanding rather than a strict, linear, word-for-word match. Consider each word separately and look for quotes that contain most or all of these words, even if they appear in a different order or with slight variations. Focus on the logical connection and conversational flow between these elements rather than their exact consecutive placement. Find the quote that best fits this interpreted pattern for that specific search phrase. If multiple quotes match, return the most popular quote. If nothing matches, return only the word 'pass'",
             query
         );
         
