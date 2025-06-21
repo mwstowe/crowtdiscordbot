@@ -1623,8 +1623,8 @@ impl Bot {
                         .replace("{bot_name}", &self.bot_name)
                         .replace("{context}", &context_text);
                     
-                    // Call Gemini API with the custom prompt
-                    match gemini_client.generate_response_with_context(&prompt, "", &Vec::new(), None).await {
+                    // Call Gemini API with the custom prompt - use bot name as user name
+                    match gemini_client.generate_response_with_context(&prompt, &self.bot_name, &Vec::new(), None).await {
                         Ok(response) => {
                             // Check if the response is "pass" - if so, don't send anything
                             if response.trim().to_lowercase() == "pass" {
