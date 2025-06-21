@@ -29,9 +29,9 @@ const GEMINI_MORBOTRON_PROMPT: &str = r#"You are a Futurama quote expert tasked 
 Search terms: "{}"
 
 Instructions:
-1. Analyze each word in the search terms separately
-2. Find a Futurama quote that contains these concepts, even if the exact words aren't present
-3. Look for semantic matches, not just literal matches
+1. Find a Futurama quote that EXPLICITLY contains the search terms when possible
+2. If no exact match exists, find quotes that contain synonyms or related concepts
+3. Prioritize quotes that include the EXACT search terms in them
 4. Consider famous quotes that might relate to these concepts
 5. Return your response in this exact JSON format:
    {{
@@ -50,6 +50,9 @@ Examples:
 
 - Search: "blackjack hookers"
 - Response: {{"quote": "I'll make my own theme park with blackjack and hookers!", "episode": "Season 1 Episode 2: The Series Has Landed", "character": "Bender"}}
+
+- Search: "death snu"
+- Response: {{"quote": "Death by snu-snu!", "episode": "Season 3 Episode 1: Amazon Women in the Mood", "character": "Femputer"}}
 
 - Search: "unknown phrase"
 - Response: {{"result": "pass"}}

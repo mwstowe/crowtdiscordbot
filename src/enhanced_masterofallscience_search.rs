@@ -29,9 +29,9 @@ const GEMINI_MASTEROFALLSCIENCE_PROMPT: &str = r#"You are a Rick and Morty quote
 Search terms: "{}"
 
 Instructions:
-1. Analyze each word in the search terms separately
-2. Find a Rick and Morty quote that contains these concepts, even if the exact words aren't present
-3. Look for semantic matches, not just literal matches
+1. Find a Rick and Morty quote that EXPLICITLY contains the search terms when possible
+2. If no exact match exists, find quotes that contain synonyms or related concepts
+3. Prioritize quotes that include the EXACT search terms in them
 4. Consider famous quotes that might relate to these concepts
 5. Return your response in this exact JSON format:
    {{
@@ -50,6 +50,9 @@ Examples:
 
 - Search: "get schwifty"
 - Response: {{"quote": "Get schwifty!", "episode": "Season 2 Episode 5: Get Schwifty", "character": "Rick Sanchez"}}
+
+- Search: "meeseeks box"
+- Response: {{"quote": "I'm Mr. Meeseeks! Look at me!", "episode": "Season 1 Episode 5: Meeseeks and Destroy", "character": "Mr. Meeseeks"}}
 
 - Search: "unknown phrase"
 - Response: {{"result": "pass"}}
