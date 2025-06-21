@@ -252,11 +252,6 @@ impl EnhancedFrinkiacSearch {
             return true; // Empty query matches everything
         }
         
-        // For "extra b typo" specifically, check for the exact phrase "what's that extra b for" and "that's a typo"
-        if query_lower == "extra b typo" {
-            return caption_lower.contains("extra b") && caption_lower.contains("typo");
-        }
-        
         // Check if all words from the query appear in either the caption or episode title
         let all_words_in_caption = query_words.iter()
             .all(|&word| caption_lower.contains(word));
