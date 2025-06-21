@@ -3013,8 +3013,13 @@ Keep it brief and natural, as if you're just another participant in the conversa
                 // Check each channel for spontaneous interjections
                 for channel_id in &followed_channels {
                     if fill_silence_manager.should_check_spontaneous_interjection(*channel_id, bot_id).await {
-                        // Get a random interjection type
-                        let interjection_type = rand::thread_rng().gen_range(0..=5);
+                        // Get a random interjection type (skipping type 2 - Message Pondering)
+                        let mut interjection_type = rand::thread_rng().gen_range(0..=4);
+                        
+                        // Adjust the type number to skip over type 2
+                        if interjection_type >= 2 {
+                            interjection_type += 1;
+                        }
                         
                         info!("Making spontaneous interjection in channel {} (type: {})", channel_id, interjection_type);
                         
