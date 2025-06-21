@@ -140,7 +140,35 @@ impl EnhancedFrinkiacSearch {
         // Try Gemini API as a fallback
         info!("Trying Gemini API for enhanced search");
         let gemini_prompt = format!(
-            "Using the specific search phrase '{}', locate a Simpsons quote. IMPORTANT: Treat each word in the search phrase INDEPENDENTLY. Do not require the exact phrase to appear in the quote. Please employ a contextual understanding rather than a strict, linear, word-for-word match. Consider each word separately and look for quotes that contain most or all of these words, even if they appear in a different order or with slight variations. Focus on the logical connection and conversational flow between these elements rather than their exact consecutive placement. Find the quote that best fits this interpreted pattern for that specific search phrase. If multiple quotes match, return the most popular quote. If nothing matches, return only the word 'pass'",
+            r#"You are a Simpsons quote expert tasked with finding the most relevant quote based on search terms.
+
+Search terms: "{}"
+
+Instructions:
+1. Analyze each word in the search terms separately
+2. Find a Simpsons quote that contains these concepts, even if the exact words aren't present
+3. Look for semantic matches, not just literal matches
+4. Consider famous quotes that might relate to these concepts
+5. Return ONLY the exact quote text with no additional commentary
+6. If you can't find a relevant quote, respond with only the word "pass"
+
+Examples:
+- Search: "money people"
+- Response: "I like money better than people."
+
+- Search: "extra b typo"
+- Response: "What's that extra B for? That's a typo."
+
+- Search: "dental plan"
+- Response: "Dental plan! Lisa needs braces!"
+
+- Search: "nothing at all"
+- Response: "Feels like I'm wearing nothing at all!"
+
+- Search: "unknown phrase"
+- Response: "pass"
+
+Remember to return ONLY the quote text or "pass" with no additional text."#,
             query
         );
         
