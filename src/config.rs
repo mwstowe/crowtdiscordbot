@@ -278,7 +278,7 @@ pub fn parse_config(config: &Config) -> (
     let fill_silence_start_hours = config.fill_silence_start_hours
         .as_ref()
         .and_then(|hours| hours.parse::<f64>().ok())
-        .unwrap_or(2.0); // Default: 2 hours
+        .unwrap_or(1.0); // Default: 1 hour
         
     let fill_silence_max_hours = config.fill_silence_max_hours
         .as_ref()
