@@ -125,6 +125,11 @@ struct Bot {
 }
 
 impl Bot {
+    // Helper function to mark the bot as the last speaker in a channel
+    async fn mark_as_last_speaker(&self, channel_id: ChannelId) {
+        self.fill_silence_manager.mark_bot_as_last_speaker(channel_id).await;
+    }
+    
     // Helper function to save bot's own response to the database
     #[allow(dead_code)]
     async fn save_bot_response(&self, response: &str) {
@@ -2391,6 +2396,11 @@ impl EventHandler for Bot {
         // Update the last activity time for this channel
         self.fill_silence_manager.update_activity(msg.channel_id, msg.author.id).await;
         
+        // Mark that a user (not the bot) was the last speaker
+        if msg.author.id != ctx.http.get_current_user().await.map(|u| u.id).unwrap_or_default() {
+            self.fill_silence_manager.mark_user_as_last_speaker(msg.channel_id).await;
+        }
+        
         // Store all messages in the database, including our own
         if let Some(db) = &self.message_db {
             // Get the display name
@@ -3116,6 +3126,9 @@ Keep it brief and natural, as if you're just another participant in the conversa
                             error!("Failed to send spontaneous interjection: {:?}", e);
                         } else {
                             info!("Sent spontaneous interjection: {}", message);
+                            
+                            // Mark the bot as the last speaker in this channel
+                            fill_silence_manager.mark_bot_as_last_speaker(*channel_id).await;
                             
                             // Update the last activity time for this channel
                             fill_silence_manager.update_activity(*channel_id, bot_id).await;
