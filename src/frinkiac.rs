@@ -224,7 +224,7 @@ impl FrinkiacClient {
     }
 
     // Get caption and details for a specific frame
-    async fn get_caption_for_frame(&self, episode: &str, timestamp: u64) -> Result<Option<FrinkiacResult>> {
+    pub async fn get_caption_for_frame(&self, episode: &str, timestamp: u64) -> Result<Option<FrinkiacResult>> {
         // Get the caption for this frame
         let caption_url = format!("{}?e={}&t={}", FRINKIAC_CAPTION_URL, episode, timestamp);
         
