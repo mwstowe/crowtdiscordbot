@@ -145,9 +145,9 @@ impl EnhancedFrinkiacSearch {
 Search terms: "{}"
 
 Instructions:
-1. Analyze each word in the search terms separately
-2. Find a Simpsons quote that contains these concepts, even if the exact words aren't present
-3. Look for semantic matches, not just literal matches
+1. Find a Simpsons quote that EXPLICITLY contains the search terms when possible
+2. If no exact match exists, find quotes that contain synonyms or related concepts
+3. Prioritize quotes that include the EXACT search terms in them
 4. Consider famous quotes that might relate to these concepts
 5. Return your response in this exact JSON format:
    {{
@@ -167,8 +167,8 @@ Examples:
 - Search: "dental plan"
 - Response: {{"quote": "Dental plan! Lisa needs braces!", "episode": "Season 4 Episode 17: Last Exit to Springfield", "character": "Various characters"}}
 
-- Search: "nothing at all"
-- Response: {{"quote": "Feels like I'm wearing nothing at all!", "episode": "Season 10 Episode 13: Homer to the Max", "character": "Ned Flanders"}}
+- Search: "sexy flanders"
+- Response: {{"quote": "Stupid sexy Flanders! It's like I'm wearing nothing at all! Nothing at all! Nothing at all!", "episode": "Season 10 Episode 13: Homer to the Max", "character": "Homer Simpson"}}
 
 - Search: "unknown phrase"
 - Response: {{"result": "pass"}}
