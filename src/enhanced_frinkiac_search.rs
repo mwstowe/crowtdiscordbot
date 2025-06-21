@@ -9,6 +9,7 @@ use strsim::jaro_winkler;
 use regex::Regex;
 
 // A struct to hold search results with metadata for ranking
+// NOTE: This struct is currently unused but kept for future reference
 #[derive(Debug)]
 struct RankedFrinkiacResult {
     result: FrinkiacResult,
@@ -24,6 +25,7 @@ struct QuotePopularity {
 }
 
 // Constants for the Gemini prompt
+// NOTE: This constant is currently unused but kept for future reference
 const GEMINI_FRINKIAC_PROMPT: &str = r#"
 You are helping to search for Simpsons quotes and scenes. Given a user's search query, generate 3-5 possible exact phrases or quotes from The Simpsons that best match what the user is looking for.
 
@@ -714,7 +716,7 @@ Remember to return ONLY the JSON with no additional text."#,
     async fn generate_search_terms(&self, query: &str) -> Result<Vec<String>> {
         let prompt = GEMINI_FRINKIAC_PROMPT.replace("{query}", query);
         
-        match self.gemini_client.generate_response(&prompt).await {
+        match self.gemini_client.generate_response_with_context(&prompt, "Frinkiac", &Vec::new(), None).await {
             Ok(response) => {
                 // Parse the response into individual search terms
                 let terms: Vec<String> = response

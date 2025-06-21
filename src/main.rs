@@ -126,6 +126,7 @@ struct Bot {
 
 impl Bot {
     // Helper function to mark the bot as the last speaker in a channel
+    // NOTE: This method is currently unused but kept for future reference
     async fn mark_as_last_speaker(&self, channel_id: ChannelId) {
         self.fill_silence_manager.mark_bot_as_last_speaker(channel_id).await;
     }
