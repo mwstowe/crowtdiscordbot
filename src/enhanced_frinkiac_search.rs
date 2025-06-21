@@ -180,21 +180,22 @@ Remember to return ONLY the quote text or "pass" with no additional text."#,
                 if response.trim().to_lowercase() == "pass" {
                     info!("Gemini API returned 'pass', falling back to direct search");
                 } else {
-                    // Extract potential quotes from the Gemini response
+                    // Use the entire Gemini response as the primary search term
+                    // This is important because Gemini is returning the exact quote we want
                     let mut search_terms = Vec::new();
+                    search_terms.push(response.trim().to_string());
                     
-                    // Look for quotes in the response
-                    if let Some(quote) = self.extract_quote_from_text(&response) {
-                        search_terms.push(quote);
+                    // Also try with quotes removed (in case there are any)
+                    let cleaned_response = response.trim().replace("\"", "").replace("'", "");
+                    if cleaned_response != response.trim() {
+                        search_terms.push(cleaned_response);
                     }
                     
-                    // Extract potential phrases
-                    let potential_phrases = self.extract_potential_quotes("", &response);
-                    search_terms.extend(potential_phrases);
-                    
-                    // If we couldn't extract any quotes, use the whole response
-                    if search_terms.is_empty() && !response.is_empty() {
-                        search_terms.push(response);
+                    // As a fallback, also extract quotes using our standard methods
+                    if let Some(quote) = self.extract_quote_from_text(&response) {
+                        if !search_terms.contains(&quote) {
+                            search_terms.push(quote);
+                        }
                     }
                     
                     // Try each search term with Frinkiac
@@ -204,12 +205,24 @@ Remember to return ONLY the quote text or "pass" with no additional text."#,
                         info!("Trying search term from Gemini API: {}", term);
                         match self.frinkiac_client.search(term).await {
                             Ok(Some(result)) => {
-                                // Verify that the result actually contains the search terms
-                                if self.result_contains_search_terms(&result, query) {
-                                    let score = self.calculate_total_score(&result, query, term);
+                                // For Gemini-provided quotes, we'll be more lenient with filtering
+                                // since Gemini is already doing semantic matching
+                                let contains_terms = self.result_contains_search_terms(&result, query);
+                                let score = self.calculate_total_score(&result, query, term);
+                                
+                                if contains_terms {
+                                    info!("Result contains search terms, adding with score {:.2}", score);
                                     results.push((result, score));
                                 } else {
-                                    info!("Result doesn't contain search terms, skipping");
+                                    // For the primary Gemini response, accept it even if it doesn't contain
+                                    // all search terms, but with a lower score
+                                    if term == &search_terms[0] {
+                                        let adjusted_score = score * 0.8;
+                                        info!("Result doesn't contain all search terms, but accepting Gemini's primary response with adjusted score {:.2}", adjusted_score);
+                                        results.push((result, adjusted_score));
+                                    } else {
+                                        info!("Result doesn't contain search terms, skipping");
+                                    }
                                 }
                             },
                             _ => {}
