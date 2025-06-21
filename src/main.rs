@@ -37,6 +37,7 @@ mod news_interjection;
 mod enhanced_frinkiac_search;
 mod enhanced_morbotron_search;
 mod enhanced_masterofallscience_search;
+mod fill_silence;
 
 // Helper function to check if a response looks like a prompt
 fn is_prompt_echo(response: &str) -> bool {
@@ -120,6 +121,7 @@ struct Bot {
     #[allow(dead_code)]
     _interjection_fact_probability: f64,
     interjection_news_probability: f64,
+    fill_silence_manager: Arc<fill_silence::FillSilenceManager>,
 }
 
 impl Bot {
@@ -169,7 +171,10 @@ impl Bot {
         _interjection_fact_probability: f64,
         interjection_news_probability: f64,
         log_prompts: bool,
-        imagine_channels: Vec<String>
+        imagine_channels: Vec<String>,
+        fill_silence_enabled: bool,
+        fill_silence_start_hours: f64,
+        fill_silence_max_hours: f64
     ) -> Self {
         // Define the commands the bot will respond to
         let mut commands = HashMap::new();
@@ -243,6 +248,13 @@ impl Bot {
         // Create Band genre generator
         let band_genre_generator = bandname::BandGenreGenerator::new();
         
+        // Initialize the fill silence manager
+        let fill_silence_manager = Arc::new(fill_silence::FillSilenceManager::new(
+            fill_silence_enabled,
+            fill_silence_start_hours,
+            fill_silence_max_hours
+        ));
+        
         Self {
             followed_channels,
             db_manager,
@@ -271,6 +283,7 @@ impl Bot {
             interjection_ai_probability,
             _interjection_fact_probability,
             interjection_news_probability,
+            fill_silence_manager,
         }
     }
     
@@ -1231,16 +1244,25 @@ impl Bot {
         
         // Now process random interjections only if no explicit triggers were matched
         
+        // Get the current user (bot) ID
+        let current_user_id = ctx.http.get_current_user().await.map(|user| user.id).unwrap_or_else(|_| UserId::new(0));
+        
+        // Get the probability multiplier based on channel inactivity
+        let silence_multiplier = self.fill_silence_manager.get_probability_multiplier(msg.channel_id, current_user_id).await;
+        
         // MST3K Quote interjection
-        if rand::thread_rng().gen_bool(self.interjection_mst3k_probability) {
+        let adjusted_mst3k_probability = self.interjection_mst3k_probability * silence_multiplier;
+        if rand::thread_rng().gen_bool(adjusted_mst3k_probability) {
             let probability_percent = self.interjection_mst3k_probability * 100.0;
+            let adjusted_percent = adjusted_mst3k_probability * 100.0;
             let odds = if self.interjection_mst3k_probability > 0.0 {
                 format!("1 in {:.0}", 1.0 / self.interjection_mst3k_probability)
             } else {
                 "disabled".to_string()
             };
             
-            info!("Triggered MST3K quote interjection ({:.2}% chance, {})", probability_percent, odds);
+            info!("Triggered MST3K quote interjection (base: {:.2}% chance, adjusted: {:.2}%, silence multiplier: {:.2}x, {})", 
+                  probability_percent, adjusted_percent, silence_multiplier, odds);
             
             // Try to get a quote from the database first
             if self.db_manager.is_configured() {
@@ -1399,15 +1421,18 @@ impl Bot {
         }
         
         // Memory interjection
-        if rand::thread_rng().gen_bool(self.interjection_memory_probability) {
+        let adjusted_memory_probability = self.interjection_memory_probability * silence_multiplier;
+        if rand::thread_rng().gen_bool(adjusted_memory_probability) {
             let probability_percent = self.interjection_memory_probability * 100.0;
+            let adjusted_percent = adjusted_memory_probability * 100.0;
             let odds = if self.interjection_memory_probability > 0.0 {
                 format!("1 in {:.0}", 1.0 / self.interjection_memory_probability)
             } else {
                 "disabled".to_string()
             };
             
-            info!("Triggered memory interjection ({:.2}% chance, {})", probability_percent, odds);
+            info!("Triggered memory interjection (base: {:.2}% chance, adjusted: {:.2}%, silence multiplier: {:.2}x, {})", 
+                  probability_percent, adjusted_percent, silence_multiplier, odds);
             
             if let (Some(db), Some(gemini_client)) = (&self.message_db, &self.gemini_client) {
                 let db_clone = Arc::clone(db);
@@ -1504,15 +1529,18 @@ impl Bot {
         }
         
         // Pondering interjection
-        if rand::thread_rng().gen_bool(self.interjection_pondering_probability) {
+        let adjusted_pondering_probability = self.interjection_pondering_probability * silence_multiplier;
+        if rand::thread_rng().gen_bool(adjusted_pondering_probability) {
             let probability_percent = self.interjection_pondering_probability * 100.0;
+            let adjusted_percent = adjusted_pondering_probability * 100.0;
             let odds = if self.interjection_pondering_probability > 0.0 {
                 format!("1 in {:.0}", 1.0 / self.interjection_pondering_probability)
             } else {
                 "disabled".to_string()
             };
             
-            info!("Triggered pondering interjection ({:.2}% chance, {})", probability_percent, odds);
+            info!("Triggered pondering interjection (base: {:.2}% chance, adjusted: {:.2}%, silence multiplier: {:.2}x, {})", 
+                  probability_percent, adjusted_percent, silence_multiplier, odds);
             
             let ponderings = [
                 "Hmm, that's an interesting point.",
@@ -1537,15 +1565,18 @@ impl Bot {
         }
         
         // AI interjection
-        if rand::thread_rng().gen_bool(self.interjection_ai_probability) {
+        let adjusted_ai_probability = self.interjection_ai_probability * silence_multiplier;
+        if rand::thread_rng().gen_bool(adjusted_ai_probability) {
             let probability_percent = self.interjection_ai_probability * 100.0;
+            let adjusted_percent = adjusted_ai_probability * 100.0;
             let odds = if self.interjection_ai_probability > 0.0 {
                 format!("1 in {:.0}", 1.0 / self.interjection_ai_probability)
             } else {
                 "disabled".to_string()
             };
             
-            info!("Triggered AI interjection ({:.2}% chance, {})", probability_percent, odds);
+            info!("Triggered AI interjection (base: {:.2}% chance, adjusted: {:.2}%, silence multiplier: {:.2}x, {})", 
+                  probability_percent, adjusted_percent, silence_multiplier, odds);
             
             if let Some(gemini_client) = &self.gemini_client {
                 if let Some(interjection_prompt) = &self.gemini_interjection_prompt {
@@ -1637,15 +1668,18 @@ impl Bot {
         }
         
         // Fact interjection
-        if rand::thread_rng().gen_bool(self._interjection_fact_probability) {
+        let adjusted_fact_probability = self._interjection_fact_probability * silence_multiplier;
+        if rand::thread_rng().gen_bool(adjusted_fact_probability) {
             let probability_percent = self._interjection_fact_probability * 100.0;
+            let adjusted_percent = adjusted_fact_probability * 100.0;
             let odds = if self._interjection_fact_probability > 0.0 {
                 format!("1 in {:.0}", 1.0 / self._interjection_fact_probability)
             } else {
                 "disabled".to_string()
             };
             
-            info!("Triggered fact interjection ({:.2}% chance, {})", probability_percent, odds);
+            info!("Triggered fact interjection (base: {:.2}% chance, adjusted: {:.2}%, silence multiplier: {:.2}x, {})", 
+                  probability_percent, adjusted_percent, silence_multiplier, odds);
             
             if let Some(gemini_client) = &self.gemini_client {
                 // We'll start typing indicator only after we decide to send a message
@@ -1741,15 +1775,18 @@ Just state the fact directly and concisely."#)
         }
         
         // News interjection
-        if rand::thread_rng().gen_bool(self.interjection_news_probability) {
+        let adjusted_news_probability = self.interjection_news_probability * silence_multiplier;
+        if rand::thread_rng().gen_bool(adjusted_news_probability) {
             let probability_percent = self.interjection_news_probability * 100.0;
+            let adjusted_percent = adjusted_news_probability * 100.0;
             let odds = if self.interjection_news_probability > 0.0 {
                 format!("1 in {:.0}", 1.0 / self.interjection_news_probability)
             } else {
                 "disabled".to_string()
             };
             
-            info!("Triggered news interjection ({:.2}% chance, {})", probability_percent, odds);
+            info!("Triggered news interjection (base: {:.2}% chance, adjusted: {:.2}%, silence multiplier: {:.2}x, {})", 
+                  probability_percent, adjusted_percent, silence_multiplier, odds);
             
             if let Some(gemini_client) = &self.gemini_client {
                 // Call the news interjection handler
@@ -2351,6 +2388,9 @@ Just state the fact directly and concisely."#)
 #[async_trait]
 impl EventHandler for Bot {
     async fn message(&self, ctx: Context, msg: Message) {
+        // Update the last activity time for this channel
+        self.fill_silence_manager.update_activity(msg.channel_id, msg.author.id).await;
+        
         // Store all messages in the database, including our own
         if let Some(db) = &self.message_db {
             // Get the display name
@@ -2548,7 +2588,7 @@ async fn main() -> Result<()> {
     let token = &config.discord_token;
     
     // Parse config values
-    let (bot_name, message_history_limit, db_trim_interval, gemini_rate_limit_minute, gemini_rate_limit_day, gateway_bot_ids, google_search_enabled, gemini_context_messages, interjection_mst3k_probability, interjection_memory_probability, interjection_pondering_probability, interjection_ai_probability, imagine_channels, interjection_news_probability) = 
+    let (bot_name, message_history_limit, db_trim_interval, gemini_rate_limit_minute, gemini_rate_limit_day, gateway_bot_ids, google_search_enabled, gemini_context_messages, interjection_mst3k_probability, interjection_memory_probability, interjection_pondering_probability, interjection_ai_probability, imagine_channels, interjection_news_probability, fill_silence_enabled, fill_silence_start_hours, fill_silence_max_hours) = 
         parse_config(&config);
         
     info!("News interjection probability: {}%", interjection_news_probability * 100.0);
@@ -2833,7 +2873,10 @@ Keep it brief and natural, as if you're just another participant in the conversa
         interjection_fact_probability,
         interjection_news_probability,
         gemini_log_prompts,
-        imagine_channels
+        imagine_channels,
+        fill_silence_enabled,
+        fill_silence_start_hours,
+        fill_silence_max_hours
     );
     
     // Check database connection

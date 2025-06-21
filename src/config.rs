@@ -60,6 +60,9 @@ pub struct Config {
     pub interjection_ai_probability: Option<String>,
     pub interjection_fact_probability: Option<String>,
     pub interjection_news_probability: Option<String>,
+    pub fill_silence_enabled: Option<String>,
+    pub fill_silence_start_hours: Option<String>,
+    pub fill_silence_max_hours: Option<String>,
     pub imagine_channels: Option<String>,
     // thinking_message removed - only using typing indicator
     pub google_search_enabled: Option<String>,
@@ -137,7 +140,10 @@ pub fn parse_config(config: &Config) -> (
     f64,                    // interjection_pondering_probability
     f64,                    // interjection_ai_probability
     Vec<String>,            // imagine_channels
-    f64                     // interjection_news_probability
+    f64,                    // interjection_news_probability
+    bool,                   // fill_silence_enabled
+    f64,                    // fill_silence_start_hours
+    f64                     // fill_silence_max_hours
 ) {
     // Get the bot name
     let bot_name = config.bot_name.clone().unwrap_or_else(|| "Crow".to_string());
@@ -254,6 +260,37 @@ pub fn parse_config(config: &Config) -> (
         .and_then(|prob| prob.parse::<f64>().ok())
         .unwrap_or(0.005); // Default: 0.5% chance (1 in 200)
     
+    // Parse fill silence configuration
+    let fill_silence_enabled = config.fill_silence_enabled
+        .as_ref()
+        .and_then(|enabled| {
+            match enabled.to_lowercase().as_str() {
+                "false" | "0" | "no" | "disabled" | "off" => Some(false),
+                "true" | "1" | "yes" | "enabled" | "on" => Some(true),
+                _ => {
+                    info!("Invalid fill_silence_enabled value: {}, defaulting to enabled", enabled);
+                    Some(true)
+                }
+            }
+        })
+        .unwrap_or(true); // Default to enabled
+        
+    let fill_silence_start_hours = config.fill_silence_start_hours
+        .as_ref()
+        .and_then(|hours| hours.parse::<f64>().ok())
+        .unwrap_or(2.0); // Default: 2 hours
+        
+    let fill_silence_max_hours = config.fill_silence_max_hours
+        .as_ref()
+        .and_then(|hours| hours.parse::<f64>().ok())
+        .unwrap_or(12.0); // Default: 12 hours
+        
+    info!("Fill silence feature is {}", if fill_silence_enabled { "enabled" } else { "disabled" });
+    if fill_silence_enabled {
+        info!("Fill silence configuration: Start increasing after {} hours, reach 100% at {} hours", 
+              fill_silence_start_hours, fill_silence_max_hours);
+    }
+    
     // Parse imagine channels
     let imagine_channels = config.imagine_channels
         .as_ref()
@@ -287,6 +324,9 @@ pub fn parse_config(config: &Config) -> (
         interjection_pondering_probability,
         interjection_ai_probability,
         imagine_channels,
-        interjection_news_probability
+        interjection_news_probability,
+        fill_silence_enabled,
+        fill_silence_start_hours,
+        fill_silence_max_hours
     )
 }

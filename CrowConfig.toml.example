@@ -38,6 +38,11 @@ INTERJECTION_AI_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
 INTERJECTION_FACT_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
 INTERJECTION_NEWS_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
 
+# Fill Silence Feature Configuration
+FILL_SILENCE_ENABLED = "true"  # Set to "false" to disable the fill silence feature
+FILL_SILENCE_START_HOURS = "2"  # Start increasing probabilities after this many hours of silence
+FILL_SILENCE_MAX_HOURS = "12"   # Reach 100% probability after this many hours of silence
+
 # Google Search Configuration
 GOOGLE_SEARCH_ENABLED = "true"
 
