@@ -23,6 +23,9 @@ pub struct FillSilenceManager {
     
     /// Last time we checked for spontaneous interjections for each channel
     last_check: Arc<RwLock<HashMap<ChannelId, Instant>>>,
+    
+    /// Tracks if the bot was the last speaker in a channel
+    bot_was_last_speaker: Arc<RwLock<HashMap<ChannelId, bool>>>,
 }
 
 impl FillSilenceManager {
@@ -34,6 +37,7 @@ impl FillSilenceManager {
             max_hours,
             last_activity: Arc::new(RwLock::new(HashMap::new())),
             last_check: Arc::new(RwLock::new(HashMap::new())),
+            bot_was_last_speaker: Arc::new(RwLock::new(HashMap::new())),
         }
     }
     
@@ -45,7 +49,32 @@ impl FillSilenceManager {
         
         let mut last_activity = self.last_activity.write().await;
         last_activity.insert(channel_id, (Instant::now(), user_id));
+        
         debug!("Updated last activity for channel {} by user {}", channel_id, user_id);
+    }
+    
+    /// Mark that the bot was the last speaker in a channel
+    pub async fn mark_bot_as_last_speaker(&self, channel_id: ChannelId) {
+        if !self.enabled {
+            return;
+        }
+        
+        let mut bot_last = self.bot_was_last_speaker.write().await;
+        bot_last.insert(channel_id, true);
+        
+        debug!("Marked bot as last speaker in channel {}", channel_id);
+    }
+    
+    /// Mark that a user (not the bot) was the last speaker in a channel
+    pub async fn mark_user_as_last_speaker(&self, channel_id: ChannelId) {
+        if !self.enabled {
+            return;
+        }
+        
+        let mut bot_last = self.bot_was_last_speaker.write().await;
+        bot_last.insert(channel_id, false);
+        
+        debug!("Marked user as last speaker in channel {}", channel_id);
     }
     
     /// Calculate the probability multiplier for a channel based on inactivity time
@@ -107,6 +136,14 @@ impl FillSilenceManager {
     /// Returns true if enough time has passed since the last check and the channel has been inactive
     pub async fn should_check_spontaneous_interjection(&self, channel_id: ChannelId, bot_id: UserId) -> bool {
         if !self.enabled {
+            return false;
+        }
+        
+        // Check if the bot was the last speaker
+        let bot_last = self.bot_was_last_speaker.read().await;
+        if bot_last.get(&channel_id).unwrap_or(&false) == &true {
+            // Bot was the last speaker, don't make another interjection until someone else speaks
+            debug!("Bot was last speaker in channel {}, skipping spontaneous interjection check", channel_id);
             return false;
         }
         
