@@ -11,7 +11,7 @@ use regex::Regex;
 // A struct to hold search results with metadata for ranking
 // NOTE: This struct is currently unused but kept for future reference
 #[derive(Debug)]
-struct RankedFrinkiacResult {
+struct _RankedFrinkiacResult {
     result: FrinkiacResult,
     relevance_score: f32,
     popularity_score: f32,
@@ -26,7 +26,7 @@ struct QuotePopularity {
 
 // Constants for the Gemini prompt
 // NOTE: This constant is currently unused but kept for future reference
-const GEMINI_FRINKIAC_PROMPT: &str = r#"
+const _GEMINI_FRINKIAC_PROMPT: &str = r#"
 You are helping to search for Simpsons quotes and scenes. Given a user's search query, generate 3-5 possible exact phrases or quotes from The Simpsons that best match what the user is looking for.
 
 Focus on famous, memorable, and popular quotes that match the semantic meaning of the query, not just the exact words. Consider these guidelines:
@@ -468,7 +468,7 @@ Remember to return ONLY the JSON with no additional text."#,
     }
     
     // Use Google search to find Simpsons quotes related to the query
-    async fn find_quotes_via_search(&self, query: &str) -> Result<Vec<String>> {
+    async fn _find_quotes_via_search(&self, query: &str) -> Result<Vec<String>> {
         // Try multiple search queries to increase chances of finding good quotes
         let search_queries = [
             // Search directly on frinkiac.com
@@ -713,8 +713,8 @@ Remember to return ONLY the JSON with no additional text."#,
     }
     
     // Generate better search terms using Gemini API
-    async fn generate_search_terms(&self, query: &str) -> Result<Vec<String>> {
-        let prompt = GEMINI_FRINKIAC_PROMPT.replace("{query}", query);
+    async fn _generate_search_terms(&self, query: &str) -> Result<Vec<String>> {
+        let prompt = _GEMINI_FRINKIAC_PROMPT.replace("{query}", query);
         
         match self.gemini_client.generate_response_with_context(&prompt, "Frinkiac", &Vec::new(), None).await {
             Ok(response) => {
@@ -736,7 +736,7 @@ Remember to return ONLY the JSON with no additional text."#,
     }
     
     // Check if a result is relevant to the query
-    fn is_relevant_result(&self, result: &FrinkiacResult, query: &str) -> bool {
+    fn _is_relevant_result(&self, result: &FrinkiacResult, query: &str) -> bool {
         // Simple relevance check - could be more sophisticated
         let query_lower = query.to_lowercase();
         let caption_lower = result.caption.to_lowercase();
