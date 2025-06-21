@@ -56,68 +56,140 @@ impl GoogleSearchClient {
         // Get the HTML content from DuckDuckGo
         let html_content = self.fetch_raw_html(query).await?;
         
+        // Debug: Save the HTML content to a file for inspection
+        if query.contains("site:frinkiac.com") {
+            info!("Saving DuckDuckGo HTML response for debugging");
+            std::fs::write("/tmp/duckduckgo_response.html", &html_content)
+                .map_err(|e| anyhow::anyhow!("Failed to save debug HTML: {}", e))?;
+        }
+        
         // Parse the HTML
         let document = Html::parse_document(&html_content);
         
-        // DuckDuckGo search results are in elements with class "result"
-        if let Ok(result_selector) = Selector::parse(".result") {
-            for result in document.select(&result_selector) {
-                // Skip sponsored results
-                // Check if this result has the sponsored class
-                let has_sponsored_class = result.value().has_class("result--ad", scraper::CaseSensitivity::CaseSensitive);
-                if has_sponsored_class {
-                    info!("Skipping sponsored result");
-                    continue;
-                }
-                
-                // Extract title
-                if let Ok(title_selector) = Selector::parse(".result__title") {
-                    if let Some(title_element) = result.select(&title_selector).next() {
-                        let title = title_element.text().collect::<Vec<_>>().join("");
-                        
-                        // Extract URL
-                        if let Ok(link_selector) = Selector::parse(".result__title a") {
-                            if let Some(link_element) = result.select(&link_selector).next() {
-                                if let Some(href) = link_element.value().attr("href") {
-                                    // Extract snippet
-                                    let snippet = if let Ok(snippet_selector) = Selector::parse(".result__snippet") {
-                                        if let Some(snippet_element) = result.select(&snippet_selector).next() {
-                                            snippet_element.text().collect::<Vec<_>>().join("")
-                                        } else {
-                                            "No description available".to_string()
-                                        }
-                                    } else {
-                                        "No description available".to_string()
-                                    };
-                                    
-                                    // Extract the actual URL from DuckDuckGo's redirect URL
-                                    let actual_url = if href.contains("//duckduckgo.com/l/?uddg=") {
-                                        if let Some(encoded_url) = href.split("uddg=").nth(1) {
-                                            if let Some(end_idx) = encoded_url.find("&") {
-                                                let encoded_part = &encoded_url[..end_idx];
-                                                match urlencoding::decode(encoded_part) {
-                                                    Ok(decoded) => decoded.to_string(),
-                                                    Err(_) => href.to_string()
-                                                }
-                                            } else {
-                                                href.to_string()
-                                            }
-                                        } else {
-                                            href.to_string()
-                                        }
-                                    } else {
-                                        href.to_string()
-                                    };
-                                    
-                                    return Ok(Some(SearchResult {
-                                        title,
-                                        url: actual_url,
-                                        snippet,
-                                    }));
+        // Try different selectors for DuckDuckGo results
+        let result_selectors = [
+            ".result",                // Standard result class
+            ".web-result",            // Alternative result class
+            ".results_links",         // Another possible class
+            ".results__body .result", // Nested results
+            "article"                 // Generic article element
+        ];
+        
+        for selector_str in &result_selectors {
+            if let Ok(result_selector) = Selector::parse(selector_str) {
+                for result in document.select(&result_selector) {
+                    // Skip sponsored results
+                    let has_sponsored_class = result.value().has_class("result--ad", scraper::CaseSensitivity::CaseSensitive) ||
+                                             result.value().has_class("sponsored", scraper::CaseSensitivity::CaseSensitive);
+                    if has_sponsored_class {
+                        info!("Skipping sponsored result");
+                        continue;
+                    }
+                    
+                    // Try different title selectors
+                    let title_selectors = [".result__title", ".result__a", "h2", "h3", "a"];
+                    let mut title = String::new();
+                    
+                    for title_sel in &title_selectors {
+                        if let Ok(title_selector) = Selector::parse(title_sel) {
+                            if let Some(title_element) = result.select(&title_selector).next() {
+                                title = title_element.text().collect::<Vec<_>>().join("");
+                                if !title.is_empty() {
+                                    break;
                                 }
                             }
                         }
                     }
+                    
+                    if title.is_empty() {
+                        continue; // Skip if we couldn't find a title
+                    }
+                    
+                    // Try different URL selectors
+                    let link_selectors = [".result__title a", "a", ".result__a"];
+                    let mut href = String::new();
+                    
+                    for link_sel in &link_selectors {
+                        if let Ok(link_selector) = Selector::parse(link_sel) {
+                            if let Some(link_element) = result.select(&link_selector).next() {
+                                if let Some(link_href) = link_element.value().attr("href") {
+                                    href = link_href.to_string();
+                                    if !href.is_empty() {
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    if href.is_empty() {
+                        continue; // Skip if we couldn't find a URL
+                    }
+                    
+                    // Try different snippet selectors
+                    let snippet_selectors = [".result__snippet", ".result__snippet-link", ".snippet", "p"];
+                    let mut snippet = String::new();
+                    
+                    for snippet_sel in &snippet_selectors {
+                        if let Ok(snippet_selector) = Selector::parse(snippet_sel) {
+                            if let Some(snippet_element) = result.select(&snippet_selector).next() {
+                                snippet = snippet_element.text().collect::<Vec<_>>().join("");
+                                if !snippet.is_empty() {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    
+                    if snippet.is_empty() {
+                        snippet = "No description available".to_string();
+                    }
+                    
+                    // Extract the actual URL from DuckDuckGo's redirect URL
+                    let actual_url = if href.contains("//duckduckgo.com/l/?uddg=") {
+                        if let Some(encoded_url) = href.split("uddg=").nth(1) {
+                            if let Some(end_idx) = encoded_url.find("&") {
+                                let encoded_part = &encoded_url[..end_idx];
+                                match urlencoding::decode(encoded_part) {
+                                    Ok(decoded) => decoded.to_string(),
+                                    Err(_) => href.to_string()
+                                }
+                            } else {
+                                href.to_string()
+                            }
+                        } else {
+                            href.to_string()
+                        }
+                    } else {
+                        href.to_string()
+                    };
+                    
+                    // Special handling for frinkiac.com results
+                    if query.contains("site:frinkiac.com") && (title.contains("Frinkiac") || actual_url.contains("frinkiac.com")) {
+                        info!("Found Frinkiac result: {} - {}", title, snippet);
+                        
+                        // Extract episode information if available
+                        let mut enhanced_snippet = snippet.clone();
+                        
+                        // Look for season/episode information in the URL or snippet
+                        if actual_url.contains("S") && actual_url.contains("E") {
+                            if let Some(season_ep) = extract_season_episode(&actual_url) {
+                                enhanced_snippet = format!("{} [{}]", enhanced_snippet, season_ep);
+                            }
+                        }
+                        
+                        return Ok(Some(SearchResult {
+                            title,
+                            url: actual_url,
+                            snippet: enhanced_snippet,
+                        }));
+                    }
+                    
+                    return Ok(Some(SearchResult {
+                        title,
+                        url: actual_url,
+                        snippet,
+                    }));
                 }
             }
         }
@@ -126,4 +198,16 @@ impl GoogleSearchClient {
         info!("No search results found for query: {}", query);
         Ok(None)
     }
+}
+
+// Helper function to extract season and episode information from a URL
+fn extract_season_episode(url: &str) -> Option<String> {
+    // Look for patterns like S07E05
+    let re = regex::Regex::new(r"S(\d+)E(\d+)").ok()?;
+    if let Some(caps) = re.captures(url) {
+        let season = caps.get(1)?.as_str();
+        let episode = caps.get(2)?.as_str();
+        return Some(format!("Season {} Episode {}", season, episode));
+    }
+    None
 }
