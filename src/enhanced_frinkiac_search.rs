@@ -130,16 +130,82 @@ impl EnhancedFrinkiacSearch {
                 }
             },
             Ok(None) => {
-                info!("No results from direct site search, trying enhanced search");
+                info!("No results from direct site search, trying Gemini API");
             },
             Err(e) => {
-                error!("Error with direct site search: {}, trying enhanced search", e);
+                error!("Error with direct site search: {}, trying Gemini API", e);
+            }
+        }
+        
+        // Try Gemini API as a fallback
+        info!("Trying Gemini API for enhanced search");
+        let gemini_prompt = format!(
+            "Using the specific search phrase {}, locate a Simpsons quote. Please employ a contextual understanding rather than a strict, linear, word-for-word match. Use the words individually and consider slight variations when locating a quote. Focus on the logical connection and conversational flow between these elements rather than their exact consecutive placement. Find the quote that best fits this interpreted pattern for that specific search phrase. If multiple quotes match, return the most popular quote. If nothing matches, return only the word 'pass'",
+            query
+        );
+        
+        match self.gemini_client.generate_content(&gemini_prompt).await {
+            Ok(response) => {
+                info!("Received Gemini API response: {}", response);
+                
+                // Skip if Gemini returned "pass"
+                if response.trim().to_lowercase() == "pass" {
+                    info!("Gemini API returned 'pass', falling back to direct search");
+                } else {
+                    // Extract potential quotes from the Gemini response
+                    let mut search_terms = Vec::new();
+                    
+                    // Look for quotes in the response
+                    if let Some(quote) = self.extract_quote_from_text(&response) {
+                        search_terms.push(quote);
+                    }
+                    
+                    // Extract potential phrases
+                    let potential_phrases = self.extract_potential_quotes("", &response);
+                    search_terms.extend(potential_phrases);
+                    
+                    // If we couldn't extract any quotes, use the whole response
+                    if search_terms.is_empty() && !response.is_empty() {
+                        search_terms.push(response);
+                    }
+                    
+                    // Try each search term with Frinkiac
+                    let mut results = Vec::new();
+                    
+                    for term in &search_terms {
+                        info!("Trying search term from Gemini API: {}", term);
+                        match self.frinkiac_client.search(term).await {
+                            Ok(Some(result)) => {
+                                // Verify that the result actually contains the search terms
+                                if self.result_contains_search_terms(&result, query) {
+                                    let score = self.calculate_total_score(&result, query, term);
+                                    results.push((result, score));
+                                } else {
+                                    info!("Result doesn't contain search terms, skipping");
+                                }
+                            },
+                            _ => {}
+                        }
+                    }
+                    
+                    // If we have results, return the best one
+                    if !results.is_empty() {
+                        // Sort by score (descending)
+                        results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+                        info!("Found {} results from Gemini API, returning best match with score {:.2}", 
+                              results.len(), results[0].1);
+                        return Ok(Some(results[0].0.clone()));
+                    }
+                }
+            },
+            Err(e) => {
+                error!("Error with Gemini API: {}, falling back to direct search", e);
             }
         }
         
         // If we still have no results, try a direct search with the original query as a last resort
         // But make sure to filter the result
-        info!("No results from direct site search, falling back to direct search with filtering");
+        info!("No results from enhanced search, falling back to direct search with filtering");
         match self.frinkiac_client.search(query).await {
             Ok(Some(result)) => {
                 if self.result_contains_search_terms(&result, query) {
