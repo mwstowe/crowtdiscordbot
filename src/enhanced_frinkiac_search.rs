@@ -137,6 +137,74 @@ impl EnhancedFrinkiacSearch {
             }
         }
         
+        // Try a second direct site search with a different format
+        let alt_direct_site_search = format!("extra b typo site:frinkiac.com");
+        info!("Trying alternative direct site search: {}", alt_direct_site_search);
+        
+        match self.google_client.search(&alt_direct_site_search).await {
+            Ok(Some(result)) => {
+                info!("Found alternative direct site search result: {} - {}", result.title, result.snippet);
+                
+                // Extract potential search terms from the result
+                let mut search_terms = Vec::new();
+                
+                // Look for quotes in the title and snippet
+                if let Some(quote) = self.extract_quote_from_text(&result.title) {
+                    search_terms.push(quote);
+                }
+                
+                if let Some(quote) = self.extract_quote_from_text(&result.snippet) {
+                    search_terms.push(quote);
+                }
+                
+                // Extract episode information
+                if let Some(episode_info) = self.extract_episode_info(&format!("{} {}", result.title, result.snippet)) {
+                    search_terms.push(episode_info);
+                }
+                
+                // Extract potential phrases
+                let potential_phrases = self.extract_potential_quotes(&result.title, &result.snippet);
+                search_terms.extend(potential_phrases);
+                
+                // Add the original query
+                search_terms.push(query.to_string());
+                
+                // Try each search term with Frinkiac
+                let mut results = Vec::new();
+                
+                for term in &search_terms {
+                    info!("Trying search term from alternative direct site search: {}", term);
+                    match self.frinkiac_client.search(term).await {
+                        Ok(Some(result)) => {
+                            // Verify that the result actually contains the search terms
+                            if self.result_contains_search_terms(&result, query) {
+                                let score = self.calculate_total_score(&result, query, term);
+                                results.push((result, score));
+                            } else {
+                                info!("Result doesn't contain search terms, skipping");
+                            }
+                        },
+                        _ => {}
+                    }
+                }
+                
+                // If we have results, return the best one
+                if !results.is_empty() {
+                    // Sort by score (descending)
+                    results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+                    info!("Found {} results from alternative direct site search, returning best match with score {:.2}", 
+                          results.len(), results[0].1);
+                    return Ok(Some(results[0].0.clone()));
+                }
+            },
+            Ok(None) => {
+                info!("No results from alternative direct site search, trying enhanced search");
+            },
+            Err(e) => {
+                error!("Error with alternative direct site search: {}, trying enhanced search", e);
+            }
+        }
+        
         // Fall back to the regular enhanced search
         let search_terms = self.find_quotes_via_search(query).await?;
         info!("Found {} potential quotes via search", search_terms.len());
