@@ -4,6 +4,7 @@ use std::time::Instant;
 use tokio::sync::RwLock;
 use tracing::{info, debug};
 use serenity::model::id::{ChannelId, UserId};
+use rand::Rng;
 
 /// Manages the "fill silence" feature, which increases interjection probabilities
 /// after periods of inactivity in a channel.
@@ -19,6 +20,9 @@ pub struct FillSilenceManager {
     
     /// Last activity time for each channel, keyed by channel ID
     last_activity: Arc<RwLock<HashMap<ChannelId, (Instant, UserId)>>>,
+    
+    /// Last time we checked for spontaneous interjections for each channel
+    last_check: Arc<RwLock<HashMap<ChannelId, Instant>>>,
 }
 
 impl FillSilenceManager {
@@ -29,6 +33,7 @@ impl FillSilenceManager {
             start_hours,
             max_hours,
             last_activity: Arc::new(RwLock::new(HashMap::new())),
+            last_check: Arc::new(RwLock::new(HashMap::new())),
         }
     }
     
@@ -91,10 +96,64 @@ impl FillSilenceManager {
         let multiplier = 1.0 + (999.0 * silence_progress);
         
         info!(
-            "Channel {} has been silent for {:.2} hours, probability multiplier: {:.2}",
+            "Channel {} has been silent for {:.2} hours, probability multiplier: {:.2}x",
             channel_id, hours_elapsed, multiplier
         );
         
         multiplier
+    }
+    
+    /// Check if we should make a spontaneous interjection
+    /// Returns true if enough time has passed since the last check and the channel has been inactive
+    pub async fn should_check_spontaneous_interjection(&self, channel_id: ChannelId, bot_id: UserId) -> bool {
+        if !self.enabled {
+            return false;
+        }
+        
+        // Get the last time we checked this channel
+        let mut should_check = false;
+        let mut new_check_time = None;
+        
+        {
+            let last_check = self.last_check.read().await;
+            let now = Instant::now();
+            
+            // If we've never checked this channel, or it's been at least 1 minute since the last check
+            if let Some(last_check_time) = last_check.get(&channel_id) {
+                let minutes_since_check = last_check_time.elapsed().as_secs() / 60;
+                
+                // Random interval between 1 and 15 minutes
+                let random_interval = rand::thread_rng().gen_range(1..=15);
+                
+                if minutes_since_check >= random_interval as u64 {
+                    should_check = true;
+                    new_check_time = Some(now);
+                }
+            } else {
+                // First time checking this channel
+                should_check = true;
+                new_check_time = Some(now);
+            }
+        }
+        
+        // If we should check, update the last check time
+        if should_check {
+            if let Some(check_time) = new_check_time {
+                let mut last_check = self.last_check.write().await;
+                last_check.insert(channel_id, check_time);
+            }
+            
+            // Now check if the channel has been inactive long enough
+            let multiplier = self.get_probability_multiplier(channel_id, bot_id).await;
+            
+            // Only consider making a spontaneous interjection if the multiplier is > 1.0
+            // (meaning we're in the period where probabilities are increasing)
+            if multiplier > 1.0 {
+                info!("Considering spontaneous interjection for channel {} (multiplier: {:.2}x)", channel_id, multiplier);
+                return true;
+            }
+        }
+        
+        false
     }
 }

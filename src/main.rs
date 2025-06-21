@@ -2909,6 +2909,10 @@ Keep it brief and natural, as if you're just another participant in the conversa
     
     // Create a client with the event handler
     info!("Creating Discord client with event handler...");
+    
+    // Clone what we need for the spontaneous interjection task
+    let fill_silence_manager = bot.fill_silence_manager.clone();
+    
     let mut client = Client::builder(token, intents)
         .event_handler(bot)
         .await?;
@@ -2982,6 +2986,149 @@ Keep it brief and natural, as if you're just another participant in the conversa
         info!("Will respond to gateway bots with IDs: {:?}", gateway_bot_ids);
     }
     info!("Google search feature is {}", if google_search_enabled { "enabled" } else { "disabled" });
+    
+    // Start the spontaneous interjection task if fill silence is enabled
+    if fill_silence_enabled {
+        info!("Starting spontaneous interjection task for fill silence feature");
+        
+        // Clone what we need for the task
+        let http = client.http.clone();
+        let followed_channels = channel_ids.clone();
+        let bot_id = client.http.get_current_user().await?.id;
+        
+        // Spawn the task
+        tokio::spawn(async move {
+            loop {
+                // Check each channel for spontaneous interjections
+                for channel_id in &followed_channels {
+                    if fill_silence_manager.should_check_spontaneous_interjection(*channel_id, bot_id).await {
+                        // Get a random interjection type
+                        let interjection_type = rand::thread_rng().gen_range(0..=5);
+                        
+                        info!("Making spontaneous interjection in channel {} (type: {})", channel_id, interjection_type);
+                        
+                        // Send a typing indicator
+                        if let Err(e) = channel_id.broadcast_typing(&http).await {
+                            error!("Failed to send typing indicator for spontaneous interjection: {:?}", e);
+                        }
+                        
+                        // Wait a bit to simulate typing
+                        tokio::time::sleep(Duration::from_secs(2)).await;
+                        
+                        // Send a message based on the interjection type
+                        let message = match interjection_type {
+                            0 => {
+                                // MST3K Quote interjection
+                                let quotes = [
+                                    "Watch out for snakes!",
+                                    "It's the amazing Rando!",
+                                    "Hi-keeba!",
+                                    "He tampered in God's domain.",
+                                    "Normal view... Normal view... NORMAL VIEW... NORMAL VIEWWWW!",
+                                    "Rowsdower!",
+                                    "Mitchell!",
+                                    "Chief? McCloud!",
+                                    "It's the 70s. No one has to be who they are.",
+                                    "Trumpy, you can do magic things!",
+                                    "Huzzah!",
+                                    "I'm a grimace of pain!",
+                                    "Packers won the Super Bowl!",
+                                    "Knew your father, I did.",
+                                    "Sampo... Sampo...",
+                                    "Rock climbing, Joel!",
+                                    "Deep hurting!",
+                                    "Torgo!",
+                                    "The Master would not approve.",
+                                    "Manos: The Hands of Fate",
+                                ];
+                                
+                                quotes.choose(&mut rand::thread_rng()).unwrap_or(&"Watch out for snakes!").to_string()
+                            },
+                            1 => {
+                                // Memory interjection
+                                "I remember when people used to talk in here...".to_string()
+                            },
+                            2 => {
+                                // Pondering interjection
+                                let ponderings = [
+                                    "I wonder if anyone's still around...",
+                                    "Hmm, it's been quiet for a while.",
+                                    "Just thinking about how silent it's been in here.",
+                                    "I've been pondering the nature of silence in chat channels.",
+                                    "Fascinating how time passes when no one's talking.",
+                                    "I never thought I'd miss the random conversations.",
+                                    "You know, silence can be quite profound.",
+                                    "Wait, is anyone even here anymore?",
+                                ];
+                                
+                                ponderings.choose(&mut rand::thread_rng()).unwrap_or(&"Hmm, interesting.").to_string()
+                            },
+                            3 => {
+                                // AI-like interjection
+                                let ai_comments = [
+                                    "I've been analyzing the silence in this channel. It's quite... extensive.",
+                                    "Based on my calculations, this channel has been inactive for an optimal amount of time.",
+                                    "I've been processing the lack of conversation here. Fascinating data point.",
+                                    "My algorithms suggest that more conversation would be beneficial to this channel.",
+                                    "I've been running simulations of potential conversations that could be happening right now.",
+                                    "The silence-to-message ratio in this channel is approaching infinity.",
+                                    "I've been contemplating the philosophical implications of an empty chat channel.",
+                                    "My sensors detect a severe lack of human interaction in this digital space.",
+                                ];
+                                
+                                ai_comments.choose(&mut rand::thread_rng()).unwrap_or(&"I've been analyzing the silence in this channel.").to_string()
+                            },
+                            4 => {
+                                // Fact interjection
+                                let facts = [
+                                    "Fun fact: The average cloud weighs around 1.1 million pounds due to the weight of water droplets.",
+                                    "Did you know? A day on Venus is longer than a year on Venus.",
+                                    "Fun fact: Honey never spoils. Archaeologists have found pots of honey in ancient Egyptian tombs that are over 3,000 years old and still perfectly good to eat.",
+                                    "Did you know? Octopuses have three hearts, nine brains, and blue blood.",
+                                    "Fun fact: The shortest war in history was between Britain and Zanzibar on August 27, 1896. Zanzibar surrendered after 38 minutes.",
+                                    "Did you know? Bananas are berries, but strawberries are not.",
+                                    "Fun fact: A group of flamingos is called a 'flamboyance'.",
+                                    "Did you know? The average person will spend six months of their life waiting for red lights to turn green.",
+                                    "Fun fact: Crows can recognize human faces and remember if that specific human is a threat.",
+                                    "Did you know? The world's oldest known living tree is over 5,000 years old.",
+                                ];
+                                
+                                facts.choose(&mut rand::thread_rng()).unwrap_or(&"Fun fact: Silence in chat channels tends to grow exponentially over time.").to_string()
+                            },
+                            _ => {
+                                // News interjection
+                                let headlines = [
+                                    "Breaking news: This chat channel has been quiet for too long!",
+                                    "Tech News: Scientists discover that inactive chat channels can develop sentience after prolonged periods of silence.",
+                                    "Local News: Area chat bot forced to talk to itself as users mysteriously disappear.",
+                                    "Weather Report: Forecast shows high chance of continued silence with occasional bursts of activity.",
+                                    "Entertainment News: 'Silence: The Movie' wins award for most accurate portrayal of this chat channel.",
+                                    "Business News: Stocks in conversation starters soar as chat activity hits all-time low.",
+                                    "Sports Update: The Silence team continues its undefeated streak in this channel.",
+                                    "Science News: Researchers confirm that chat channels can indeed gather dust from disuse.",
+                                ];
+                                
+                                headlines.choose(&mut rand::thread_rng()).unwrap_or(&"Breaking news: This chat channel has been quiet for too long!").to_string()
+                            }
+                        };
+                        
+                        if let Err(e) = channel_id.say(&http, message.clone()).await {
+                            error!("Failed to send spontaneous interjection: {:?}", e);
+                        } else {
+                            info!("Sent spontaneous interjection: {}", message);
+                            
+                            // Update the last activity time for this channel
+                            fill_silence_manager.update_activity(*channel_id, bot_id).await;
+                        }
+                    }
+                }
+                
+                // Sleep for a minute before checking again
+                tokio::time::sleep(Duration::from_secs(60)).await;
+            }
+        });
+    }
+    
     info!("Press Ctrl+C to stop the bot");
     client.start().await?;
 
