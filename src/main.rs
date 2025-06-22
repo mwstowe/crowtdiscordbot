@@ -3059,7 +3059,11 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                     "Manos: The Hands of Fate",
                                 ];
                                 
-                                quotes.choose(&mut rand::thread_rng()).unwrap_or(&"Watch out for snakes!").to_string()
+                                quotes.choose(&mut rand::thread_rng()).map(|s| s.to_string()).unwrap_or_else(|| {
+                                    // If we somehow got no quotes, skip the interjection
+                                    info!("No MST3K quotes available, skipping interjection");
+                                    String::new()
+                                })
                             },
                             1 => {
                                 // Memory interjection - replace with random quotes from movies/TV
@@ -3083,7 +3087,11 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                     "To infinity and beyond!",
                                 ];
                                 
-                                movie_quotes.choose(&mut rand::thread_rng()).unwrap_or(&"Here's looking at you, kid.").to_string()
+                                movie_quotes.choose(&mut rand::thread_rng()).map(|s| s.to_string()).unwrap_or_else(|| {
+                                    // If we somehow got no quotes, skip the interjection
+                                    info!("No movie quotes available, skipping interjection");
+                                    String::new()
+                                })
                             },
                             2 => {
                                 // Pondering interjection
@@ -3098,7 +3106,11 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                     "I was just thinking about that new sci-fi show everyone's talking about.",
                                 ];
                                 
-                                ponderings.choose(&mut rand::thread_rng()).unwrap_or(&"Hmm, I was just thinking about quantum computing.").to_string()
+                                ponderings.choose(&mut rand::thread_rng()).map(|s| s.to_string()).unwrap_or_else(|| {
+                                    // If we somehow got no ponderings, skip the interjection
+                                    info!("No ponderings available, skipping interjection");
+                                    String::new()
+                                })
                             },
                             3 => {
                                 // AI-like interjection
@@ -3113,7 +3125,11 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                     "My sensors detect that it's a perfect day for debugging.",
                                 ];
                                 
-                                ai_comments.choose(&mut rand::thread_rng()).unwrap_or(&"I've been analyzing some interesting data patterns lately.").to_string()
+                                ai_comments.choose(&mut rand::thread_rng()).map(|s| s.to_string()).unwrap_or_else(|| {
+                                    // If we somehow got no AI comments, skip the interjection
+                                    info!("No AI comments available, skipping interjection");
+                                    String::new()
+                                })
                             },
                             4 => {
                                 // Fact interjection
@@ -3130,7 +3146,11 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                     "Did you know? The world's oldest known living tree is over 5,000 years old.",
                                 ];
                                 
-                                facts.choose(&mut rand::thread_rng()).unwrap_or(&"Fun fact: The human brain processes images 60,000 times faster than text.").to_string()
+                                facts.choose(&mut rand::thread_rng()).map(|s| s.to_string()).unwrap_or_else(|| {
+                                    // If we somehow got no facts, skip the interjection
+                                    info!("No facts available, skipping interjection");
+                                    String::new()
+                                })
                             },
                             _ => {
                                 // News interjection with real-time search
@@ -3140,29 +3160,29 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                         format!("{}: {} (via search)", article.title, article.url)
                                     },
                                     _ => {
-                                        // Fallback if search fails
-                                        let fallback_news = [
-                                            "Researchers develop new algorithm that improves machine learning efficiency by 40%: https://example.com/ml-algorithm (via Tech Journal)",
-                                            "New study shows programmers who listen to music are 27% more productive: https://example.com/music-coding (via Dev Weekly)",
-                                            "Scientists discover new species of deep-sea creatures that glow in the dark: https://example.com/glowing-creatures (via Science Today)",
-                                        ];
-                                        
-                                        fallback_news.choose(&mut rand::thread_rng()).unwrap_or(&"Astronomers discover new exoplanet that could potentially support life: https://example.com/new-exoplanet (via Space News)").to_string()
+                                        // If search fails, skip the interjection
+                                        info!("News search failed, skipping interjection");
+                                        String::new()
                                     }
                                 }
                             }
                         };
                         
-                        if let Err(e) = channel_id.say(&http, message.clone()).await {
-                            error!("Failed to send spontaneous interjection: {:?}", e);
+                        // Only send the message if it's not empty
+                        if !message.is_empty() {
+                            if let Err(e) = channel_id.say(&http, message.clone()).await {
+                                error!("Failed to send spontaneous interjection: {:?}", e);
+                            } else {
+                                info!("Sent spontaneous interjection: {}", message);
+                                
+                                // Mark the bot as the last speaker in this channel
+                                fill_silence_manager.mark_bot_as_last_speaker(*channel_id).await;
+                                
+                                // Update the last activity time for this channel
+                                fill_silence_manager.update_activity(*channel_id, bot_id).await;
+                            }
                         } else {
-                            info!("Sent spontaneous interjection: {}", message);
-                            
-                            // Mark the bot as the last speaker in this channel
-                            fill_silence_manager.mark_bot_as_last_speaker(*channel_id).await;
-                            
-                            // Update the last activity time for this channel
-                            fill_silence_manager.update_activity(*channel_id, bot_id).await;
+                            info!("Skipping empty spontaneous interjection");
                         }
                     }
                 }
