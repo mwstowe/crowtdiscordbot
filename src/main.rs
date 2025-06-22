@@ -2857,6 +2857,11 @@ Keep it brief and natural, as if you're just another participant in the conversa
     
     info!("✅ Found {} channels to follow", channel_ids.len());
     
+    // Clone values for the Bot struct
+    let gemini_api_key_for_bot = gemini_api_key.clone();
+    let gemini_api_endpoint_for_bot = gemini_api_endpoint.clone();
+    let gemini_prompt_wrapper_for_bot = gemini_prompt_wrapper.clone();
+    
     // Create a new bot instance with the valid channel IDs
     let bot = Bot::new(
         channel_ids.clone(),
@@ -2866,9 +2871,9 @@ Keep it brief and natural, as if you're just another participant in the conversa
         config.db_password.clone(),
         None, // No Google API key needed anymore
         None, // No Google Search Engine ID needed anymore
-        gemini_api_key,
-        gemini_api_endpoint,
-        gemini_prompt_wrapper,
+        gemini_api_key_for_bot,
+        gemini_api_endpoint_for_bot,
+        gemini_prompt_wrapper_for_bot,
         Some(gemini_interjection_prompt),
         bot_name.clone(),
         message_db.clone(),
@@ -3007,6 +3012,25 @@ Keep it brief and natural, as if you're just another participant in the conversa
         let http = client.http.clone();
         let followed_channels = channel_ids.clone();
         let bot_id = client.http.get_current_user().await?.id;
+        let message_db_clone = message_db.clone();
+        let bot_name_clone = bot_name.clone();
+        
+        // Create a new Gemini client for the task if we have an API key
+        let task_gemini_client = if let Some(api_key) = &gemini_api_key {
+            info!("Creating Gemini client for spontaneous interjection task");
+            Some(GeminiClient::new(
+                api_key.clone(),
+                gemini_api_endpoint.clone(),
+                gemini_prompt_wrapper.clone(),
+                bot_name.clone(),
+                gemini_rate_limit_minute,
+                gemini_rate_limit_day,
+                gemini_context_messages,
+                gemini_log_prompts
+            ))
+        } else {
+            None
+        };
         
         // Spawn the task
         tokio::spawn(async move {
@@ -3066,32 +3090,78 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                 })
                             },
                             1 => {
-                                // Memory interjection - replace with random quotes from movies/TV
-                                let movie_quotes = [
-                                    "As you wish.",
-                                    "May the Force be with you.",
-                                    "There's no place like home.",
-                                    "I'm going to make him an offer he can't refuse.",
-                                    "You talking to me?",
-                                    "E.T. phone home.",
-                                    "Bond. James Bond.",
-                                    "You're gonna need a bigger boat.",
-                                    "Houston, we have a problem.",
-                                    "Elementary, my dear Watson.",
-                                    "I'll be back.",
-                                    "My precious...",
-                                    "That's what she said.",
-                                    "How you doin'?",
-                                    "I know kung fu.",
-                                    "Life is like a box of chocolates.",
-                                    "To infinity and beyond!",
-                                ];
-                                
-                                movie_quotes.choose(&mut rand::thread_rng()).map(|s| s.to_string()).unwrap_or_else(|| {
-                                    // If we somehow got no quotes, skip the interjection
-                                    info!("No movie quotes available, skipping interjection");
+                                // Memory interjection - get a random message from the database and process it
+                                if let Some(db) = &message_db_clone {
+                                    // Query the database for a random message with minimum length of 20 characters
+                                    let query_result = db.lock().await.call(|conn| {
+                                        let query = "SELECT content, author, display_name FROM messages WHERE length(content) >= 20 ORDER BY RANDOM() LIMIT 1";
+                                        let mut stmt = conn.prepare(query)?;
+                                        
+                                        let rows = stmt.query_map([], |row| {
+                                            Ok((
+                                                row.get::<_, String>(0)?,
+                                                row.get::<_, String>(1)?,
+                                                row.get::<_, Option<String>>(2)?.unwrap_or_default()
+                                            ))
+                                        })?;
+                                        
+                                        let mut result = Vec::new();
+                                        for row in rows {
+                                            result.push(row?);
+                                        }
+                                        
+                                        Ok::<_, rusqlite::Error>(result)
+                                    }).await;
+                                    
+                                    match query_result {
+                                        Ok(messages) => {
+                                            if let Some((content, _, _)) = messages.first() {
+                                                // If we have a Gemini client, process the message
+                                                if let Some(gemini) = &task_gemini_client {
+                                                    let memory_prompt = format!(
+                                                        "You are {}, a witty Discord bot. You've found this message in your memory: \"{}\". \
+                                                        Please contribute to the conversation by saying something related to this message. \
+                                                        1. Keep it short and natural (1-2 sentences) \
+                                                        2. Don't quote or reference the memory - just say what you want to say \
+                                                        3. Don't identify yourself or explain what you're doing \
+                                                        4. If you can't make it work naturally, respond with 'pass' \
+                                                        5. Correct any obvious typos but preserve the message's character \
+                                                        Remember: Be natural and direct - no meta-commentary.",
+                                                        bot_name_clone, content
+                                                    );
+                                                    
+                                                    match gemini.generate_content(&memory_prompt).await {
+                                                        Ok(response) => {
+                                                            if response.trim().to_lowercase() == "pass" {
+                                                                info!("Gemini API chose to pass on memory interjection");
+                                                                String::new()
+                                                            } else {
+                                                                response
+                                                            }
+                                                        },
+                                                        Err(e) => {
+                                                            error!("Error generating memory interjection: {:?}", e);
+                                                            String::new()
+                                                        }
+                                                    }
+                                                } else {
+                                                    // No Gemini API, just use the content directly
+                                                    content.clone()
+                                                }
+                                            } else {
+                                                info!("No suitable messages found for memory interjection");
+                                                String::new()
+                                            }
+                                        },
+                                        Err(e) => {
+                                            error!("Error querying database for memory interjection: {:?}", e);
+                                            String::new()
+                                        }
+                                    }
+                                } else {
+                                    info!("No message database available for memory interjection");
                                     String::new()
-                                })
+                                }
                             },
                             2 => {
                                 // Pondering interjection
