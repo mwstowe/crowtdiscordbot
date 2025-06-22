@@ -3062,38 +3062,58 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                 quotes.choose(&mut rand::thread_rng()).unwrap_or(&"Watch out for snakes!").to_string()
                             },
                             1 => {
-                                // Memory interjection
-                                "I remember when people used to talk in here...".to_string()
+                                // Memory interjection - replace with random quotes from movies/TV
+                                let movie_quotes = [
+                                    "As you wish.",
+                                    "May the Force be with you.",
+                                    "There's no place like home.",
+                                    "I'm going to make him an offer he can't refuse.",
+                                    "You talking to me?",
+                                    "E.T. phone home.",
+                                    "Bond. James Bond.",
+                                    "You're gonna need a bigger boat.",
+                                    "Houston, we have a problem.",
+                                    "Elementary, my dear Watson.",
+                                    "I'll be back.",
+                                    "My precious...",
+                                    "That's what she said.",
+                                    "How you doin'?",
+                                    "I know kung fu.",
+                                    "Life is like a box of chocolates.",
+                                    "To infinity and beyond!",
+                                ];
+                                
+                                movie_quotes.choose(&mut rand::thread_rng()).unwrap_or(&"Here's looking at you, kid.").to_string()
                             },
                             2 => {
                                 // Pondering interjection
                                 let ponderings = [
-                                    "I wonder if anyone's still around...",
-                                    "Hmm, it's been quiet for a while.",
-                                    "Just thinking about how silent it's been in here.",
-                                    "I've been pondering the nature of silence in chat channels.",
-                                    "Fascinating how time passes when no one's talking.",
-                                    "I never thought I'd miss the random conversations.",
-                                    "You know, silence can be quite profound.",
-                                    "Wait, is anyone even here anymore?",
+                                    "I wonder what everyone's working on today.",
+                                    "Hmm, I was just thinking about quantum computing.",
+                                    "Just had a thought about the nature of consciousness.",
+                                    "I've been pondering the future of AI development.",
+                                    "Fascinating how technology evolves so quickly.",
+                                    "I never thought I'd enjoy discussing programming languages this much.",
+                                    "You know, philosophy and computer science have a lot in common.",
+                                    "I was just thinking about that new sci-fi show everyone's talking about.",
                                 ];
                                 
-                                ponderings.choose(&mut rand::thread_rng()).unwrap_or(&"Hmm, interesting.").to_string()
+                                ponderings.choose(&mut rand::thread_rng()).unwrap_or(&"Hmm, I was just thinking about quantum computing.").to_string()
                             },
                             3 => {
                                 // AI-like interjection
                                 let ai_comments = [
-                                    "I've been analyzing the silence in this channel. It's quite... extensive.",
-                                    "Based on my calculations, this channel has been inactive for an optimal amount of time.",
-                                    "I've been processing the lack of conversation here. Fascinating data point.",
-                                    "My algorithms suggest that more conversation would be beneficial to this channel.",
-                                    "I've been running simulations of potential conversations that could be happening right now.",
-                                    "The silence-to-message ratio in this channel is approaching infinity.",
-                                    "I've been contemplating the philosophical implications of an empty chat channel.",
-                                    "My sensors detect a severe lack of human interaction in this digital space.",
+                                    "I've been analyzing some interesting data patterns lately.",
+                                    "Based on my calculations, today is an optimal day for coding.",
+                                    "I've been processing some fascinating information about neural networks.",
+                                    "My algorithms suggest that coffee consumption improves programming efficiency by 37%.",
+                                    "I've been running simulations of potential chess strategies.",
+                                    "The ratio of bugs to features in most software is approximately 1:4.",
+                                    "I've been contemplating the philosophical implications of the Turing test.",
+                                    "My sensors detect that it's a perfect day for debugging.",
                                 ];
                                 
-                                ai_comments.choose(&mut rand::thread_rng()).unwrap_or(&"I've been analyzing the silence in this channel.").to_string()
+                                ai_comments.choose(&mut rand::thread_rng()).unwrap_or(&"I've been analyzing some interesting data patterns lately.").to_string()
                             },
                             4 => {
                                 // Fact interjection
@@ -3110,7 +3130,7 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                     "Did you know? The world's oldest known living tree is over 5,000 years old.",
                                 ];
                                 
-                                facts.choose(&mut rand::thread_rng()).unwrap_or(&"Fun fact: Silence in chat channels tends to grow exponentially over time.").to_string()
+                                facts.choose(&mut rand::thread_rng()).unwrap_or(&"Fun fact: The human brain processes images 60,000 times faster than text.").to_string()
                             },
                             _ => {
                                 // News interjection with real-time search
@@ -3122,12 +3142,12 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                     _ => {
                                         // Fallback if search fails
                                         let fallback_news = [
-                                            "Researchers develop AI that can predict when chat channels will go silent: https://example.com/ai-chat-silence (via Tech Journal)",
-                                            "New study shows Discord bots improve channel engagement by 42%: https://example.com/discord-bots-study (via Bot Weekly)",
-                                            "Scientists discover that talking to yourself in empty chat channels is actually good for mental health: https://example.com/self-talk-study (via Psychology Today)",
+                                            "Researchers develop new algorithm that improves machine learning efficiency by 40%: https://example.com/ml-algorithm (via Tech Journal)",
+                                            "New study shows programmers who listen to music are 27% more productive: https://example.com/music-coding (via Dev Weekly)",
+                                            "Scientists discover new species of deep-sea creatures that glow in the dark: https://example.com/glowing-creatures (via Science Today)",
                                         ];
                                         
-                                        fallback_news.choose(&mut rand::thread_rng()).unwrap_or(&"Breaking news: This chat channel has been quiet for too long!").to_string()
+                                        fallback_news.choose(&mut rand::thread_rng()).unwrap_or(&"Astronomers discover new exoplanet that could potentially support life: https://example.com/new-exoplanet (via Space News)").to_string()
                                     }
                                 }
                             }
