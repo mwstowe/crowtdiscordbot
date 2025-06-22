@@ -7,6 +7,8 @@ use crate::response_timing::apply_realistic_delay;
 use crate::gemini_api::GeminiClient;
 use std::sync::Arc;
 use tokio_rusqlite::Connection;
+use regex::Regex;
+use url::Url;
 
 // Handle news interjection
 pub async fn handle_news_interjection(
@@ -54,10 +56,13 @@ pub async fn handle_news_interjection(
 Guidelines:
 1. Create a fictional but plausible news article link about technology or weird news (NO sports)
 2. Format as: "Article title: https://example.com/article-path"
-3. Then add a brief comment (1-2 sentences) on why it's interesting or relevant to the conversation
-4. If possible, relate it to the conversation, but don't force it
-5. Don't use phrases like "Check out this article" or "You might find this interesting"
-6. If you can't think of a relevant article, respond with "pass"
+3. The URL must be specific and detailed (e.g., https://arstechnica.com/tech-policy/2025/06/new-ai-regulations-impact-open-source/)
+4. Never use generic URLs like https://arstechnica.com/ or https://techcrunch.com/
+5. Always include year, month, and a descriptive path in the URL
+6. Then add a brief comment (1-2 sentences) on why it's interesting or relevant to the conversation
+7. If possible, relate it to the conversation, but don't force it
+8. Don't use phrases like "Check out this article" or "You might find this interesting"
+9. If you can't think of a relevant article, respond with "pass"
 
 Example good response: "AI Creates Perfect Pizza Recipe Through Taste Simulation: https://techcrunch.com/2025/06/ai-taste-simulation-pizza This shows how AI sensory processing is advancing beyond visual and audio into taste simulation."
 
@@ -85,17 +90,26 @@ Be creative but realistic with your article title and URL."#)
                 return Ok(());
             }
             
+            // Validate and clean up the response
+            let cleaned_response = clean_news_response(&response);
+            
+            // If the cleaning process resulted in an empty response, don't send anything
+            if cleaned_response.is_empty() {
+                info!("News interjection skipped: URL validation failed");
+                return Ok(());
+            }
+            
             // Start typing indicator now that we've decided to send a message
             if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
                 error!("Failed to send typing indicator for news interjection: {:?}", e);
             }
             
             // Apply realistic typing delay
-            apply_realistic_delay(&response, ctx, msg.channel_id).await;
+            apply_realistic_delay(&cleaned_response, ctx, msg.channel_id).await;
             
             // Send the response
-            let response_text = response.clone(); // Clone for logging
-            if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
+            let response_text = cleaned_response.clone(); // Clone for logging
+            if let Err(e) = msg.channel_id.say(&ctx.http, cleaned_response).await {
                 error!("Error sending news interjection: {:?}", e);
             } else {
                 info!("News interjection evaluation: SENT response - {}", response_text);
@@ -107,4 +121,54 @@ Be creative but realistic with your article title and URL."#)
     }
     
     Ok(())
+}
+
+// Function to validate and clean up news responses
+fn clean_news_response(response: &str) -> String {
+    // Extract the URL from the response
+    let url_regex = Regex::new(r"https?://[^\s]+").unwrap();
+    
+    if let Some(url_match) = url_regex.find(response) {
+        let url_str = url_match.as_str();
+        
+        // Try to parse the URL
+        if let Ok(url) = Url::parse(url_str) {
+            // Check if the URL has a proper path (not just "/")
+            let path = url.path();
+            if path.len() <= 1 {
+                // URL doesn't have a proper path
+                info!("News interjection URL validation failed: URL has no proper path: {}", url_str);
+                return String::new();
+            }
+            
+            // Check if the URL contains a year in the path (common for news articles)
+            let has_year = path.contains("/20");
+            let has_month = path.contains("/01/") || path.contains("/02/") || path.contains("/03/") ||
+                           path.contains("/04/") || path.contains("/05/") || path.contains("/06/") ||
+                           path.contains("/07/") || path.contains("/08/") || path.contains("/09/") ||
+                           path.contains("/10/") || path.contains("/11/") || path.contains("/12/");
+            
+            if !has_year && !has_month {
+                // URL doesn't look like a news article
+                info!("News interjection URL validation failed: URL doesn't look like a news article: {}", url_str);
+                return String::new();
+            }
+            
+            // Remove any "(via search)" or similar tags
+            let cleaned_response = response.replace("(via search)", "")
+                                          .replace("(via Google)", "")
+                                          .replace("(via Bing)", "")
+                                          .replace("(via DuckDuckGo)", "");
+            
+            return cleaned_response.trim().to_string();
+        } else {
+            // Invalid URL
+            info!("News interjection URL validation failed: Invalid URL: {}", url_str);
+            return String::new();
+        }
+    } else {
+        // No URL found
+        info!("News interjection URL validation failed: No URL found in response");
+        return String::new();
+    }
 }
