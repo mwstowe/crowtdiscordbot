@@ -64,6 +64,14 @@ FILL_SILENCE_ENABLED = "true"  # Set to "false" to disable the fill silence feat
 FILL_SILENCE_START_HOURS = "1"  # Start increasing probabilities after this many hours of silence
 FILL_SILENCE_MAX_HOURS = "12"   # Reach 100% probability after this many hours of silence
 
+# Interjection Channel Configuration
+# You can use either channel names or IDs, and either single or multiple channels
+# If not specified, interjections will be sent to all followed channels
+# INTERJECTION_CHANNEL_NAME = "general"
+# INTERJECTION_CHANNEL_ID = "123456789012345678"
+# INTERJECTION_CHANNEL_NAMES = "general,bot-testing,random"
+# INTERJECTION_CHANNEL_IDS = "123456789012345678,234567890123456789,345678901234567890"
+
 # Google Search Configuration
 GOOGLE_SEARCH_ENABLED = "true"
 

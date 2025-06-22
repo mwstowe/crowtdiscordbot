@@ -2612,12 +2612,67 @@ async fn main() -> Result<()> {
         .unwrap_or(0.005);
     info!("Fact interjection probability: {}%", interjection_fact_probability * 100.0);
     
-    // Get news interjection probability
-    let interjection_news_probability = config.interjection_news_probability.clone()
-        .unwrap_or_else(|| "0.005".to_string())
-        .parse::<f64>()
-        .unwrap_or(0.005);
-    info!("News interjection probability: {}%", interjection_news_probability * 100.0);
+    // Parse interjection channel configuration
+    let mut interjection_channel_ids = Vec::new();
+    
+    // Check for interjection channel IDs first
+    if let Some(channel_ids_str) = &config.interjection_channel_ids {
+        for id_str in channel_ids_str.split(',') {
+            if let Ok(id) = id_str.trim().parse::<u64>() {
+                interjection_channel_ids.push(ChannelId::new(id));
+                info!("Added interjection channel ID: {}", id);
+            } else {
+                error!("Invalid interjection channel ID: {}", id_str);
+            }
+        }
+    } else if let Some(channel_id_str) = &config.interjection_channel_id {
+        if let Ok(id) = channel_id_str.trim().parse::<u64>() {
+            interjection_channel_ids.push(ChannelId::new(id));
+            info!("Added interjection channel ID: {}", id);
+        } else {
+            error!("Invalid interjection channel ID: {}", channel_id_str);
+        }
+    }
+    
+    // If no interjection channel IDs were specified, check for channel names
+    if interjection_channel_ids.is_empty() {
+        // We'll need to resolve channel names to IDs after connecting to Discord
+        let mut interjection_channel_names = Vec::new();
+        
+        if let Some(names_str) = &config.interjection_channel_names {
+            for name in names_str.split(',') {
+                interjection_channel_names.push(name.trim().to_string());
+                info!("Added interjection channel name: {}", name.trim());
+            }
+        } else if let Some(name) = &config.interjection_channel_name {
+            interjection_channel_names.push(name.trim().to_string());
+            info!("Added interjection channel name: {}", name.trim());
+        }
+        
+        // If we have channel names, we'll need to resolve them after connecting
+        if !interjection_channel_names.is_empty() {
+            // Set gateway intents, which decides what events the bot will be notified about
+            let temp_intents = GatewayIntents::GUILD_MESSAGES | GatewayIntents::MESSAGE_CONTENT | GatewayIntents::GUILDS;
+            
+            // Find the channel IDs first
+            let temp_client = Client::builder(token, temp_intents).await?;
+            
+            // Get all guilds the bot is in
+            let guilds = temp_client.http.get_guilds(None, None).await?;
+            
+            // Check each guild for the specified channel names
+            for guild in &guilds {
+                if let Ok(channels) = temp_client.http.get_channels(guild.id).await {
+                    for channel in &channels {
+                        if interjection_channel_names.contains(&channel.name) {
+                            interjection_channel_ids.push(channel.id);
+                            info!("Resolved interjection channel name '{}' to ID: {}", channel.name, channel.id);
+                        }
+                    }
+                }
+            }
+        }
+    }
     
     // Get Gemini API key
     let gemini_api_key = config.gemini_api_key.clone();
@@ -2708,7 +2763,6 @@ Keep it brief and natural, as if you're just another participant in the conversa
     info!("Pondering interjection probability: {}%", interjection_pondering_probability * 100.0);
     info!("AI interjection probability: {}%", interjection_ai_probability * 100.0);
     info!("Fact interjection probability: {}%", interjection_fact_probability * 100.0);
-    info!("News interjection probability: {}%", interjection_news_probability * 100.0);
     info!("News interjection probability: {}%", interjection_news_probability * 100.0);
 
     // Log database configuration
@@ -3010,10 +3064,16 @@ Keep it brief and natural, as if you're just another participant in the conversa
         
         // Clone what we need for the task
         let http = client.http.clone();
-        let followed_channels = channel_ids.clone();
+        let interjection_channels = interjection_channel_ids.clone();
         let bot_id = client.http.get_current_user().await?.id;
         let message_db_clone = message_db.clone();
         let bot_name_clone = bot_name.clone();
+        
+        // Log interjection channels
+        info!("Sending interjections to {} channels", interjection_channels.len());
+        for channel_id in &interjection_channels {
+            info!("- Interjection channel ID: {}", channel_id);
+        }
         
         // Create a new Gemini client for the task if we have an API key
         let task_gemini_client = if let Some(api_key) = &gemini_api_key {
@@ -3036,7 +3096,7 @@ Keep it brief and natural, as if you're just another participant in the conversa
         tokio::spawn(async move {
             loop {
                 // Check each channel for spontaneous interjections
-                for channel_id in &followed_channels {
+                for channel_id in &interjection_channels {
                     if fill_silence_manager.should_check_spontaneous_interjection(*channel_id, bot_id).await {
                         // Get a random interjection type (skipping type 2 - Message Pondering)
                         let mut interjection_type = rand::thread_rng().gen_range(0..=4);

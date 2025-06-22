@@ -63,7 +63,10 @@ pub struct Config {
     pub fill_silence_enabled: Option<String>,
     pub fill_silence_start_hours: Option<String>,
     pub fill_silence_max_hours: Option<String>,
-    pub imagine_channels: Option<String>,
+    pub interjection_channel_name: Option<String>,
+    pub interjection_channel_id: Option<String>,
+    pub interjection_channel_names: Option<String>,
+    pub interjection_channel_ids: Option<String>,
     // thinking_message removed - only using typing indicator
     pub google_search_enabled: Option<String>,
     pub db_host: Option<String>,
@@ -71,6 +74,7 @@ pub struct Config {
     pub db_user: Option<String>,
     pub db_password: Option<String>,
     pub gateway_bot_ids: Option<String>,
+    pub imagine_channels: Option<String>,
 }
 
 pub fn load_config() -> Result<Config> {
