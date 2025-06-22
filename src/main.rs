@@ -34,6 +34,7 @@ mod buzz;
 mod lastseen;
 mod image_generation;
 mod news_interjection;
+mod news_search;
 mod enhanced_frinkiac_search;
 mod enhanced_morbotron_search;
 mod enhanced_masterofallscience_search;
@@ -3112,21 +3113,23 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                 facts.choose(&mut rand::thread_rng()).unwrap_or(&"Fun fact: Silence in chat channels tends to grow exponentially over time.").to_string()
                             },
                             _ => {
-                                // News interjection with real news sources
-                                let real_news = [
-                                    "Researchers develop new AI model that can predict software bugs: https://arxiv.org/abs/2506.12345 (via arXiv)",
-                                    "New study shows programmers who use dark mode are 15% more productive: https://dev.to/productivity/dark-mode-study-2023 (via Dev.to)",
-                                    "Quantum computing breakthrough achieves 99.9% error correction: https://www.nature.com/articles/s41586-023-06505-7 (via Nature)",
-                                    "GitHub introduces AI-powered code review assistant: https://github.blog/2023-06-21-introducing-code-review-assistant/ (via GitHub Blog)",
-                                    "New JavaScript framework promises 10x faster rendering: https://dev.to/webperf/new-js-framework-2023 (via Dev.to)",
-                                    "Scientists discover bizarre deep-sea creatures that communicate via bioluminescence: https://www.sciencedaily.com/releases/2023/06/230621142210.htm (via Science Daily)",
-                                    "Astronomers detect mysterious radio signals from distant galaxy: https://www.space.com/mysterious-radio-signals-distant-galaxy (via Space.com)",
-                                    "Researchers train AI to generate bizarre but realistic animal hybrids: https://www.newscientist.com/article/2378-ai-animal-hybrids (via New Scientist)",
-                                    "World's smallest computer fits on the edge of a penny: https://spectrum.ieee.org/worlds-smallest-computer (via IEEE Spectrum)",
-                                    "New programming language designed specifically for quantum computers: https://www.quantamagazine.org/new-quantum-programming-language (via Quanta Magazine)",
-                                ];
-                                
-                                real_news.choose(&mut rand::thread_rng()).unwrap_or(&"Researchers develop AI that can predict when chat channels will go silent: https://example.com/ai-chat-silence (via Tech Journal)").to_string()
+                                // News interjection with real-time search
+                                let news_searcher = news_search::NewsSearcher::new();
+                                match news_searcher.get_random_news().await {
+                                    Ok(Some(article)) => {
+                                        format!("{}: {} (via search)", article.title, article.url)
+                                    },
+                                    _ => {
+                                        // Fallback if search fails
+                                        let fallback_news = [
+                                            "Researchers develop AI that can predict when chat channels will go silent: https://example.com/ai-chat-silence (via Tech Journal)",
+                                            "New study shows Discord bots improve channel engagement by 42%: https://example.com/discord-bots-study (via Bot Weekly)",
+                                            "Scientists discover that talking to yourself in empty chat channels is actually good for mental health: https://example.com/self-talk-study (via Psychology Today)",
+                                        ];
+                                        
+                                        fallback_news.choose(&mut rand::thread_rng()).unwrap_or(&"Breaking news: This chat channel has been quiet for too long!").to_string()
+                                    }
+                                }
                             }
                         };
                         
