@@ -169,9 +169,7 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
                         }
                     } else if prev_msg.author.bot {
                         // Check if this is a gateway bot message
-                        let _bot_id = prev_msg.author.id;
-                        
-                        // Check if we have a gateway username cached or can extract one
+                        // Try to extract the gateway username from the message
                         if let Some(gateway_username) = crate::display_name::extract_gateway_username(prev_msg) {
                             // Use the gateway username directly
                             gateway_username

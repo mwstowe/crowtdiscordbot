@@ -4,27 +4,68 @@ use serenity::prelude::*;
 use regex::Regex;
 use tracing::{error, debug, info};
 use lazy_static::lazy_static;
+use std::collections::HashMap;
+use std::sync::RwLock;
 
 // Regular expression for extracting gateway usernames from bot messages
 lazy_static! {
+    // Match patterns like "[irc] <username>" in the message content
     static ref GATEWAY_USERNAME_REGEX: Regex = Regex::new(r"\[(?:irc|matrix|slack|discord)\] <([^>]+)>").unwrap();
+    
+    // Match patterns like "<username>" in the author name
+    static ref AUTHOR_USERNAME_REGEX: Regex = Regex::new(r"<([^>]+)>").unwrap();
+    
+    // Global cache for gateway usernames
+    static ref GATEWAY_USERNAME_CACHE: RwLock<HashMap<u64, String>> = RwLock::new(HashMap::new());
 }
 
 // Helper function to check if a message is from a gateway bot and extract the real username
 pub fn extract_gateway_username(msg: &Message) -> Option<String> {
+    // First check if we have a cached username for this user ID
+    if let Some(username) = get_cached_gateway_username(msg.author.id) {
+        debug!("Using cached gateway username for {}: {}", msg.author.id, username);
+        return Some(username);
+    }
+    
     // Check if the message content starts with a gateway format like "[irc] <username>"
     if let Some(captures) = GATEWAY_USERNAME_REGEX.captures(&msg.content) {
         if let Some(username) = captures.get(1) {
-            return Some(username.as_str().to_string());
+            let extracted = username.as_str().to_string();
+            debug!("Extracted gateway username from content: {}", extracted);
+            return Some(extracted);
         }
     }
     
     // Check if the author name is in gateway format like "<username>"
     let username = &msg.author.name;
-    if username.starts_with('<') && username.ends_with('>') {
-        return Some(username[1..username.len()-1].to_string());
+    if let Some(captures) = AUTHOR_USERNAME_REGEX.captures(username) {
+        if let Some(username) = captures.get(1) {
+            let extracted = username.as_str().to_string();
+            debug!("Extracted gateway username from author name: {}", extracted);
+            return Some(extracted);
+        }
     }
     
+    // Check if the author name itself is in gateway format like "<username>"
+    if username.starts_with('<') && username.ends_with('>') {
+        let extracted = username[1..username.len()-1].to_string();
+        debug!("Extracted gateway username from author name brackets: {}", extracted);
+        return Some(extracted);
+    }
+    
+    // Check if the message content contains the username in a format like "Ulm_Workin: message"
+    // This is a fallback for when the gateway format isn't standard
+    if let Some(colon_pos) = msg.content.find(':') {
+        if colon_pos > 0 && colon_pos < 30 { // Reasonable username length
+            let potential_username = msg.content[0..colon_pos].trim();
+            if !potential_username.is_empty() && !potential_username.contains(' ') {
+                debug!("Extracted potential gateway username from message prefix: {}", potential_username);
+                return Some(potential_username.to_string());
+            }
+        }
+    }
+    
+    // If we get here, we couldn't extract a username
     None
 }
 
@@ -32,6 +73,8 @@ pub fn extract_gateway_username(msg: &Message) -> Option<String> {
 pub async fn get_best_display_name(ctx: &Context, msg: &Message) -> String {
     // First check if this is a gateway bot message
     if let Some(gateway_username) = extract_gateway_username(msg) {
+        // Cache the username for future use
+        cache_gateway_username(msg.author.id, &gateway_username);
         debug!("Found gateway username: {}", gateway_username);
         return gateway_username;
     }
@@ -60,6 +103,12 @@ pub async fn get_best_display_name(ctx: &Context, msg: &Message) -> String {
 
 // Get the best display name for a user with explicit guild ID
 pub async fn get_best_display_name_with_guild(ctx: &Context, user_id: UserId, guild_id: GuildId) -> String {
+    // First check if we have a cached gateway username for this user ID
+    if let Some(username) = get_cached_gateway_username(user_id) {
+        debug!("Using cached gateway username for {}: {}", user_id, username);
+        return username;
+    }
+    
     // Get member data which includes the nickname
     match guild_id.member(&ctx.http, user_id).await {
         Ok(member) => {
@@ -103,18 +152,24 @@ pub async fn get_best_display_name_with_guild(ctx: &Context, user_id: UserId, gu
 
 // Function to cache gateway usernames
 pub fn cache_gateway_username(user_id: UserId, username: &str) {
-    // In a real implementation, this would store the username in a cache
-    // For now, we'll just log it
-    info!("Caching gateway username for {}: {}", user_id, username);
-    // TODO: Implement actual caching
+    // Store the username in the cache
+    if let Ok(mut cache) = GATEWAY_USERNAME_CACHE.write() {
+        cache.insert(user_id.get(), username.to_string());
+        info!("Cached gateway username for {}: {}", user_id, username);
+    } else {
+        error!("Failed to acquire write lock for gateway username cache");
+    }
 }
 
 // Function to get cached gateway username
-pub fn get_cached_gateway_username(_user_id: UserId) -> Option<String> {
-    // In a real implementation, this would retrieve the username from a cache
-    // For now, we'll just return None
-    None
-    // TODO: Implement actual caching
+pub fn get_cached_gateway_username(user_id: UserId) -> Option<String> {
+    // Retrieve the username from the cache
+    if let Ok(cache) = GATEWAY_USERNAME_CACHE.read() {
+        cache.get(&user_id.get()).cloned()
+    } else {
+        error!("Failed to acquire read lock for gateway username cache");
+        None
+    }
 }
 
 // Clean a display name by removing IRC formatting, brackets, and pronouns

@@ -2418,15 +2418,19 @@ impl EventHandler for Bot {
                 
                 // Check if this is a gateway bot
                 if self.gateway_bot_ids.contains(&bot_id.get()) {
-                    // Try to extract the gateway username from the message content
+                    // Try to extract the gateway username from the message content or author name
                     if let Some(gateway_username) = crate::display_name::extract_gateway_username(&msg) {
                         // Cache the gateway username for future use
                         crate::display_name::cache_gateway_username(msg.author.id, &gateway_username);
+                        
+                        // Log the extraction for debugging
+                        info!("📝 Extracted gateway username for bot {}: {}", bot_id, gateway_username);
                         
                         // Use the gateway username as both author and display name
                         (gateway_username.clone(), gateway_username)
                     } else {
                         // Fallback to the display name we got earlier
+                        info!("📝 Could not extract gateway username for bot {}, using fallback", bot_id);
                         (msg.author.name.clone(), display_name)
                     }
                 } else {
