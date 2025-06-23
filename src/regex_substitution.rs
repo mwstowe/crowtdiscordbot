@@ -167,6 +167,25 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
                         } else {
                             get_best_display_name(ctx, prev_msg).await
                         }
+                    } else if prev_msg.author.bot {
+                        // Check if this is a gateway bot message
+                        let _bot_id = prev_msg.author.id;
+                        
+                        // Check if we have a gateway username cached or can extract one
+                        if let Some(gateway_username) = crate::display_name::extract_gateway_username(prev_msg) {
+                            // Use the gateway username directly
+                            gateway_username
+                        } else {
+                            // For regular messages, get the display name of the original author
+                            // Use the guild ID from the current message since it's more reliable
+                            if let Some(guild_id) = msg.guild_id {
+                                // Try to get the display name with guild context first
+                                crate::display_name::get_best_display_name_with_guild(
+                                    ctx, prev_msg.author.id, guild_id).await
+                            } else {
+                                get_best_display_name(ctx, prev_msg).await
+                            }
+                        }
                     } else {
                         // For regular messages, get the display name of the original author
                         // Use the guild ID from the current message since it's more reliable

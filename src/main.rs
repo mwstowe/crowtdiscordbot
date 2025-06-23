@@ -68,7 +68,7 @@ use frinkiac::{FrinkiacClient, handle_frinkiac_command};
 use morbotron::{MorbotronClient, handle_morbotron_command};
 use response_timing::apply_realistic_delay;
 use masterofallscience::{MasterOfAllScienceClient, handle_masterofallscience_command};
-use display_name::{get_best_display_name, clean_display_name, get_clean_display_name};
+use display_name::{get_best_display_name, clean_display_name};
 use buzz::handle_buzz_command;
 use lastseen::handle_lastseen_command;
 use image_generation::handle_imagine_command;
@@ -1171,7 +1171,8 @@ impl Bot {
             if !content.is_empty() {
                 if let Some(gemini_client) = &self.gemini_client {
                     // Get and clean the display name
-                    let clean_display_name = get_clean_display_name(ctx, msg).await;
+                    let display_name = get_best_display_name(ctx, msg).await;
+                    let clean_display_name = clean_display_name(&display_name);
                     
                     // Extract pronouns from the original display name
                     let display_name = get_best_display_name(ctx, msg).await;
@@ -2158,7 +2159,8 @@ Just state the fact directly and concisely."#)
             if !content.is_empty() {
                 if let Some(gemini_client) = &self.gemini_client {
                     // Get and clean the display name
-                    let clean_display_name = get_clean_display_name(ctx, msg).await;
+                    let display_name = get_best_display_name(ctx, msg).await;
+                    let clean_display_name = clean_display_name(&display_name);
                     
                     // Extract pronouns from the original display name
                     let display_name = get_best_display_name(ctx, msg).await;
@@ -2313,7 +2315,8 @@ Just state the fact directly and concisely."#)
             if !content.is_empty() {
                 if let Some(gemini_client) = &self.gemini_client {
                     // Get and clean the display name
-                    let clean_display_name = get_clean_display_name(ctx, msg).await;
+                    let display_name = get_best_display_name(ctx, msg).await;
+                    let clean_display_name = clean_display_name(&display_name);
                     
                     // Extract pronouns from the original display name
                     let display_name = get_best_display_name(ctx, msg).await;
@@ -2381,7 +2384,8 @@ Just state the fact directly and concisely."#)
                     }
                 } else {
                     // Fallback if Gemini API is not configured
-                    let clean_display_name = get_clean_display_name(ctx, msg).await;
+                    let display_name = get_best_display_name(ctx, msg).await;
+                    let clean_display_name = clean_display_name(&display_name);
                     if let Err(e) = msg.channel_id.say(&ctx.http, format!("Hello {}, you mentioned me! I'm {}! (Gemini API is not configured)", clean_display_name, self.bot_name)).await {
                         error!("Error sending mention response: {:?}", e);
                     }
@@ -2408,11 +2412,37 @@ impl EventHandler for Bot {
             // Get the display name
             let display_name = get_best_display_name(&ctx, &msg).await;
             
+            // Check if this is a gateway bot message and extract the real username
+            let (author_name, final_display_name) = if msg.author.bot {
+                let bot_id = msg.author.id;
+                
+                // Check if this is a gateway bot
+                if self.gateway_bot_ids.contains(&bot_id.get()) {
+                    // Try to extract the gateway username from the message content
+                    if let Some(gateway_username) = crate::display_name::extract_gateway_username(&msg) {
+                        // Cache the gateway username for future use
+                        crate::display_name::cache_gateway_username(msg.author.id, &gateway_username);
+                        
+                        // Use the gateway username as both author and display name
+                        (gateway_username.clone(), gateway_username)
+                    } else {
+                        // Fallback to the display name we got earlier
+                        (msg.author.name.clone(), display_name)
+                    }
+                } else {
+                    // Regular bot, use the display name we got earlier
+                    (msg.author.name.clone(), display_name)
+                }
+            } else {
+                // Regular user, use the display name we got earlier
+                (msg.author.name.clone(), display_name)
+            };
+            
             // Save the message to the database
             if let Err(e) = db_utils::save_message(
                 db.clone(),
-                &msg.author.name,
-                &display_name,
+                &author_name,
+                &final_display_name,
                 &msg.content,
                 Some(&msg),
                 None
