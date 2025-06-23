@@ -62,11 +62,12 @@ Guidelines:
 6. Then add a brief comment (1-2 sentences) on why it's interesting or relevant to the conversation
 7. If possible, relate it to the conversation, but don't force it
 8. Don't use phrases like "Check out this article" or "You might find this interesting"
-9. If you can't think of a relevant article, respond with "pass"
+9. NEVER include tags like "(via search)", "(via Google)", or any other source attribution
+10. If you can't think of a relevant article, respond with "pass"
 
 Example good response: "AI Creates Perfect Pizza Recipe Through Taste Simulation: https://techcrunch.com/2025/06/ai-taste-simulation-pizza This shows how AI sensory processing is advancing beyond visual and audio into taste simulation."
 
-Example bad response: "Check out this interesting article about AI and food: https://techcrunch.com/ai-food-article I thought you might find this interesting given our conversation about technology."
+Example bad response: "Check out this interesting article about AI and food: https://techcrunch.com/ai-food-article (via search) I thought you might find this interesting given our conversation about technology."
 
 Be creative but realistic with your article title and URL."#)
         .replace("{bot_name}", bot_name)
@@ -154,11 +155,9 @@ fn clean_news_response(response: &str) -> String {
                 return String::new();
             }
             
-            // Remove any "(via search)" or similar tags
-            let cleaned_response = response.replace("(via search)", "")
-                                          .replace("(via Google)", "")
-                                          .replace("(via Bing)", "")
-                                          .replace("(via DuckDuckGo)", "");
+            // Remove any "(via search)" or similar tags using regex for more flexibility
+            let via_regex = Regex::new(r"\s*\(via\s+[^)]+\)\s*").unwrap();
+            let cleaned_response = via_regex.replace_all(response, "").to_string();
             
             return cleaned_response.trim().to_string();
         } else {
