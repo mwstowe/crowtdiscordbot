@@ -110,26 +110,30 @@ impl FillSilenceManager {
             return 1.0;
         }
         
-        // If more than max_hours have passed, use maximum probability (100%)
-        if hours_elapsed >= self.max_hours {
-            // Calculate what multiplier would make the probability 100%
-            // This depends on the base probability, but we'll use a very high value
-            return 1000.0;
-        }
+        // Calculate the multiplier based on hours of silence
+        // We'll use the hours_elapsed directly as a multiplier, with some constraints
         
-        // Otherwise, scale the probability linearly between start_hours and max_hours
-        let silence_range = self.max_hours - self.start_hours;
-        let silence_progress = (hours_elapsed - self.start_hours) / silence_range;
+        // Base multiplier is the number of hours elapsed
+        let hours_multiplier = hours_elapsed;
         
-        // Scale from 1.0 to 1000.0 (effectively 100% probability)
-        let multiplier = 1.0 + (999.0 * silence_progress);
+        // Cap the multiplier at a reasonable maximum (e.g., 24 hours = 24x)
+        let max_multiplier = 24.0;
+        let capped_multiplier = hours_multiplier.min(max_multiplier);
+        
+        // If we've exceeded max_hours, add an additional boost to ensure high probability
+        let final_multiplier = if hours_elapsed >= self.max_hours {
+            // Add an extra boost to make very likely (but not 100% guaranteed)
+            capped_multiplier * 2.0
+        } else {
+            capped_multiplier
+        };
         
         info!(
             "Channel {} has been silent for {:.2} hours, probability multiplier: {:.2}x",
-            channel_id, hours_elapsed, multiplier
+            channel_id, hours_elapsed, final_multiplier
         );
         
-        multiplier
+        final_multiplier
     }
     
     /// Check if we should make a spontaneous interjection
