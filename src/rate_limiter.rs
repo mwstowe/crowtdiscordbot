@@ -100,17 +100,6 @@ impl RateLimiter {
         day_requests.push_back(now_utc);
     }
     
-    /// Try to acquire a rate limit slot without waiting
-    pub async fn try_acquire(&self) -> bool {
-        match self.check().await {
-            Ok(_) => {
-                self.record_request().await;
-                true
-            },
-            Err(_) => false
-        }
-    }
-    
     /// Wait until a request can be made, then record it
     pub async fn acquire(&self) -> Result<()> {
         let mut attempts = 0;

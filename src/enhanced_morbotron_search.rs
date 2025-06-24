@@ -8,15 +8,6 @@ use std::collections::HashMap;
 use strsim::jaro_winkler;
 use regex::Regex;
 
-// A struct to hold search results with metadata for ranking
-#[derive(Debug)]
-struct RankedMorbotronResult {
-    result: MorbotronResult,
-    relevance_score: f32,
-    popularity_score: f32,
-    total_score: f32,
-}
-
 // A struct to hold the popularity data for quotes
 #[derive(Debug, Deserialize, Serialize)]
 struct QuotePopularity {
