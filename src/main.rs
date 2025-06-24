@@ -6,9 +6,9 @@ use serenity::all::*;
 use serenity::async_trait;
 use serenity::model::channel::Message;
 use serenity::model::gateway::Ready;
-use serenity::model::id::ChannelId;
+use serenity::model::id::{ChannelId, MessageId};
 use serenity::prelude::*;
-use serenity::builder::CreateMessage;
+use serenity::builder::{CreateMessage, GetMessages};
 use serenity::model::channel::MessageReference;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info};
@@ -123,9 +123,67 @@ struct Bot {
     _interjection_fact_probability: f64,
     interjection_news_probability: f64,
     fill_silence_manager: Arc<fill_silence::FillSilenceManager>,
+    // Track the last seen message timestamp for each channel
+    last_seen_message: Arc<RwLock<HashMap<ChannelId, (serenity::model::Timestamp, MessageId)>>>,
 }
 
 impl Bot {
+    // Check for missed messages after reconnection
+    async fn check_missed_messages(&self, ctx: &Context) {
+        info!("Checking for missed messages after reconnection...");
+        
+        // Get the last seen messages
+        let last_seen = self.last_seen_message.read().await.clone();
+        
+        // For each followed channel
+        for channel_id in &self.followed_channels {
+            // If we have a last seen message for this channel
+            if let Some((_, last_message_id)) = last_seen.get(channel_id) {
+                info!("Checking for missed messages in channel {} since message ID {}", channel_id, last_message_id);
+                
+                // Get messages after the last seen message
+                let retriever = GetMessages::default();
+                let retriever = retriever.after(*last_message_id).limit(50);
+                
+                match channel_id.messages(&ctx.http, retriever).await {
+                    Ok(messages) => {
+                        if !messages.is_empty() {
+                            info!("Found {} missed messages in channel {}", messages.len(), channel_id);
+                            
+                            // Process each missed message in chronological order (oldest first)
+                            for msg in messages.iter().rev() {
+                                // Skip our own messages
+                                if msg.author.id == ctx.http.get_current_user().await.map(|u| u.id).unwrap_or_default() {
+                                    continue;
+                                }
+                                
+                                info!("Processing missed message from {}: {}", msg.author.name, msg.content);
+                                
+                                // Process the message
+                                if let Err(e) = self.process_message(ctx, msg).await {
+                                    error!("Error processing missed message: {:?}", e);
+                                }
+                                
+                                // Update the last seen message
+                                {
+                                    let mut last_seen = self.last_seen_message.write().await;
+                                    last_seen.insert(*channel_id, (msg.timestamp, msg.id));
+                                }
+                            }
+                        } else {
+                            info!("No missed messages in channel {}", channel_id);
+                        }
+                    },
+                    Err(e) => {
+                        error!("Error retrieving missed messages for channel {}: {:?}", channel_id, e);
+                    }
+                }
+            } else {
+                info!("No last seen message for channel {}, skipping missed message check", channel_id);
+            }
+        }
+    }
+    
     // Helper function to mark the bot as the last speaker in a channel
     // NOTE: This method is currently unused but kept for future reference
     async fn _mark_as_last_speaker(&self, channel_id: ChannelId) {
@@ -291,6 +349,7 @@ impl Bot {
             _interjection_fact_probability,
             interjection_news_probability,
             fill_silence_manager,
+            last_seen_message: Arc::new(RwLock::new(HashMap::new())),
         }
     }
     
@@ -2407,6 +2466,12 @@ impl EventHandler for Bot {
             self.fill_silence_manager.mark_user_as_last_speaker(msg.channel_id).await;
         }
         
+        // Update the last seen message for this channel
+        {
+            let mut last_seen = self.last_seen_message.write().await;
+            last_seen.insert(msg.channel_id, (msg.timestamp, msg.id));
+        }
+        
         // Store all messages in the database, including our own
         if let Some(db) = &self.message_db {
             // Get the display name
@@ -2539,7 +2604,7 @@ impl EventHandler for Bot {
         }
     }
 
-    async fn ready(&self, _: Context, ready: Ready) {
+    async fn ready(&self, ctx: Context, ready: Ready) {
         info!("✅ {} ({}) is connected and following {} channels!", 
               self.bot_name, ready.user.name, self.followed_channels.len());
         
@@ -2549,6 +2614,9 @@ impl EventHandler for Bot {
         }
         
         info!("Bot is ready to respond to messages in the configured channels");
+        
+        // Check for missed messages in each followed channel
+        self.check_missed_messages(&ctx).await;
         
         // Log available commands
         let command_list = self.commands.keys()
