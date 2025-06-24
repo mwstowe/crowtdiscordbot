@@ -3317,17 +3317,109 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                 })
                             },
                             _ => {
-                                // News interjection with real-time search
-                                let news_searcher = news_search::NewsSearcher::new();
-                                match news_searcher.get_random_news().await {
-                                    Ok(Some(article)) => {
-                                        format!("{}: {} (via search)", article.title, article.url)
-                                    },
-                                    _ => {
-                                        // If search fails, skip the interjection
-                                        info!("News search failed, skipping interjection");
-                                        String::new()
+                                // Use the AI-generated news interjection
+                                if let Some(gemini_client) = &task_gemini_client {
+                                    // Get recent messages for context
+                                    let context_messages = if let Some(db) = &message_db_clone {
+                                        match db_utils::get_recent_messages(db.clone(), gemini_context_messages, Some(&channel_id.to_string())).await {
+                                            Ok(messages) => messages,
+                                            Err(e) => {
+                                                error!("Error retrieving recent messages for news interjection: {:?}", e);
+                                                Vec::new()
+                                            }
+                                        }
+                                    } else {
+                                        Vec::new()
+                                    };
+                                    
+                                    // Format context for the prompt
+                                    let context_text = if !context_messages.is_empty() {
+                                        // Reverse the messages to get chronological order (oldest first)
+                                        let mut chronological_messages = context_messages.clone();
+                                        chronological_messages.reverse();
+                                        
+                                        let formatted_messages: Vec<String> = chronological_messages.iter()
+                                            .map(|(_author, display_name, content)| format!("{}: {}", display_name, content))
+                                            .collect();
+                                        formatted_messages.join("\n")
+                                    } else {
+                                        "".to_string()
+                                    };
+                                    
+                                    // Create the news prompt
+                                    let news_prompt = String::from(r#"You are {bot_name}, a Discord bot. Share an interesting technology or weird news article link with a brief comment about why it's interesting.
+
+{context}
+
+Guidelines:
+1. Create a fictional but plausible news article link about technology or weird news (NO sports)
+2. Format as: "Article title: https://example.com/article-path"
+3. The URL must be specific and detailed (e.g., https://arstechnica.com/tech-policy/2025/06/new-ai-regulations-impact-open-source/)
+4. Never use generic URLs like https://arstechnica.com/ or https://techcrunch.com/
+5. Always include year, month, and a descriptive path in the URL
+6. Then add a brief comment (1-2 sentences) on why it's interesting or relevant to the conversation
+7. If possible, relate it to the conversation, but don't force it
+8. Don't use phrases like "Check out this article" or "You might find this interesting"
+9. NEVER include tags like "(via search)", "(via Google)", or any other source attribution
+10. If you can't think of a relevant article, respond with "pass"
+
+Example good response: "AI Creates Perfect Pizza Recipe Through Taste Simulation: https://techcrunch.com/2025/06/ai-taste-simulation-pizza This shows how AI sensory processing is advancing beyond visual and audio into taste simulation."
+
+Example bad response: "Check out this interesting article about AI and food: https://techcrunch.com/ai-food-article (via search) I thought you might find this interesting given our conversation about technology."
+
+Be creative but realistic with your article title and URL."#)
+                                        .replace("{bot_name}", &bot_name_clone)
+                                        .replace("{context}", &context_text);
+                                    
+                                    // Call Gemini API with the news prompt
+                                    match gemini_client.generate_response_with_context(&news_prompt, "", &Vec::new(), None).await {
+                                        Ok(response) => {
+                                            // Check if the response is "pass" - if so, don't send anything
+                                            if response.trim().to_lowercase() == "pass" {
+                                                info!("News interjection evaluation: decided to PASS - no response sent");
+                                                String::new()
+                                            } else {
+                                                // Remove any "(via search)" or similar tags using regex
+                                                let via_regex = regex::Regex::new(r"\s*\(via\s+[^)]+\)\s*").unwrap();
+                                                let cleaned_response = via_regex.replace_all(&response, "").to_string();
+                                                
+                                                // Validate the URL
+                                                let url_regex = regex::Regex::new(r"https?://[^\s]+").unwrap();
+                                                if let Some(url_match) = url_regex.find(&cleaned_response) {
+                                                    let url_str = url_match.as_str();
+                                                    
+                                                    // Try to parse the URL
+                                                    if let Ok(url) = url::Url::parse(url_str) {
+                                                        // Check if the URL has a proper path (not just "/")
+                                                        let path = url.path();
+                                                        if path.len() <= 1 {
+                                                            // URL doesn't have a proper path
+                                                            info!("News interjection URL validation failed: URL has no proper path: {}", url_str);
+                                                            String::new()
+                                                        } else {
+                                                            cleaned_response.trim().to_string()
+                                                        }
+                                                    } else {
+                                                        // Invalid URL
+                                                        info!("News interjection URL validation failed: Invalid URL: {}", url_str);
+                                                        String::new()
+                                                    }
+                                                } else {
+                                                    // No URL found
+                                                    info!("News interjection URL validation failed: No URL found in response");
+                                                    String::new()
+                                                }
+                                            }
+                                        },
+                                        Err(e) => {
+                                            error!("Error generating news interjection: {:?}", e);
+                                            String::new()
+                                        }
                                     }
+                                } else {
+                                    // If Gemini API is not configured
+                                    info!("News Interjection not available (Gemini API not configured) - no response sent");
+                                    String::new()
                                 }
                             }
                         };
