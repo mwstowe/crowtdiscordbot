@@ -3465,7 +3465,24 @@ Be creative but realistic with your article title and URL."#)
                                                             info!("News interjection URL validation failed: URL has no proper path: {}", url_str);
                                                             String::new()
                                                         } else {
-                                                            cleaned_response.trim().to_string()
+                                                            // Validate that the URL actually exists
+                                                            match news_interjection::validate_url_exists(url_str).await {
+                                                                Ok(true) => {
+                                                                    // URL exists, return the cleaned response
+                                                                    info!("URL validation successful: {} exists", url_str);
+                                                                    cleaned_response.trim().to_string()
+                                                                },
+                                                                Ok(false) => {
+                                                                    // URL doesn't exist
+                                                                    info!("News interjection skipped: URL doesn't exist: {}", url_str);
+                                                                    String::new()
+                                                                },
+                                                                Err(e) => {
+                                                                    // Error validating URL
+                                                                    error!("Error validating URL {}: {:?}", url_str, e);
+                                                                    String::new()
+                                                                }
+                                                            }
                                                         }
                                                     } else {
                                                         // Invalid URL

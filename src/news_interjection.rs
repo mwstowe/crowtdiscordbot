@@ -9,6 +9,8 @@ use std::sync::Arc;
 use tokio_rusqlite::Connection;
 use regex::Regex;
 use url::Url;
+use reqwest;
+use std::time::Duration;
 
 // Handle news interjection
 pub async fn handle_news_interjection(
@@ -100,20 +102,44 @@ Be creative but realistic with your article title and URL."#)
                 return Ok(());
             }
             
-            // Start typing indicator now that we've decided to send a message
-            if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
-                error!("Failed to send typing indicator for news interjection: {:?}", e);
-            }
-            
-            // Apply realistic typing delay
-            apply_realistic_delay(&cleaned_response, ctx, msg.channel_id).await;
-            
-            // Send the response
-            let response_text = cleaned_response.clone(); // Clone for logging
-            if let Err(e) = msg.channel_id.say(&ctx.http, cleaned_response).await {
-                error!("Error sending news interjection: {:?}", e);
+            // Extract the URL for validation
+            let url_regex = Regex::new(r"https?://[^\s]+").unwrap();
+            if let Some(url_match) = url_regex.find(&cleaned_response) {
+                let url_str = url_match.as_str();
+                
+                // Validate that the URL actually exists
+                match validate_url_exists(url_str).await {
+                    Ok(true) => {
+                        // URL exists, proceed with sending the message
+                        info!("URL validation successful: {} exists", url_str);
+                        
+                        // Start typing indicator now that we've decided to send a message
+                        if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
+                            error!("Failed to send typing indicator for news interjection: {:?}", e);
+                        }
+                        
+                        // Apply realistic typing delay
+                        apply_realistic_delay(&cleaned_response, ctx, msg.channel_id).await;
+                        
+                        // Send the response
+                        let response_text = cleaned_response.clone(); // Clone for logging
+                        if let Err(e) = msg.channel_id.say(&ctx.http, cleaned_response).await {
+                            error!("Error sending news interjection: {:?}", e);
+                        } else {
+                            info!("News interjection evaluation: SENT response - {}", response_text);
+                        }
+                    },
+                    Ok(false) => {
+                        // URL doesn't exist
+                        info!("News interjection skipped: URL doesn't exist: {}", url_str);
+                    },
+                    Err(e) => {
+                        // Error validating URL
+                        error!("Error validating URL {}: {:?}", url_str, e);
+                    }
+                }
             } else {
-                info!("News interjection evaluation: SENT response - {}", response_text);
+                info!("News interjection skipped: No URL found in cleaned response");
             }
         },
         Err(e) => {
@@ -169,5 +195,60 @@ fn clean_news_response(response: &str) -> String {
         // No URL found
         info!("News interjection URL validation failed: No URL found in response");
         return String::new();
+    }
+}
+
+// Function to validate if a URL actually exists by making a HEAD request
+pub async fn validate_url_exists(url: &str) -> Result<bool> {
+    info!("Validating URL exists: {}", url);
+    
+    // Create a client with a short timeout
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36")
+        .build()?;
+    
+    // Try a HEAD request first (faster)
+    match client.head(url).send().await {
+        Ok(response) => {
+            let status = response.status();
+            if status.is_success() || status.is_redirection() {
+                info!("URL validation successful (HEAD): {} - Status: {}", url, status);
+                return Ok(true);
+            } else if status.as_u16() == 405 {
+                // Some servers don't support HEAD, try GET
+                match client.get(url).send().await {
+                    Ok(get_response) => {
+                        let get_status = get_response.status();
+                        info!("URL validation with GET: {} - Status: {}", url, get_status);
+                        return Ok(get_status.is_success() || get_status.is_redirection());
+                    },
+                    Err(e) => {
+                        info!("URL validation failed (GET): {} - Error: {}", url, e);
+                        return Ok(false);
+                    }
+                }
+            } else {
+                info!("URL validation failed (HEAD): {} - Status: {}", url, status);
+                return Ok(false);
+            }
+        },
+        Err(e) => {
+            // If there's a timeout or connection error, the URL likely doesn't exist
+            info!("URL validation failed (HEAD): {} - Error: {}", url, e);
+            
+            // Try GET as a fallback
+            match client.get(url).send().await {
+                Ok(get_response) => {
+                    let get_status = get_response.status();
+                    info!("URL validation with GET: {} - Status: {}", url, get_status);
+                    return Ok(get_status.is_success() || get_status.is_redirection());
+                },
+                Err(e) => {
+                    info!("URL validation failed (GET): {} - Error: {}", url, e);
+                    return Ok(false);
+                }
+            }
+        }
     }
 }
