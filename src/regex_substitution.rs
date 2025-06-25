@@ -104,6 +104,31 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
         0
     };
     
+    // Extract the original author's name from the bot regex response if applicable
+    let original_author = if is_bot_regex_response {
+        if let Some(first_msg) = messages.first() {
+            // Use regex to extract the original author's name
+            let re = Regex::new(r"^(.*?) (?:\*really\* )*meant: ").unwrap_or_else(|_| {
+                error!("Failed to compile regex for extracting author name");
+                Regex::new(r".*").unwrap() // Fallback regex that matches everything
+            });
+            
+            if let Some(captures) = re.captures(&first_msg.content) {
+                if let Some(name_match) = captures.get(1) {
+                    Some(name_match.as_str().to_string())
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    
     // Filter out commands and bot messages (except regex responses if they're the most recent)
     let valid_messages: Vec<&Message> = messages.iter()
         .enumerate()
@@ -180,21 +205,25 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
                     
                     // Get the display name of the original message author
                     let display_name = if i == 0 && is_bot_regex_response {
-                        // If this is a bot regex response, extract the original author's name
-                        // Use regex to handle any number of "really" occurrences
-                        let re = Regex::new(r"(.*?) (?:\*really\* )*meant: .*").unwrap_or_else(|_| {
-                            error!("Failed to compile regex for extracting author name");
-                            Regex::new(r".*").unwrap() // Fallback regex that matches everything
-                        });
-                        
-                        if let Some(captures) = re.captures(&prev_msg.content) {
-                            if let Some(name_match) = captures.get(1) {
-                                name_match.as_str().to_string()
+                        // If this is a bot regex response, use the extracted original author's name
+                        if let Some(ref author_name) = original_author {
+                            author_name.clone()
+                        } else {
+                            // Fallback to extracting from the message content
+                            let re = Regex::new(r"^(.*?) (?:\*really\* )*meant: ").unwrap_or_else(|_| {
+                                error!("Failed to compile regex for extracting author name");
+                                Regex::new(r".*").unwrap() // Fallback regex that matches everything
+                            });
+                            
+                            if let Some(captures) = re.captures(&prev_msg.content) {
+                                if let Some(name_match) = captures.get(1) {
+                                    name_match.as_str().to_string()
+                                } else {
+                                    get_best_display_name(ctx, prev_msg).await
+                                }
                             } else {
                                 get_best_display_name(ctx, prev_msg).await
                             }
-                        } else {
-                            get_best_display_name(ctx, prev_msg).await
                         }
                     } else if prev_msg.author.bot {
                         // Check if this is a gateway bot message
