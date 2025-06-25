@@ -133,9 +133,10 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
     let valid_messages: Vec<&Message> = messages.iter()
         .enumerate()
         .filter(|(i, m)| {
-            (!m.content.starts_with('!') && 
-             !m.content.starts_with('.')) ||
-            (*i == 0 && is_bot_regex_response) // Allow the most recent message if it's a bot regex response
+            // Allow regular messages
+            (!m.content.starts_with('!') && !m.content.starts_with('.')) ||
+            // Allow the most recent message if it's a bot regex response
+            (*i == 0 && is_bot_regex_response)
         })
         .map(|(_, m)| m)
         .collect();
@@ -160,7 +161,7 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
         Ok(re) => {
             // Try each message in order from most recent to least recent
             for (i, prev_msg) in valid_messages.iter().enumerate() {
-                // Apply the substitution
+                // Extract the content to modify
                 let content_to_modify = if i == 0 && is_bot_regex_response {
                     // If this is a bot regex response, extract just the message content without the prefix
                     // Use regex to handle any number of "really" occurrences
