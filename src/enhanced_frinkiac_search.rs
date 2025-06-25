@@ -391,17 +391,84 @@ Remember to return ONLY the JSON with no additional text."#,
         // Calculate exact word match score - how many words from the original query are in the caption
         let exact_word_match_score = self.calculate_exact_word_match_score(result, query);
         
+        // Calculate consecutive words bonus
+        let consecutive_words_bonus = self.calculate_consecutive_words_bonus(result, query);
+        
         // Calculate total score (weighted combination of all scores)
         // Give higher weight to search engine and Gemini terms
         let priority_bonus = if term == query { 0.0 } else { 0.1 };
         
-        (relevance_score * 0.2) + 
-        (popularity_score * 0.1) + 
-        (quote_match_score * 0.2) + 
-        (exact_word_match_score * 0.5) +
+        (relevance_score * 0.15) + 
+        (popularity_score * 0.10) + 
+        (quote_match_score * 0.15) + 
+        (exact_word_match_score * 0.30) +
+        (consecutive_words_bonus * 0.30) +
         priority_bonus
     }
     
+    // Calculate bonus for consecutive words from the query appearing in the caption
+    fn calculate_consecutive_words_bonus(&self, result: &FrinkiacResult, query: &str) -> f32 {
+        let query_lower = query.to_lowercase();
+        let caption_lower = result.caption.to_lowercase();
+        let episode_title_lower = result.episode_title.to_lowercase();
+        
+        // Split query into words
+        let query_words: Vec<&str> = query_lower.split_whitespace()
+            .filter(|w| w.len() > 2) // Filter out very short words
+            .collect();
+            
+        if query_words.len() <= 1 {
+            return 0.0; // No bonus for single-word queries
+        }
+        
+        // Check for consecutive words in caption or title
+        let full_query = query_words.join(" ");
+        
+        if caption_lower.contains(&full_query) {
+            return 1.0; // Maximum bonus for full match in caption
+        }
+        
+        if episode_title_lower.contains(&full_query) {
+            return 0.8; // High bonus for full match in title
+        }
+        
+        // Check for partial consecutive matches
+        if query_words.len() > 2 {
+            // Try with all but one word
+            for i in 0..query_words.len() {
+                let mut partial_words = query_words.clone();
+                partial_words.remove(i);
+                let partial_query = partial_words.join(" ");
+                
+                if caption_lower.contains(&partial_query) {
+                    return 0.7; // Good bonus for partial consecutive match
+                }
+                
+                if episode_title_lower.contains(&partial_query) {
+                    return 0.6; // Decent bonus for partial consecutive match in title
+                }
+            }
+        }
+        
+        // Check for pairs of consecutive words
+        if query_words.len() > 1 {
+            for i in 0..query_words.len() - 1 {
+                let pair = format!("{} {}", query_words[i], query_words[i + 1]);
+                
+                if caption_lower.contains(&pair) {
+                    return 0.5; // Moderate bonus for consecutive pair
+                }
+                
+                if episode_title_lower.contains(&pair) {
+                    return 0.4; // Some bonus for consecutive pair in title
+                }
+            }
+        }
+        
+        0.0 // No consecutive matches
+    }
+    
+    // Check if a result contains the search terms
     // Check if a result contains the search terms
     fn result_contains_search_terms(&self, result: &FrinkiacResult, query: &str) -> bool {
         let query_lower = query.to_lowercase();
@@ -409,7 +476,10 @@ Remember to return ONLY the JSON with no additional text."#,
         let episode_title_lower = result.episode_title.to_lowercase();
         
         // Split query into words
-        let query_words: Vec<&str> = query_lower.split_whitespace().collect();
+        let query_words: Vec<&str> = query_lower.split_whitespace()
+            .filter(|w| w.len() > 2) // Filter out very short words
+            .collect();
+            
         if query_words.is_empty() {
             return true; // Empty query matches everything
         }
@@ -419,10 +489,37 @@ Remember to return ONLY the JSON with no additional text."#,
             .all(|&word| caption_lower.contains(word));
             
         let all_words_in_title = query_words.iter()
+            .filter(|&word| !is_common_word(word)) // Filter out common words for title matching
             .all(|&word| episode_title_lower.contains(word));
             
-        // Return true if all words are found in either the caption or title
-        all_words_in_caption || all_words_in_title
+        // Check for consecutive words (much higher relevance)
+        let consecutive_words_match = if query_words.len() > 1 {
+            let full_query = query_words.join(" ");
+            caption_lower.contains(&full_query) || episode_title_lower.contains(&full_query)
+        } else {
+            false
+        };
+            
+        // Calculate fuzzy match score using Jaro-Winkler
+        let fuzzy_score = strsim::jaro_winkler(&caption_lower, &query_lower) as f32;
+        
+        // Check if a significant portion of words match
+        let matching_words_count = query_words.iter()
+            .filter(|&word| caption_lower.contains(word))
+            .count();
+        let word_match_ratio = if !query_words.is_empty() {
+            matching_words_count as f32 / query_words.len() as f32
+        } else {
+            0.0
+        };
+        
+        // Return true if:
+        // 1. All words are found in either the caption or title, OR
+        // 2. Consecutive words match (highest priority), OR
+        // 3. The fuzzy match score is high enough, OR
+        // 4. A significant portion of words match
+        all_words_in_caption || all_words_in_title || consecutive_words_match || 
+        fuzzy_score > 0.8 || word_match_ratio > 0.7
     }
     
     // Calculate a score based on how many exact words from the query are in the caption
@@ -774,7 +871,7 @@ Remember to return ONLY the JSON with no additional text."#,
         };
         
         // Bonus for consecutive words matching
-        let consecutive_words_bonus = self.calculate_consecutive_words_bonus(&query_lower, &caption_lower);
+        let consecutive_words_bonus = self.calculate_consecutive_words_bonus_strings(&query_lower, &caption_lower);
         
         // Bonus if the query appears in the episode title
         let episode_title_bonus = if episode_title_lower.contains(&query_lower) {
@@ -797,7 +894,7 @@ Remember to return ONLY the JSON with no additional text."#,
     }
     
     // Calculate bonus for consecutive words matching
-    fn calculate_consecutive_words_bonus(&self, query: &str, caption: &str) -> f32 {
+    fn calculate_consecutive_words_bonus_strings(&self, query: &str, caption: &str) -> f32 {
         let query_words: Vec<&str> = query.split_whitespace().collect();
         
         // If query has only one word, no consecutive bonus applies
@@ -950,4 +1047,22 @@ fn extract_season_episode_from_text(text: &str) -> Option<String> {
     }
     
     None
+}
+// Helper function to check if a word is a common word that should be ignored in some contexts
+fn is_common_word(word: &str) -> bool {
+    const COMMON_WORDS: &[&str] = &[
+        "the", "and", "that", "this", "with", "for", "was", "not", 
+        "you", "have", "are", "they", "what", "from", "but", "its",
+        "his", "her", "their", "your", "our", "who", "which", "when",
+        "where", "why", "how", "all", "any", "some", "many", "much",
+        "more", "most", "other", "such", "than", "then", "too", "very",
+        "just", "now", "also", "into", "only", "over", "under", "same",
+        "about", "after", "before", "between", "during", "through", "above",
+        "below", "down", "off", "out", "since", "upon", "while", "within",
+        "without", "across", "along", "among", "around", "behind", "beside",
+        "beyond", "near", "toward", "against", "despite", "except", "like",
+        "until", "because", "although", "unless", "whereas", "whether"
+    ];
+    
+    COMMON_WORDS.contains(&word)
 }

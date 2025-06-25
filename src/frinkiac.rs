@@ -408,14 +408,83 @@ impl FrinkiacClient {
             return Ok(None);
         }
         
-        // Take the first result
-        let first_result = &search_results[0];
-        let episode = &first_result.episode;
-        let timestamp = first_result.timestamp;
+        // Process all results and find the best match
+        let mut best_result: Option<FrinkiacResult> = None;
+        let mut best_score = 0.0;
         
-        // Get the caption for this frame
-        self.get_caption_for_frame(episode, timestamp).await
+        // Get the original query words for validation
+        let query_lower = query.to_lowercase();
+        let query_words: Vec<&str> = query_lower.split_whitespace().collect();
+        
+        // Process up to 5 results to find the best match
+        for (i, result) in search_results.iter().take(5).enumerate() {
+            let episode = &result.episode;
+            let timestamp = result.timestamp;
+            
+            // Get the caption for this frame
+            if let Ok(Some(frinkiac_result)) = self.get_caption_for_frame(episode, timestamp).await {
+                // Calculate relevance score
+                let score = calculate_result_relevance(&frinkiac_result, &query_words);
+                info!("Result #{} score: {:.2} for query: {}", i+1, score, query);
+                
+                // If this is the best result so far, keep it
+                if score > best_score {
+                    best_score = score;
+                    best_result = Some(frinkiac_result);
+                }
+            }
+        }
+        
+        // Return the best result, or None if no good matches were found
+        if best_score > 0.3 {  // Minimum threshold for relevance
+            Ok(best_result)
+        } else {
+            info!("No relevant results found for query: {}", query);
+            Ok(None)
+        }
     }
+}
+
+// Calculate relevance score for a search result
+fn calculate_result_relevance(result: &FrinkiacResult, query_words: &[&str]) -> f32 {
+    if query_words.is_empty() {
+        return 1.0; // Empty query matches everything
+    }
+    
+    let caption_lower = result.caption.to_lowercase();
+    let episode_title_lower = result.episode_title.to_lowercase();
+    
+    // Count how many query words appear in the caption and title
+    let mut caption_matches = 0;
+    let mut title_matches = 0;
+    let mut consecutive_word_bonus = 0.0;
+    
+    // Check for consecutive words in caption (much higher relevance)
+    if query_words.len() > 1 {
+        let full_query = query_words.join(" ");
+        if caption_lower.contains(&full_query) {
+            consecutive_word_bonus = 2.0; // Big bonus for consecutive words
+        }
+    }
+    
+    // Count individual word matches
+    for &word in query_words {
+        if caption_lower.contains(word) {
+            caption_matches += 1;
+        }
+        if episode_title_lower.contains(word) {
+            title_matches += 1;
+        }
+    }
+    
+    // Calculate match percentages
+    let caption_match_percentage = caption_matches as f32 / query_words.len() as f32;
+    let title_match_percentage = title_matches as f32 / query_words.len() as f32;
+    
+    // Calculate final score with weights
+    let score = (caption_match_percentage * 0.7) + (title_match_percentage * 0.3) + consecutive_word_bonus;
+    
+    score
 }
 
 // Format a caption to proper sentence case and separate different speakers
