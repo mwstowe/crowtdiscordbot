@@ -58,7 +58,15 @@ pub fn extract_gateway_username(msg: &Message) -> Option<String> {
     if let Some(colon_pos) = msg.content.find(':') {
         if colon_pos > 0 && colon_pos < 30 { // Reasonable username length
             let potential_username = msg.content[0..colon_pos].trim();
-            if !potential_username.is_empty() && !potential_username.contains(' ') {
+            
+            // Additional checks to avoid false positives
+            // Avoid matching URLs (http:, https:, etc.)
+            if !potential_username.is_empty() && 
+               !potential_username.contains(' ') && 
+               !potential_username.eq_ignore_ascii_case("http") && 
+               !potential_username.eq_ignore_ascii_case("https") && 
+               !potential_username.eq_ignore_ascii_case("ftp") && 
+               !potential_username.contains('/') {
                 debug!("Extracted potential gateway username from message prefix: {}", potential_username);
                 return Some(potential_username.to_string());
             }
@@ -71,12 +79,14 @@ pub fn extract_gateway_username(msg: &Message) -> Option<String> {
 
 // Helper function to get the best display name for a user
 pub async fn get_best_display_name(ctx: &Context, msg: &Message) -> String {
-    // First check if this is a gateway bot message
-    if let Some(gateway_username) = extract_gateway_username(msg) {
-        // Cache the username for future use
-        cache_gateway_username(msg.author.id, &gateway_username);
-        debug!("Found gateway username: {}", gateway_username);
-        return gateway_username;
+    // Only try to extract gateway username if this is a bot message
+    if msg.author.bot {
+        if let Some(gateway_username) = extract_gateway_username(msg) {
+            // Cache the username for future use
+            cache_gateway_username(msg.author.id, &gateway_username);
+            debug!("Found gateway username: {}", gateway_username);
+            return gateway_username;
+        }
     }
     
     let user_id = msg.author.id;
