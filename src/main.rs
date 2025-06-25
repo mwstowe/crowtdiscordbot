@@ -248,10 +248,10 @@ impl Bot {
         // Generate a comprehensive help message with all commands
         let help_message = if !imagine_channels.is_empty() {
             // Include the imagine command if channels are configured
-            "Available commands:\n!help - Show help\n!hello - Say hello\n!buzz - Generate corporate buzzwords\n!fightcrime - Generate a crime fighting duo\n!trump - Generate a Trump insult\n!bandname [name] - Generate music genre for a band\n!lastseen [name] - Find when a user was last active\n!quote [term] - Get a random quote\n!quote -show [show] - Get quote from specific show\n!quote -dud [user] - Get random message from a user\n!slogan [term] - Get a random advertising slogan\n!frinkiac [term] [-s season] [-e episode] - Get a Simpsons screenshot\n!morbotron [term] - Get a Futurama screenshot\n!masterofallscience [term] - Get a Rick and Morty screenshot\n!imagine [text] - Generate an image\n!alive [name] - Check if a celebrity is alive or dead\n!info - Show bot statistics"
+            "Available commands:\n!help - Show help\n!hello - Say hello\n!buzz - Generate corporate buzzwords\n!fightcrime - Generate a crime fighting duo\n!trump - Generate a Trump insult\n!bandname [name] - Generate music genre for a band\n!lastseen [name] - Find when a user was last active\n!quote [term] - Get a random quote\n!quote -show [show] - Get quote from specific show\n!quote -dud [user] - Get random message from a user\n!slogan [term] - Get a random advertising slogan\n!frinkiac [term] [-s season] [-e episode] - Get a Simpsons screenshot\n!morbotron [term] - Get a Futurama screenshot\n!masterofallscience [term] - Get a Rick and Morty screenshot\n!imagine [text] - Generate an image\n!alive [name] - Check if a celebrity is alive or dead\n!info - Show bot statistics\n!fixdisplayname <user_id> <display_name> - Fix display name for a user"
         } else {
             // Exclude the imagine command if no channels are configured
-            "Available commands:\n!help - Show help\n!hello - Say hello\n!buzz - Generate corporate buzzwords\n!fightcrime - Generate a crime fighting duo\n!trump - Generate a Trump insult\n!bandname [name] - Generate music genre for a band\n!lastseen [name] - Find when a user was last active\n!quote [term] - Get a random quote\n!quote -show [show] - Get quote from specific show\n!quote -dud [user] - Get random message from a user\n!slogan [term] - Get a random advertising slogan\n!frinkiac [term] [-s season] [-e episode] - Get a Simpsons screenshot\n!morbotron [term] - Get a Futurama screenshot\n!masterofallscience [term] - Get a Rick and Morty screenshot\n!alive [name] - Check if a celebrity is alive or dead\n!info - Show bot statistics"
+            "Available commands:\n!help - Show help\n!hello - Say hello\n!buzz - Generate corporate buzzwords\n!fightcrime - Generate a crime fighting duo\n!trump - Generate a Trump insult\n!bandname [name] - Generate music genre for a band\n!lastseen [name] - Find when a user was last active\n!quote [term] - Get a random quote\n!quote -show [show] - Get quote from specific show\n!quote -dud [user] - Get random message from a user\n!slogan [term] - Get a random advertising slogan\n!frinkiac [term] [-s season] [-e episode] - Get a Simpsons screenshot\n!morbotron [term] - Get a Futurama screenshot\n!masterofallscience [term] - Get a Rick and Morty screenshot\n!alive [name] - Check if a celebrity is alive or dead\n!info - Show bot statistics\n!fixdisplayname <user_id> <display_name> - Fix display name for a user"
         };
         
         commands.insert("help".to_string(), help_message.to_string());
@@ -368,6 +368,44 @@ impl Bot {
             Ok(true) => info!("✅ Database connection test passed"),
             Ok(false) => error!("❌ Database connection test failed"),
             Err(e) => error!("❌ Error testing database connection: {:?}", e),
+        }
+        
+        Ok(())
+    }
+    
+    // Handle the !fixdisplayname command
+    async fn handle_fixdisplayname_command(&self, ctx: &Context, msg: &Message, args: &[&str]) -> Result<()> {
+        // Check if we have a database connection
+        if let Some(db) = &self.message_db {
+            // Check if we have enough arguments
+            if args.len() < 2 {
+                if let Err(e) = msg.channel_id.say(&ctx.http, "Usage: !fixdisplayname <user_id> <correct_display_name>").await {
+                    error!("Error sending fixdisplayname usage message: {:?}", e);
+                }
+                return Ok(());
+            }
+            
+            let user_id = args[0];
+            let display_name = args[1];
+            
+            // Fix the display name in the database
+            match db_utils::fix_display_name_for_user(db.clone(), user_id, display_name).await {
+                Ok(count) => {
+                    if let Err(e) = msg.channel_id.say(&ctx.http, format!("Fixed display name for user {} to {}. Updated {} message records.", user_id, display_name, count)).await {
+                        error!("Error sending fixdisplayname success message: {:?}", e);
+                    }
+                },
+                Err(e) => {
+                    error!("Error fixing display name: {:?}", e);
+                    if let Err(e) = msg.channel_id.say(&ctx.http, format!("Error fixing display name: {}", e)).await {
+                        error!("Error sending fixdisplayname error message: {:?}", e);
+                    }
+                }
+            }
+        } else {
+            if let Err(e) = msg.channel_id.say(&ctx.http, "Database not configured").await {
+                error!("Error sending database not configured message: {:?}", e);
+            }
         }
         
         Ok(())

@@ -98,6 +98,7 @@ pub async fn get_best_display_name(ctx: &Context, msg: &Message) -> String {
             Ok(member) => {
                 // Use nickname if available, otherwise fall back to global name or username
                 if let Some(nick) = &member.nick {
+                    debug!("Using server nickname for {}: {}", user_id, nick);
                     return nick.clone();
                 }
             },
@@ -107,8 +108,17 @@ pub async fn get_best_display_name(ctx: &Context, msg: &Message) -> String {
         }
     }
     
-    // Fall back to global name or username if no nickname or couldn't get member data
-    msg.author.global_name.clone().unwrap_or_else(|| msg.author.name.clone())
+    // Fall back to global name if available
+    if let Some(global_name) = &msg.author.global_name {
+        if !global_name.is_empty() {
+            debug!("Using global name for {}: {}", user_id, global_name);
+            return global_name.clone();
+        }
+    }
+    
+    // Last resort: use username
+    debug!("Using username for {}: {}", user_id, msg.author.name);
+    msg.author.name.clone()
 }
 
 // Get the best display name for a user with explicit guild ID
@@ -124,15 +134,20 @@ pub async fn get_best_display_name_with_guild(ctx: &Context, user_id: UserId, gu
         Ok(member) => {
             // Use nickname if available
             if let Some(nick) = &member.nick {
-                debug!("Using server nickname for {} in guild {}", user_id, guild_id);
+                debug!("Using server nickname for {} in guild {}: {}", user_id, guild_id, nick);
                 return nick.clone();
             }
             
-            // Fall back to global name or username
+            // Fall back to global name if available
             if let Some(global_name) = &member.user.global_name {
-                return global_name.clone();
+                if !global_name.is_empty() {
+                    debug!("Using global name for {} in guild {}: {}", user_id, guild_id, global_name);
+                    return global_name.clone();
+                }
             }
             
+            // Last resort: use username
+            debug!("Using username for {} in guild {}: {}", user_id, guild_id, member.user.name);
             member.user.name
         },
         Err(e) => {
@@ -141,7 +156,17 @@ pub async fn get_best_display_name_with_guild(ctx: &Context, user_id: UserId, gu
             // Try to get user data directly
             match ctx.http.get_user(user_id).await {
                 Ok(user) => {
-                    user.global_name.clone().unwrap_or_else(|| user.name.clone())
+                    // Try global name first
+                    if let Some(global_name) = &user.global_name {
+                        if !global_name.is_empty() {
+                            debug!("Using global name for {}: {}", user_id, global_name);
+                            return global_name.clone();
+                        }
+                    }
+                    
+                    // Fall back to username
+                    debug!("Using username for {}: {}", user_id, user.name);
+                    user.name
                 },
                 Err(e) => {
                     error!("Failed to get user data for {}: {:?}", user_id, e);
