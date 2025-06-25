@@ -322,15 +322,67 @@ impl MorbotronClient {
     }
 }
 
+// Format a caption to proper sentence case and separate different speakers
+fn format_caption(caption: &str) -> String {
+    // Split by newlines to get potential different speakers
+    let lines: Vec<&str> = caption.split('\n')
+        .filter(|line| !line.trim().is_empty())
+        .collect();
+    
+    // Process each line
+    let mut formatted_lines: Vec<String> = Vec::new();
+    let mut current_speaker_lines: Vec<String> = Vec::new();
+    
+    for line in lines {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        
+        // Convert to sentence case (first letter capitalized, rest lowercase)
+        let sentence_case = if !trimmed.is_empty() {
+            let mut chars = trimmed.chars();
+            match chars.next() {
+                None => String::new(),
+                Some(first) => first.to_uppercase().collect::<String>() + &chars.collect::<String>().to_lowercase(),
+            }
+        } else {
+            String::new()
+        };
+        
+        // Check if this is likely a new speaker (empty line before or all caps line)
+        let is_new_speaker = current_speaker_lines.is_empty() || 
+                            trimmed == trimmed.to_uppercase() && 
+                            trimmed.chars().any(|c| c.is_alphabetic());
+        
+        if is_new_speaker && !current_speaker_lines.is_empty() {
+            // Join previous speaker's lines and add to formatted lines
+            formatted_lines.push(format!("\"{}\"", current_speaker_lines.join(" ")));
+            current_speaker_lines.clear();
+        }
+        
+        // Add this line to current speaker
+        current_speaker_lines.push(sentence_case);
+    }
+    
+    // Add the last speaker's lines
+    if !current_speaker_lines.is_empty() {
+        formatted_lines.push(format!("\"{}\"", current_speaker_lines.join(" ")));
+    }
+    
+    // Join all formatted parts
+    formatted_lines.join(" ")
+}
+
 // Format a Morbotron result for display
 fn format_morbotron_result(result: &MorbotronResult) -> String {
     format!(
-        "**S{:02}E{:02} - {}**\n{}\n\n\"{}\"",
+        "**S{:02}E{:02} - {}**\n{}\n\n{}",
         result.season, 
         result.episode_number, 
         result.episode_title,
         result.image_url,
-        result.caption
+        format_caption(&result.caption)
     )
 }
 
