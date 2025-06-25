@@ -39,8 +39,7 @@ const RANDOM_SEARCH_TERMS: &[&str] = &[
 #[derive(Deserialize, Debug)]
 struct MorbotronSearchResult {
     #[serde(rename = "Id")]
-    #[serde(default)]
-    id: String,
+    id: u64,
     #[serde(rename = "Episode")]
     episode: String,
     #[serde(rename = "Timestamp")]
