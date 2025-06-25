@@ -10,7 +10,7 @@ use rand::seq::SliceRandom;
 use crate::google_search::GoogleSearchClient;
 use crate::gemini_api::GeminiClient;
 use crate::enhanced_masterofallscience_search::EnhancedMasterOfAllScienceSearch;
-use crate::screenshot_search_utils;
+use crate::text_formatting;
 
 // API endpoints
 const MASTEROFALLSCIENCE_BASE_URL: &str = "https://masterofallscience.com/api/search";
@@ -363,55 +363,9 @@ impl MasterOfAllScienceClient {
 }
 
 // Format a caption to proper sentence case and separate different speakers
+// Format a caption to proper sentence case and separate different speakers
 fn format_caption(caption: &str) -> String {
-    // Split by newlines to get potential different speakers
-    let lines: Vec<&str> = caption.split('\n')
-        .filter(|line| !line.trim().is_empty())
-        .collect();
-    
-    // Process each line
-    let mut formatted_lines: Vec<String> = Vec::new();
-    let mut current_speaker_lines: Vec<String> = Vec::new();
-    
-    for line in lines {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        
-        // Convert to sentence case (first letter capitalized, rest lowercase)
-        let sentence_case = if !trimmed.is_empty() {
-            let mut chars = trimmed.chars();
-            match chars.next() {
-                None => String::new(),
-                Some(first) => first.to_uppercase().collect::<String>() + &chars.collect::<String>().to_lowercase(),
-            }
-        } else {
-            String::new()
-        };
-        
-        // Check if this is likely a new speaker (empty line before or all caps line)
-        let is_new_speaker = current_speaker_lines.is_empty() || 
-                            trimmed == trimmed.to_uppercase() && 
-                            trimmed.chars().any(|c| c.is_alphabetic());
-        
-        if is_new_speaker && !current_speaker_lines.is_empty() {
-            // Join previous speaker's lines and add to formatted lines
-            formatted_lines.push(format!("\"{}\"", current_speaker_lines.join(" ")));
-            current_speaker_lines.clear();
-        }
-        
-        // Add this line to current speaker
-        current_speaker_lines.push(sentence_case);
-    }
-    
-    // Add the last speaker's lines
-    if !current_speaker_lines.is_empty() {
-        formatted_lines.push(format!("\"{}\"", current_speaker_lines.join(" ")));
-    }
-    
-    // Join all formatted parts
-    formatted_lines.join(" ")
+    text_formatting::format_caption(caption, text_formatting::RICK_AND_MORTY_PROPER_NOUNS)
 }
 
 // Format a MasterOfAllScience result for display

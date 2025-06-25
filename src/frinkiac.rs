@@ -10,7 +10,7 @@ use rand::seq::SliceRandom;
 use crate::google_search::GoogleSearchClient;
 use crate::enhanced_frinkiac_search::EnhancedFrinkiacSearch;
 use crate::gemini_api::GeminiClient;
-use crate::screenshot_search_utils;
+use crate::text_formatting;
 
 // API endpoints
 const FRINKIAC_BASE_URL: &str = "https://frinkiac.com/api/search";
@@ -420,46 +420,7 @@ impl FrinkiacClient {
 
 // Format a caption to proper sentence case and separate different speakers
 fn format_caption(caption: &str) -> String {
-    // Split by newlines to get potential different speakers
-    let lines: Vec<&str> = caption.split('\n')
-        .filter(|line| !line.trim().is_empty())
-        .collect();
-    
-    // Process each line
-    let mut formatted_lines: Vec<String> = Vec::new();
-    let mut current_speaker_lines: Vec<String> = Vec::new();
-    
-    for line in lines {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        
-        // Check if this is likely a new speaker (empty line before or all caps line)
-        let is_new_speaker = current_speaker_lines.is_empty() || 
-                            trimmed == trimmed.to_uppercase() && 
-                            trimmed.chars().any(|c| c.is_alphabetic());
-        
-        if is_new_speaker && !current_speaker_lines.is_empty() {
-            // Join previous speaker's lines and add to formatted lines
-            formatted_lines.push(format!("\"{}\"", current_speaker_lines.join(" ")));
-            current_speaker_lines.clear();
-        }
-        
-        // Format the line with proper capitalization
-        let formatted_line = format_text_with_proper_capitalization(trimmed);
-        
-        // Add this line to current speaker
-        current_speaker_lines.push(formatted_line);
-    }
-    
-    // Add the last speaker's lines
-    if !current_speaker_lines.is_empty() {
-        formatted_lines.push(format!("\"{}\"", current_speaker_lines.join(" ")));
-    }
-    
-    // Join all formatted parts
-    formatted_lines.join(" ")
+    text_formatting::format_caption(caption, text_formatting::SIMPSONS_PROPER_NOUNS)
 }
 
 // Format a Frinkiac result for display
@@ -763,133 +724,4 @@ fn parse_frinkiac_args(args: &str) -> (Option<String>, Option<u32>, Option<u32>)
     
     (search_term, season, episode)
 }
-// Format text with proper capitalization for sentences and proper nouns
-fn format_text_with_proper_capitalization(text: &str) -> String {
-    // List of common proper nouns and words that should always be capitalized
-    const PROPER_NOUNS: &[&str] = &[
-        "homer", "marge", "bart", "lisa", "maggie", "ned", "flanders", "moe", "barney",
-        "smithers", "burns", "wiggum", "skinner", "krusty", "milhouse", "ralph", "nelson",
-        "patty", "selma", "apu", "springfield", "shelbyville", "itchy", "scratchy",
-        "troy", "mcclure", "lionel", "hutz", "dr.", "nick", "comic", "book", "guy",
-        "willie", "otto", "edna", "krabappel", "martin", "duffman", "lenny", "carl",
-        "hibbert", "quimby", "kent", "brockman", "sideshow", "bob", "mel", "jimbo",
-        "dolph", "kearney", "groundskeeper", "superintendent", "chalmers", "america",
-        "american", "usa", "u.s.a.", "u.s.", "god", "jesus", "christmas", "thanksgiving",
-        "halloween", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
-        "january", "february", "march", "april", "may", "june", "july", "august", 
-        "september", "october", "november", "december"
-    ];
-    
-    // Words that should always be lowercase (except at start of sentence)
-    const LOWERCASE_WORDS: &[&str] = &[
-        "a", "an", "the", "and", "but", "or", "for", "nor", "on", "at", "to", "from", "by",
-        "with", "in", "of", "as", "is", "am", "are", "was", "were", "be", "been", "being"
-    ];
-    
-    // Split the text into sentences
-    let sentences: Vec<&str> = text.split(|c| c == '.' || c == '!' || c == '?')
-        .filter(|s| !s.trim().is_empty())
-        .collect();
-    
-    let mut formatted_sentences = Vec::new();
-    
-    for sentence in sentences {
-        // Trim any leading whitespace
-        let sentence = sentence.trim_start();
-        if sentence.is_empty() {
-            continue;
-        }
-        
-        // Split the sentence into words
-        let words: Vec<&str> = sentence.split_whitespace().collect();
-        if words.is_empty() {
-            continue;
-        }
-        
-        let mut formatted_words = Vec::new();
-        
-        // Process each word
-        for (i, word) in words.iter().enumerate() {
-            let word_lower = word.to_lowercase();
-            
-            // Capitalize the first word of the sentence
-            if i == 0 {
-                let capitalized = capitalize_first_letter(word);
-                formatted_words.push(capitalized);
-                continue;
-            }
-            
-            // Handle special case for "I" pronoun
-            if word_lower == "i" {
-                formatted_words.push("I".to_string());
-                continue;
-            }
-            
-            // Check if it's a proper noun
-            let mut is_proper_noun = false;
-            for &proper_noun in PROPER_NOUNS {
-                if word_lower == proper_noun {
-                    formatted_words.push(capitalize_first_letter(word));
-                    is_proper_noun = true;
-                    break;
-                }
-            }
-            
-            if is_proper_noun {
-                continue;
-            }
-            
-            // Check if it's a word that should be lowercase
-            let mut is_lowercase_word = false;
-            for &lowercase_word in LOWERCASE_WORDS {
-                if word_lower == lowercase_word {
-                    formatted_words.push(word_lower);
-                    is_lowercase_word = true;
-                    break;
-                }
-            }
-            
-            if is_lowercase_word {
-                continue;
-            }
-            
-            // For other words, preserve their original case
-            formatted_words.push(word.to_string());
-        }
-        
-        // Join the words back into a sentence
-        formatted_sentences.push(formatted_words.join(" "));
-    }
-    
-    // Join the sentences with appropriate punctuation
-    let mut result = String::new();
-    let mut first = true;
-    
-    for sentence in formatted_sentences {
-        if !first {
-            result.push_str(". ");
-        }
-        result.push_str(&sentence);
-        first = false;
-    }
-    
-    // Add final punctuation if needed
-    if !result.is_empty() && !result.ends_with('.') && !result.ends_with('!') && !result.ends_with('?') {
-        result.push('.');
-    }
-    
-    result
-}
 
-// Helper function to capitalize the first letter of a word
-fn capitalize_first_letter(word: &str) -> String {
-    if word.is_empty() {
-        return String::new();
-    }
-    
-    let mut chars = word.chars();
-    match chars.next() {
-        None => String::new(),
-        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
-    }
-}
