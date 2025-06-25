@@ -90,6 +90,19 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
             (m.content.contains(" meant: ") || m.content.contains(" *really* meant: "))
         })
         .unwrap_or(false);
+        
+    // Count how many "really" are in the message if it's a bot regex response
+    let really_count = if is_bot_regex_response {
+        if let Some(msg_content) = messages.first().map(|m| &m.content) {
+            // Count occurrences of "*really*" in the message
+            let re = Regex::new(r"\*really\*").unwrap_or_else(|_| Regex::new(r"").unwrap());
+            re.find_iter(msg_content).count()
+        } else {
+            0
+        }
+    } else {
+        0
+    };
     
     // Filter out commands and bot messages (except regex responses if they're the most recent)
     let valid_messages: Vec<&Message> = messages.iter()
@@ -125,10 +138,18 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
                 // Apply the substitution
                 let content_to_modify = if i == 0 && is_bot_regex_response {
                     // If this is a bot regex response, extract just the message content without the prefix
-                    if let Some(content_start) = prev_msg.content.find(" meant: ") {
-                        prev_msg.content[(content_start + " meant: ".len())..].to_string()
-                    } else if let Some(content_start) = prev_msg.content.find(" *really* meant: ") {
-                        prev_msg.content[(content_start + " *really* meant: ".len())..].to_string()
+                    // Use regex to handle any number of "really" occurrences
+                    let re = Regex::new(r".*? (?:\*really\* )*meant: (.*)").unwrap_or_else(|_| {
+                        error!("Failed to compile regex for extracting message content");
+                        Regex::new(r".*").unwrap() // Fallback regex that matches everything
+                    });
+                    
+                    if let Some(captures) = re.captures(&prev_msg.content) {
+                        if let Some(content_match) = captures.get(1) {
+                            content_match.as_str().to_string()
+                        } else {
+                            prev_msg.content.clone()
+                        }
                     } else {
                         prev_msg.content.clone()
                     }
@@ -160,10 +181,18 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
                     // Get the display name of the original message author
                     let display_name = if i == 0 && is_bot_regex_response {
                         // If this is a bot regex response, extract the original author's name
-                        if let Some(name_end) = prev_msg.content.find(" meant: ") {
-                            prev_msg.content[0..name_end].to_string()
-                        } else if let Some(name_end) = prev_msg.content.find(" *really* meant: ") {
-                            prev_msg.content[0..name_end].to_string()
+                        // Use regex to handle any number of "really" occurrences
+                        let re = Regex::new(r"(.*?) (?:\*really\* )*meant: .*").unwrap_or_else(|_| {
+                            error!("Failed to compile regex for extracting author name");
+                            Regex::new(r".*").unwrap() // Fallback regex that matches everything
+                        });
+                        
+                        if let Some(captures) = re.captures(&prev_msg.content) {
+                            if let Some(name_match) = captures.get(1) {
+                                name_match.as_str().to_string()
+                            } else {
+                                get_best_display_name(ctx, prev_msg).await
+                            }
                         } else {
                             get_best_display_name(ctx, prev_msg).await
                         }
@@ -210,7 +239,10 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
                     
                     // Format and send the response
                     let response = if i == 0 && is_bot_regex_response {
-                        format!("{} *really* meant: {}", clean_display_name, new_content)
+                        // For a bot regex response, we need to keep the original author's name
+                        // and add one more "really" to indicate another substitution
+                        let really_part = "*really* ".repeat(really_count + 1);
+                        format!("{} {}meant: {}", clean_display_name, really_part, new_content)
                     } else {
                         format!("{} meant: {}", clean_display_name, new_content)
                     };
