@@ -39,6 +39,7 @@ mod enhanced_frinkiac_search;
 mod enhanced_morbotron_search;
 mod enhanced_masterofallscience_search;
 mod fill_silence;
+mod fact_interjection;
 
 // Helper function to check if a response looks like a prompt
 fn is_prompt_echo(response: &str) -> bool {
@@ -119,8 +120,7 @@ struct Bot {
     interjection_pondering_probability: f64,
     #[allow(dead_code)]
     interjection_ai_probability: f64,
-    #[allow(dead_code)]
-    _interjection_fact_probability: f64,
+    interjection_fact_probability: f64,
     interjection_news_probability: f64,
     fill_silence_manager: Arc<fill_silence::FillSilenceManager>,
     // Track the last seen message timestamp for each channel
@@ -233,7 +233,7 @@ impl Bot {
         interjection_memory_probability: f64,
         interjection_pondering_probability: f64,
         interjection_ai_probability: f64,
-        _interjection_fact_probability: f64,
+        interjection_fact_probability: f64,
         interjection_news_probability: f64,
         log_prompts: bool,
         imagine_channels: Vec<String>,
@@ -346,7 +346,7 @@ impl Bot {
             interjection_memory_probability,
             interjection_pondering_probability,
             interjection_ai_probability,
-            _interjection_fact_probability,
+            interjection_fact_probability,
             interjection_news_probability,
             fill_silence_manager,
             last_seen_message: Arc::new(RwLock::new(HashMap::new())),
@@ -1773,12 +1773,12 @@ impl Bot {
         }
         
         // Fact interjection
-        let adjusted_fact_probability = self._interjection_fact_probability * silence_multiplier;
+        let adjusted_fact_probability = self.interjection_fact_probability * silence_multiplier;
         if rand::thread_rng().gen_bool(adjusted_fact_probability) {
-            let probability_percent = self._interjection_fact_probability * 100.0;
+            let probability_percent = self.interjection_fact_probability * 100.0;
             let adjusted_percent = adjusted_fact_probability * 100.0;
-            let odds = if self._interjection_fact_probability > 0.0 {
-                format!("1 in {:.0}", 1.0 / self._interjection_fact_probability)
+            let odds = if self.interjection_fact_probability > 0.0 {
+                format!("1 in {:.0}", 1.0 / self.interjection_fact_probability)
             } else {
                 "disabled".to_string()
             };
@@ -1787,95 +1787,20 @@ impl Bot {
                   probability_percent, adjusted_percent, silence_multiplier, odds);
             
             if let Some(gemini_client) = &self.gemini_client {
-                // We'll start typing indicator only after we decide to send a message
-                
-                // Get recent messages for context
-                let context_messages = if let Some(db) = &self.message_db {
-                    match db_utils::get_recent_messages(db.clone(), self.gemini_context_messages, Some(msg.channel_id.to_string().as_str())).await {
-                        Ok(messages) => messages,
-                        Err(e) => {
-                            error!("Error retrieving recent messages for fact interjection: {:?}", e);
-                            Vec::new()
-                        }
-                    }
-                } else {
-                    Vec::new()
-                };
-                
-                // Format context for the prompt
-                let context_text = if !context_messages.is_empty() {
-                    // Reverse the messages to get chronological order (oldest first)
-                    let mut chronological_messages = context_messages.clone();
-                    chronological_messages.reverse();
-                    
-                    let formatted_messages: Vec<String> = chronological_messages.iter()
-                        .map(|(_author, display_name, content)| format!("{}: {}", display_name, content))
-                        .collect();
-                    formatted_messages.join("\n")
-                } else {
-                    info!("No context available for fact interjection in channel_id: {}", msg.channel_id);
-                    // Use empty string instead of "No recent messages" to avoid showing this in logs
-                    "".to_string()
-                };
-                
-                // Create the fact prompt
-                let fact_prompt = String::from(r#"You are {bot_name}, a Discord bot. Provide a single interesting fact related to the conversation context below.
-
-{context}
-
-Guidelines:
-1. Directly state the fact without any introduction or commentary
-2. If you can find a connection to the conversation, use it, but don't force it
-3. Keep it concise (1-2 sentences maximum)
-4. Don't reference this prompt or explain your reasoning
-5. Don't use phrases like "Did you know" or "Fun fact"
-6. If you can't find a relevant fact, just respond with "pass"
-
-Example good response: "The average cloud weighs around 1.1 million pounds due to the weight of water droplets."
-Example bad response: "Speaking of weather, did you know that the average cloud weighs 1.1 million pounds?"
-
-Just state the fact directly and concisely."#)
-                    .replace("{bot_name}", &self.bot_name)
-                    .replace("{context}", &context_text);
-                
-                // Call Gemini API with the fact prompt
-                match gemini_client.generate_response_with_context(&fact_prompt, "", &Vec::new(), None).await {
-                    Ok(response) => {
-                        // Check if the response is "pass" - if so, don't send anything
-                        if response.trim().to_lowercase() == "pass" {
-                            info!("Fact interjection evaluation: decided to PASS - no response sent");
-                            return Ok(());
-                        }
-                        
-                        // Check if the response looks like the prompt itself (API error)
-                        if response.contains("{bot_name}") || 
-                           response.contains("{context}") || 
-                           response.contains("Guidelines for your fact") ||
-                           response.contains("If you can't think of a good fact") {
-                            error!("Fact interjection error: API returned the prompt instead of a response");
-                            return Ok(());
-                        }
-                        
-                        // Start typing indicator now that we've decided to send a message
-                        if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
-                            error!("Failed to send typing indicator for fact interjection: {:?}", e);
-                        }
-                        
-                        // Apply realistic typing delay
-                        apply_realistic_delay(&response, ctx, msg.channel_id).await;
-                        
-                        // Send the response
-                        let response_text = response.clone(); // Clone for logging
-                        if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
-                            error!("Error sending fact interjection: {:?}", e);
-                        } else {
-                            info!("Fact interjection evaluation: SENT response - {}", response_text);
-                        }
-                    },
-                    Err(e) => {
-                        error!("Error generating fact interjection: {:?}", e);
-                    }
+                // We'll use our dedicated fact interjection module
+                if let Err(e) = fact_interjection::handle_fact_interjection(
+                    ctx, 
+                    msg, 
+                    gemini_client, 
+                    &self.message_db, 
+                    &self.bot_name, 
+                    self.gemini_context_messages
+                ).await {
+                    error!("Error handling fact interjection: {:?}", e);
                 }
+            } else {
+                // If Gemini API is not configured
+                info!("Fact Interjection not available (Gemini API not configured) - no response sent");
             }
         }
         
@@ -3402,25 +3327,32 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                 })
                             },
                             4 => {
-                                // Fact interjection
-                                let facts = [
-                                    "Fun fact: The average cloud weighs around 1.1 million pounds due to the weight of water droplets.",
-                                    "Did you know? A day on Venus is longer than a year on Venus.",
-                                    "Fun fact: Honey never spoils. Archaeologists have found pots of honey in ancient Egyptian tombs that are over 3,000 years old and still perfectly good to eat.",
-                                    "Did you know? Octopuses have three hearts, nine brains, and blue blood.",
-                                    "Fun fact: The shortest war in history was between Britain and Zanzibar on August 27, 1896. Zanzibar surrendered after 38 minutes.",
-                                    "Did you know? Bananas are berries, but strawberries are not.",
-                                    "Fun fact: A group of flamingos is called a 'flamboyance'.",
-                                    "Did you know? The average person will spend six months of their life waiting for red lights to turn green.",
-                                    "Fun fact: Crows can recognize human faces and remember if that specific human is a threat.",
-                                    "Did you know? The world's oldest known living tree is over 5,000 years old.",
-                                ];
-                                
-                                facts.choose(&mut rand::thread_rng()).map(|s| s.to_string()).unwrap_or_else(|| {
-                                    // If we somehow got no facts, skip the interjection
-                                    info!("No facts available, skipping interjection");
+                                // Fact interjection using Gemini API
+                                if let Some(gemini_client) = &task_gemini_client {
+                                    // Use the dedicated fact interjection module for spontaneous interjections
+                                    match fact_interjection::handle_spontaneous_fact_interjection(
+                                        &http, 
+                                        *channel_id, 
+                                        gemini_client, 
+                                        &message_db_clone, 
+                                        &bot_name_clone, 
+                                        gemini_context_messages
+                                    ).await {
+                                        Ok(_) => {
+                                            // The fact was sent directly by the module, so return empty string
+                                            // to prevent the spontaneous interjection task from sending another message
+                                            String::new()
+                                        },
+                                        Err(e) => {
+                                            error!("Error handling spontaneous fact interjection: {:?}", e);
+                                            String::new()
+                                        }
+                                    }
+                                } else {
+                                    // If Gemini API is not configured
+                                    info!("Fact Interjection not available (Gemini API not configured) - no response sent");
                                     String::new()
-                                })
+                                }
                             },
                             _ => {
                                 // Use the AI-generated news interjection
