@@ -40,6 +40,7 @@ mod enhanced_morbotron_search;
 mod enhanced_masterofallscience_search;
 mod fill_silence;
 mod fact_interjection;
+mod screenshot_search_utils;
 
 // Helper function to check if a response looks like a prompt
 fn is_prompt_echo(response: &str) -> bool {

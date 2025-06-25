@@ -10,6 +10,7 @@ use rand::seq::SliceRandom;
 use crate::google_search::GoogleSearchClient;
 use crate::enhanced_frinkiac_search::EnhancedFrinkiacSearch;
 use crate::gemini_api::GeminiClient;
+use crate::screenshot_search_utils;
 
 // API endpoints
 const FRINKIAC_BASE_URL: &str = "https://frinkiac.com/api/search";
@@ -311,7 +312,29 @@ impl FrinkiacClient {
             return Ok(Some(result));
         }
         
-        // 4. If the query has multiple words, try searching for pairs of consecutive words
+        // 4. Try with variations of "as" phrases (for cases like "as safe as they said")
+        if query.contains(" as ") {
+            let variations = crate::screenshot_search_utils::generate_as_phrase_variations(query);
+            for variation in variations {
+                info!("Trying 'as' phrase variation: {}", variation);
+                if let Some(result) = self.search_with_strategy(&variation).await? {
+                    info!("Found result with 'as' phrase variation");
+                    return Ok(Some(result));
+                }
+            }
+        }
+        
+        // 5. Try with variations for common speech patterns
+        let speech_variations = crate::screenshot_search_utils::generate_speech_pattern_variations(query);
+        for variation in speech_variations {
+            info!("Trying speech pattern variation: {}", variation);
+            if let Some(result) = self.search_with_strategy(&variation).await? {
+                info!("Found result with speech pattern variation");
+                return Ok(Some(result));
+            }
+        }
+        
+        // 6. If the query has multiple words, try searching for pairs of consecutive words
         let words: Vec<&str> = query.split_whitespace().collect();
         if words.len() > 1 {
             for i in 0..words.len() - 1 {
@@ -324,18 +347,33 @@ impl FrinkiacClient {
             }
         }
         
-        // 5. If all else fails, try individual words (but only if there are multiple words)
+        // 7. Try searching for individual significant words
         if words.len() > 1 {
-            for word in words {
-                // Skip very short words as they're likely to give irrelevant results
-                if word.len() <= 2 {
-                    continue;
-                }
+            // Skip common words and focus on significant ones
+            let significant_words: Vec<&str> = words.iter()
+                .filter(|&&word| {
+                    let word_lower = word.to_lowercase();
+                    word_lower.len() > 3 && !crate::screenshot_search_utils::is_common_word(&word_lower)
+                })
+                .copied()
+                .collect();
+                
+            for word in significant_words {
                 info!("Trying single word search: {}", word);
                 if let Some(result) = self.search_with_strategy(word).await? {
                     info!("Found result with single word search");
                     return Ok(Some(result));
                 }
+            }
+        }
+        
+        // 8. Try with fuzzy variations of the query
+        let fuzzy_variations = crate::screenshot_search_utils::generate_fuzzy_variations(query);
+        for variation in fuzzy_variations {
+            info!("Trying fuzzy variation: {}", variation);
+            if let Some(result) = self.search_with_strategy(&variation).await? {
+                info!("Found result with fuzzy variation");
+                return Ok(Some(result));
             }
         }
         
