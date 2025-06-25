@@ -369,7 +369,10 @@ impl EnhancedMorbotronSearch {
         let episode_title_lower = result.episode_title.to_lowercase();
         
         // Split query into words
-        let query_words: Vec<&str> = query_lower.split_whitespace().collect();
+        let query_words: Vec<&str> = query_lower.split_whitespace()
+            .filter(|w| w.len() > 2) // Filter out very short words
+            .collect();
+            
         if query_words.is_empty() {
             return true; // Empty query matches everything
         }
@@ -379,10 +382,27 @@ impl EnhancedMorbotronSearch {
             .all(|&word| caption_lower.contains(word));
             
         let all_words_in_title = query_words.iter()
+            .filter(|&word| !is_common_word(word)) // Filter out common words for title matching
             .all(|&word| episode_title_lower.contains(word));
             
-        // Return true if all words are found in either the caption or title
-        all_words_in_caption || all_words_in_title
+        // Calculate fuzzy match score using Jaro-Winkler
+        let fuzzy_score = jaro_winkler(&caption_lower, &query_lower) as f32;
+        
+        // Check if a significant portion of words match
+        let matching_words_count = query_words.iter()
+            .filter(|&word| caption_lower.contains(word))
+            .count();
+        let word_match_ratio = if !query_words.is_empty() {
+            matching_words_count as f32 / query_words.len() as f32
+        } else {
+            0.0
+        };
+        
+        // Return true if:
+        // 1. All words are found in either the caption or title, OR
+        // 2. The fuzzy match score is high enough, OR
+        // 3. A significant portion of words match
+        all_words_in_caption || all_words_in_title || fuzzy_score > 0.8 || word_match_ratio > 0.6
     }
     
     // Extract a quote from text (text between quotation marks)
@@ -517,4 +537,22 @@ fn extract_season_episode_from_text(text: &str) -> Option<String> {
     }
     
     None
+}
+// Helper function to check if a word is a common word that should be ignored in some contexts
+fn is_common_word(word: &str) -> bool {
+    const COMMON_WORDS: &[&str] = &[
+        "the", "and", "that", "this", "with", "for", "was", "not", 
+        "you", "have", "are", "they", "what", "from", "but", "its",
+        "his", "her", "their", "your", "our", "who", "which", "when",
+        "where", "why", "how", "all", "any", "some", "many", "much",
+        "more", "most", "other", "such", "than", "then", "too", "very",
+        "just", "now", "also", "into", "only", "over", "under", "same",
+        "about", "after", "before", "between", "during", "through", "above",
+        "below", "down", "off", "out", "since", "upon", "while", "within",
+        "without", "across", "along", "among", "around", "behind", "beside",
+        "beyond", "near", "toward", "against", "despite", "except", "like",
+        "until", "because", "although", "unless", "whereas", "whether"
+    ];
+    
+    COMMON_WORDS.contains(&word)
 }
