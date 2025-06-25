@@ -38,6 +38,7 @@ const RANDOM_SEARCH_TERMS: &[&str] = &[
 // Morbotron search result structure
 #[derive(Deserialize, Debug)]
 struct MorbotronSearchResult {
+    #[serde(default)]
     id: String,
     episode: String,
     timestamp: u64,
@@ -206,20 +207,38 @@ impl MorbotronClient {
         let encoded_query = urlencoding::encode(query);
         let search_url = format!("{}?q={}", MORBOTRON_BASE_URL, encoded_query);
         
+        info!("Sending request to Morbotron API: {}", search_url);
+        
         // Make the search request
         let search_response = self.http_client.get(&search_url)
             .send()
             .await
             .map_err(|e| anyhow!("Failed to search Morbotron: {}", e))?;
             
-        if !search_response.status().is_success() {
-            return Err(anyhow!("Morbotron search failed with status: {}", search_response.status()));
+        let status = search_response.status();
+        info!("Morbotron API response status: {}", status);
+        
+        if !status.is_success() {
+            return Err(anyhow!("Morbotron search failed with status: {}", status));
         }
         
+        // Get the response body as text first
+        let response_body = search_response.text().await
+            .map_err(|e| anyhow!("Failed to get Morbotron response body: {}", e))?;
+        
+        info!("Morbotron API response body: {}", response_body);
+        
         // Parse the search results
-        let search_results: Vec<MorbotronSearchResult> = search_response.json()
-            .await
-            .map_err(|e| anyhow!("Failed to parse Morbotron search results: {}", e))?;
+        let search_results: Vec<MorbotronSearchResult> = match serde_json::from_str::<Vec<MorbotronSearchResult>>(&response_body) {
+            Ok(results) => {
+                info!("Successfully parsed Morbotron search results: {} results", results.len());
+                results
+            },
+            Err(e) => {
+                error!("Failed to parse Morbotron search results: {}. Response body: {}", e, response_body);
+                return Err(anyhow!("Failed to parse Morbotron search results: {}", e));
+            }
+        };
             
         // If no results, return None
         if search_results.is_empty() {
@@ -444,20 +463,23 @@ pub async fn handle_morbotron_command(
             }
         },
         Err(e) => {
-            let error_msg = format!("Error searching Morbotron: {}", e);
-            error!("{}", error_msg);
+            // Create a user-friendly error message
+            let user_error_msg = "Couldn't find any Futurama screenshots. Good news, everyone! I'm a failure!";
+            
+            // Log the detailed error for debugging
+            error!("Error searching Morbotron: {}", e);
             
             // Edit the searching message if we have one, otherwise send a new message
             if let Some(mut search_msg) = searching_msg {
-                if let Err(e) = search_msg.edit(http, serenity::builder::EditMessage::new().content(&error_msg)).await {
+                if let Err(e) = search_msg.edit(http, serenity::builder::EditMessage::new().content(user_error_msg)).await {
                     error!("Error editing searching message: {:?}", e);
                     // Try sending a new message if editing fails
-                    if let Err(e) = msg.channel_id.say(http, &error_msg).await {
+                    if let Err(e) = msg.channel_id.say(http, user_error_msg).await {
                         error!("Error sending Morbotron error message: {:?}", e);
                     }
                 }
             } else {
-                if let Err(e) = msg.channel_id.say(http, &error_msg).await {
+                if let Err(e) = msg.channel_id.say(http, user_error_msg).await {
                     error!("Error sending Morbotron error message: {:?}", e);
                 }
             }

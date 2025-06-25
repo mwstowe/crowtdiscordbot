@@ -40,6 +40,7 @@ const RANDOM_SEARCH_TERMS: &[&str] = &[
 // MasterOfAllScience search result structure
 #[derive(Deserialize, Debug)]
 struct MasterOfAllScienceSearchResult {
+    #[serde(default)]
     id: String,
     episode: String,
     timestamp: u64,
@@ -208,20 +209,38 @@ impl MasterOfAllScienceClient {
         let encoded_query = urlencoding::encode(query);
         let search_url = format!("{}?q={}", MASTEROFALLSCIENCE_BASE_URL, encoded_query);
         
+        info!("Sending request to MasterOfAllScience API: {}", search_url);
+        
         // Make the search request
         let search_response = self.http_client.get(&search_url)
             .send()
             .await
             .map_err(|e| anyhow!("Failed to search MasterOfAllScience: {}", e))?;
             
-        if !search_response.status().is_success() {
-            return Err(anyhow!("MasterOfAllScience search failed with status: {}", search_response.status()));
+        let status = search_response.status();
+        info!("MasterOfAllScience API response status: {}", status);
+        
+        if !status.is_success() {
+            return Err(anyhow!("MasterOfAllScience search failed with status: {}", status));
         }
         
+        // Get the response body as text first
+        let response_body = search_response.text().await
+            .map_err(|e| anyhow!("Failed to get MasterOfAllScience response body: {}", e))?;
+        
+        info!("MasterOfAllScience API response body: {}", response_body);
+        
         // Parse the search results
-        let search_results: Vec<MasterOfAllScienceSearchResult> = search_response.json()
-            .await
-            .map_err(|e| anyhow!("Failed to parse MasterOfAllScience search results: {}", e))?;
+        let search_results: Vec<MasterOfAllScienceSearchResult> = match serde_json::from_str::<Vec<MasterOfAllScienceSearchResult>>(&response_body) {
+            Ok(results) => {
+                info!("Successfully parsed MasterOfAllScience search results: {} results", results.len());
+                results
+            },
+            Err(e) => {
+                error!("Failed to parse MasterOfAllScience search results: {}. Response body: {}", e, response_body);
+                return Err(anyhow!("Failed to parse MasterOfAllScience search results: {}", e));
+            }
+        };
             
         // If no results, return None
         if search_results.is_empty() {
@@ -446,20 +465,23 @@ pub async fn handle_masterofallscience_command(
             }
         },
         Err(e) => {
-            let error_msg = format!("Error searching MasterOfAllScience: {}", e);
-            error!("{}", error_msg);
+            // Create a user-friendly error message
+            let user_error_msg = "Couldn't find any Rick and Morty screenshots. Wubba lubba dub dub!";
+            
+            // Log the detailed error for debugging
+            error!("Error searching MasterOfAllScience: {}", e);
             
             // Edit the searching message if we have one, otherwise send a new message
             if let Some(mut search_msg) = searching_msg {
-                if let Err(e) = search_msg.edit(http, serenity::builder::EditMessage::new().content(&error_msg)).await {
+                if let Err(e) = search_msg.edit(http, serenity::builder::EditMessage::new().content(user_error_msg)).await {
                     error!("Error editing searching message: {:?}", e);
                     // Try sending a new message if editing fails
-                    if let Err(e) = msg.channel_id.say(http, &error_msg).await {
+                    if let Err(e) = msg.channel_id.say(http, user_error_msg).await {
                         error!("Error sending MasterOfAllScience error message: {:?}", e);
                     }
                 }
             } else {
-                if let Err(e) = msg.channel_id.say(http, &error_msg).await {
+                if let Err(e) = msg.channel_id.say(http, user_error_msg).await {
                     error!("Error sending MasterOfAllScience error message: {:?}", e);
                 }
             }
