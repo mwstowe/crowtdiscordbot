@@ -40,9 +40,12 @@ const RANDOM_SEARCH_TERMS: &[&str] = &[
 // MasterOfAllScience search result structure
 #[derive(Deserialize, Debug)]
 struct MasterOfAllScienceSearchResult {
+    #[serde(rename = "Id")]
     #[serde(default)]
     id: String,
+    #[serde(rename = "Episode")]
     episode: String,
+    #[serde(rename = "Timestamp")]
     timestamp: u64,
 }
 
