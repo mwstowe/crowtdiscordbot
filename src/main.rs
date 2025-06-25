@@ -1647,25 +1647,172 @@ impl Bot {
             info!("Triggered pondering interjection (base: {:.2}% chance, adjusted: {:.2}%, silence multiplier: {:.2}x, {})", 
                   probability_percent, adjusted_percent, silence_multiplier, odds);
             
-            let ponderings = [
-                "Hmm, that's an interesting point.",
-                "I was just thinking about that!",
-                "That reminds me of something...",
-                "I'm not sure I agree with that.",
-                "Fascinating perspective.",
-                "I've been pondering that very question.",
-                "That's what I've been saying all along!",
-                "I never thought of it that way before.",
-                "You know, that's actually quite profound.",
-                "Wait, what?",
-            ];
-            
-            let pondering = ponderings.choose(&mut rand::thread_rng()).unwrap_or(&"Hmm, interesting.").to_string();
-            let pondering_text = pondering.clone(); // Clone for logging
-            if let Err(e) = msg.channel_id.say(&ctx.http, pondering).await {
-                error!("Error sending random pondering: {:?}", e);
+            // Use Gemini API for pondering if available
+            if let Some(gemini_client) = &self.gemini_client {
+                // Get recent messages for context
+                let recent_messages = if let Some(db) = &self.message_db {
+                    match db_utils::get_recent_messages(
+                        db.clone(),
+                        5, // Get last 5 messages for context
+                        Some(&msg.channel_id.to_string())
+                    ).await {
+                        Ok(messages) => messages,
+                        Err(e) => {
+                            error!("Error retrieving recent messages for pondering interjection: {:?}", e);
+                            Vec::new()
+                        }
+                    }
+                } else {
+                    Vec::new()
+                };
+                
+                // Format messages for context
+                let context = if !recent_messages.is_empty() {
+                    let mut formatted_messages = Vec::new();
+                    for (_, _, content) in recent_messages {
+                        // Skip empty messages
+                        if content.trim().is_empty() {
+                            continue;
+                        }
+                        
+                        // Format the message (simplified since we don't have author info)
+                        formatted_messages.push(format!("Message: {}", content));
+                    }
+                    
+                    formatted_messages.join("\n")
+                } else {
+                    info!("No context available for pondering interjection in channel_id: {}", msg.channel_id);
+                    "".to_string()
+                };
+                
+                // Create a pondering-specific prompt
+                let pondering_prompt = format!(
+                    r#"You are {}, a Discord bot. Based on the conversation context, generate a very brief thoughtful comment or question.
+
+{}
+
+Requirements:
+- Be extremely brief (maximum 1 short sentence)
+- Sound natural and conversational
+- Don't use phrases like "I wonder" or "I was thinking"
+- Don't introduce yourself or explain your reasoning
+- If you have nothing valuable to add, just respond with "pass"
+
+Example good responses:
+"That's an interesting perspective."
+"Hmm, never thought of it that way."
+"Fascinating approach to the problem."
+
+Example bad responses:
+"I was just thinking about how interesting that is."
+"I wonder if there's more to consider about this topic."
+"As someone interested in this conversation, I find that fascinating."
+
+Keep it extremely brief and natural, as if you're just briefly pondering the conversation."#,
+                    self.bot_name,
+                    context
+                );
+                
+                // Call Gemini API
+                match gemini_client.generate_content(&pondering_prompt).await {
+                    Ok(response) => {
+                        // Check if the response is "pass" - if so, don't send anything
+                        if response.trim().to_lowercase() == "pass" {
+                            info!("Pondering interjection evaluation: decided to PASS - no response sent");
+                            return Ok(());
+                        }
+                        
+                        // Check if the response contains parts of the prompt (API error)
+                        if response.contains("You are") || 
+                           response.contains("Requirements:") || 
+                           response.contains("Example good responses:") {
+                            error!("Pondering interjection error: API returned the prompt instead of a response");
+                            // Fall back to hard-coded responses
+                            let ponderings = [
+                                "Hmm, that's an interesting point.",
+                                "I was just thinking about that!",
+                                "That reminds me of something...",
+                                "Fascinating perspective.",
+                                "I never thought of it that way before.",
+                                "You know, that's actually quite profound.",
+                                "Wait, what?",
+                            ];
+                            
+                            let pondering = ponderings.choose(&mut rand::thread_rng()).unwrap_or(&"Hmm, interesting.").to_string();
+                            let pondering_text = pondering.clone(); // Clone for logging
+                            
+                            if let Err(e) = msg.channel_id.say(&ctx.http, pondering).await {
+                                error!("Error sending random pondering: {:?}", e);
+                            } else {
+                                info!("Hard-coded pondering interjection sent: {}", pondering_text);
+                            }
+                            return Ok(());
+                        }
+                        
+                        // Start typing indicator
+                        if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
+                            error!("Failed to send typing indicator for pondering interjection: {:?}", e);
+                        }
+                        
+                        // Calculate a realistic typing delay (0.2 seconds per word, min 1s, max 3s)
+                        let word_count = response.split_whitespace().count();
+                        let typing_delay = std::cmp::min(
+                            std::cmp::max(word_count as u64 * 200, 1000),
+                            3000
+                        );
+                        tokio::time::sleep(Duration::from_millis(typing_delay)).await;
+                        
+                        // Send the response
+                        let response_text = response.clone(); // Clone for logging
+                        if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
+                            error!("Error sending pondering interjection: {:?}", e);
+                        } else {
+                            info!("Pondering interjection sent: {}", response_text);
+                        }
+                    },
+                    Err(e) => {
+                        error!("Pondering interjection error: {:?}", e);
+                        // Fall back to hard-coded responses
+                        let ponderings = [
+                            "Hmm, that's an interesting point.",
+                            "I was just thinking about that!",
+                            "That reminds me of something...",
+                            "Fascinating perspective.",
+                            "I never thought of it that way before.",
+                            "You know, that's actually quite profound.",
+                            "Wait, what?",
+                        ];
+                        
+                        let pondering = ponderings.choose(&mut rand::thread_rng()).unwrap_or(&"Hmm, interesting.").to_string();
+                        let pondering_text = pondering.clone(); // Clone for logging
+                        
+                        if let Err(e) = msg.channel_id.say(&ctx.http, pondering).await {
+                            error!("Error sending random pondering: {:?}", e);
+                        } else {
+                            info!("Hard-coded pondering interjection sent: {}", pondering_text);
+                        }
+                    }
+                }
             } else {
-                info!("Pondering interjection sent: {}", pondering_text);
+                // If Gemini API is not configured, use hard-coded responses
+                let ponderings = [
+                    "Hmm, that's an interesting point.",
+                    "I was just thinking about that!",
+                    "That reminds me of something...",
+                    "Fascinating perspective.",
+                    "I never thought of it that way before.",
+                    "You know, that's actually quite profound.",
+                    "Wait, what?",
+                ];
+                
+                let pondering = ponderings.choose(&mut rand::thread_rng()).unwrap_or(&"Hmm, interesting.").to_string();
+                let pondering_text = pondering.clone(); // Clone for logging
+                
+                if let Err(e) = msg.channel_id.say(&ctx.http, pondering).await {
+                    error!("Error sending random pondering: {:?}", e);
+                } else {
+                    info!("Hard-coded pondering interjection sent: {}", pondering_text);
+                }
             }
         }
         
