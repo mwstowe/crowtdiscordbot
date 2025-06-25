@@ -2578,6 +2578,26 @@ impl EventHandler for Bot {
         
         info!("Bot is ready to respond to messages in the configured channels");
         
+        // Load last seen messages from the database
+        if let Some(db) = &self.message_db {
+            match db_utils::get_last_messages_by_channel(db.clone()).await {
+                Ok(last_seen_db) => {
+                    info!("Loaded {} last seen messages from database", last_seen_db.len());
+                    
+                    // Update the in-memory last_seen_message map
+                    let mut last_seen = self.last_seen_message.write().await;
+                    for (channel_id, (timestamp, message_id)) in last_seen_db {
+                        last_seen.insert(channel_id, (timestamp, message_id));
+                        info!("Loaded last seen message for channel {}: {} at {}", 
+                              channel_id, message_id, timestamp);
+                    }
+                },
+                Err(e) => {
+                    error!("Failed to load last seen messages from database: {}", e);
+                }
+            }
+        }
+        
         // Check for missed messages in each followed channel
         self.check_missed_messages(&ctx).await;
         

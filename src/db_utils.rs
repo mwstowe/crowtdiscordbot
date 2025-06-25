@@ -760,3 +760,47 @@ pub async fn clean_up_duplicates(conn: Arc<Mutex<SqliteConnection>>) -> Result<u
     
     Ok(duplicate_count)
 }
+// Get the last message for each channel from the messages table
+pub async fn get_last_messages_by_channel(
+    conn: Arc<Mutex<SqliteConnection>>,
+) -> Result<std::collections::HashMap<ChannelId, (serenity::model::Timestamp, MessageId)>, Box<dyn std::error::Error + Send + Sync>> {
+    let result = conn.lock().await.call(|conn| {
+        // This query gets the most recent message for each channel
+        let query = "
+            SELECT channel_id, MAX(timestamp) as max_timestamp, message_id
+            FROM messages
+            GROUP BY channel_id
+        ";
+        
+        let mut stmt = conn.prepare(query)?;
+        
+        let rows = stmt.query_map([], |row| {
+            let channel_id_str: String = row.get(0)?;
+            let timestamp: i64 = row.get(1)?;
+            let message_id_str: String = row.get(2)?;
+            
+            // Parse the channel_id and message_id
+            let channel_id = channel_id_str.parse::<u64>().unwrap_or_default();
+            let message_id = message_id_str.parse::<u64>().unwrap_or_default();
+            
+            Ok((
+                ChannelId::new(channel_id),
+                (
+                    serenity::model::Timestamp::from_unix_timestamp(timestamp).unwrap_or_default(),
+                    MessageId::new(message_id)
+                )
+            ))
+        })?;
+        
+        let mut result = std::collections::HashMap::new();
+        for row in rows {
+            let (channel_id, timestamp_and_message_id) = row?;
+            result.insert(channel_id, timestamp_and_message_id);
+        }
+        
+        Ok::<_, rusqlite::Error>(result)
+    })
+    .await?;
+    
+    Ok(result)
+}
