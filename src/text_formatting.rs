@@ -46,6 +46,9 @@ pub fn format_caption(caption: &str, proper_nouns: &[&str]) -> String {
 
 // Format text with proper capitalization for sentences and proper nouns
 pub fn format_text_with_proper_capitalization(text: &str, proper_nouns: &[&str]) -> String {
+    // Check if the text is all caps (or mostly all caps)
+    let is_all_caps = is_mostly_uppercase(text);
+    
     // Words that should always be lowercase (except at start of sentence)
     const LOWERCASE_WORDS: &[&str] = &[
         "a", "an", "the", "and", "but", "or", "for", "nor", "on", "at", "to", "from", "by",
@@ -66,8 +69,15 @@ pub fn format_text_with_proper_capitalization(text: &str, proper_nouns: &[&str])
             continue;
         }
         
+        // Convert to lowercase if it's all caps
+        let sentence_to_process = if is_all_caps {
+            sentence.to_lowercase()
+        } else {
+            sentence.to_string()
+        };
+        
         // Split the sentence into words
-        let words: Vec<&str> = sentence.split_whitespace().collect();
+        let words: Vec<&str> = sentence_to_process.split_whitespace().collect();
         if words.is_empty() {
             continue;
         }
@@ -91,6 +101,24 @@ pub fn format_text_with_proper_capitalization(text: &str, proper_nouns: &[&str])
                 continue;
             }
             
+            // Handle special case for "Mr." and "Mister"
+            if word_lower == "mr." || word_lower == "mister" {
+                formatted_words.push(if word_lower == "mr." { "Mr." } else { "Mister" }.to_string());
+                continue;
+            }
+            
+            // Handle special case for "Mrs." and "Ms."
+            if word_lower == "mrs." || word_lower == "ms." {
+                formatted_words.push(if word_lower == "mrs." { "Mrs." } else { "Ms." }.to_string());
+                continue;
+            }
+            
+            // Handle special case for "Dr."
+            if word_lower == "dr." {
+                formatted_words.push("Dr.".to_string());
+                continue;
+            }
+            
             // Check if it's a proper noun
             let mut is_proper_noun = false;
             for &proper_noun in proper_nouns {
@@ -109,7 +137,7 @@ pub fn format_text_with_proper_capitalization(text: &str, proper_nouns: &[&str])
             let mut is_lowercase_word = false;
             for &lowercase_word in LOWERCASE_WORDS {
                 if word_lower == lowercase_word {
-                    formatted_words.push(word_lower);
+                    formatted_words.push(word_lower.clone());
                     is_lowercase_word = true;
                     break;
                 }
@@ -119,8 +147,18 @@ pub fn format_text_with_proper_capitalization(text: &str, proper_nouns: &[&str])
                 continue;
             }
             
-            // For other words, preserve their original case
-            formatted_words.push(word.to_string());
+            // Preserve special characters and formatting
+            if contains_special_formatting(word) {
+                formatted_words.push(word.to_string());
+                continue;
+            }
+            
+            // For other words, preserve their original case if not all caps
+            if is_all_caps {
+                formatted_words.push(word_lower.clone());
+            } else {
+                formatted_words.push(word.to_string());
+            }
         }
         
         // Join the words back into a sentence
@@ -145,6 +183,30 @@ pub fn format_text_with_proper_capitalization(text: &str, proper_nouns: &[&str])
     }
     
     result
+}
+
+// Helper function to check if text is mostly uppercase
+fn is_mostly_uppercase(text: &str) -> bool {
+    let uppercase_count = text.chars().filter(|c| c.is_uppercase()).count();
+    let lowercase_count = text.chars().filter(|c| c.is_lowercase()).count();
+    
+    // If more than 70% of alphabetic characters are uppercase, consider it all caps
+    if uppercase_count + lowercase_count > 0 {
+        (uppercase_count as f32 / (uppercase_count + lowercase_count) as f32) > 0.7
+    } else {
+        false
+    }
+}
+
+// Helper function to check if a word contains special formatting like ♪ or other symbols
+fn contains_special_formatting(word: &str) -> bool {
+    word.contains('♪') || 
+    word.contains('♫') || 
+    word.contains('*') || 
+    word.contains('[') || 
+    word.contains(']') || 
+    word.contains('(') || 
+    word.contains(')')
 }
 
 // Helper function to capitalize the first letter of a word
@@ -172,7 +234,7 @@ pub const SIMPSONS_PROPER_NOUNS: &[&str] = &[
     "american", "usa", "u.s.a.", "u.s.", "god", "jesus", "christmas", "thanksgiving",
     "halloween", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
     "january", "february", "march", "april", "may", "june", "july", "august", 
-    "september", "october", "november", "december"
+    "september", "october", "november", "december", "plow", "mr. plow"
 ];
 
 // Common proper nouns for Futurama

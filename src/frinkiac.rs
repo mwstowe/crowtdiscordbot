@@ -11,6 +11,7 @@ use crate::google_search::GoogleSearchClient;
 use crate::enhanced_frinkiac_search::EnhancedFrinkiacSearch;
 use crate::gemini_api::GeminiClient;
 use crate::text_formatting;
+use crate::screenshot_search_common;
 
 // API endpoints
 const FRINKIAC_BASE_URL: &str = "https://frinkiac.com/api/search";
@@ -423,8 +424,14 @@ impl FrinkiacClient {
             
             // Get the caption for this frame
             if let Ok(Some(frinkiac_result)) = self.get_caption_for_frame(episode, timestamp).await {
-                // Calculate relevance score
-                let score = calculate_result_relevance(&frinkiac_result, &query_words);
+                // Calculate relevance score using our common utility
+                let score = screenshot_search_common::calculate_result_relevance(
+                    &frinkiac_result.caption,
+                    &frinkiac_result.episode_title,
+                    query,
+                    &query_words
+                );
+                
                 info!("Result #{} score: {:.2} for query: {}", i+1, score, query);
                 
                 // If this is the best result so far, keep it
@@ -443,48 +450,6 @@ impl FrinkiacClient {
             Ok(None)
         }
     }
-}
-
-// Calculate relevance score for a search result
-fn calculate_result_relevance(result: &FrinkiacResult, query_words: &[&str]) -> f32 {
-    if query_words.is_empty() {
-        return 1.0; // Empty query matches everything
-    }
-    
-    let caption_lower = result.caption.to_lowercase();
-    let episode_title_lower = result.episode_title.to_lowercase();
-    
-    // Count how many query words appear in the caption and title
-    let mut caption_matches = 0;
-    let mut title_matches = 0;
-    let mut consecutive_word_bonus = 0.0;
-    
-    // Check for consecutive words in caption (much higher relevance)
-    if query_words.len() > 1 {
-        let full_query = query_words.join(" ");
-        if caption_lower.contains(&full_query) {
-            consecutive_word_bonus = 2.0; // Big bonus for consecutive words
-        }
-    }
-    
-    // Count individual word matches
-    for &word in query_words {
-        if caption_lower.contains(word) {
-            caption_matches += 1;
-        }
-        if episode_title_lower.contains(word) {
-            title_matches += 1;
-        }
-    }
-    
-    // Calculate match percentages
-    let caption_match_percentage = caption_matches as f32 / query_words.len() as f32;
-    let title_match_percentage = title_matches as f32 / query_words.len() as f32;
-    
-    // Calculate final score with weights
-    let score = (caption_match_percentage * 0.7) + (title_match_percentage * 0.3) + consecutive_word_bonus;
-    
-    score
 }
 
 // Format a caption to proper sentence case and separate different speakers

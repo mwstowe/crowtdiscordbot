@@ -42,6 +42,7 @@ mod fill_silence;
 mod fact_interjection;
 mod screenshot_search_utils;
 mod text_formatting;
+mod screenshot_search_common;
 
 // Helper function to check if a response looks like a prompt
 fn is_prompt_echo(response: &str) -> bool {
