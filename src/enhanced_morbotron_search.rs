@@ -68,77 +68,8 @@ impl EnhancedMorbotronSearch {
     pub async fn search(&self, query: &str) -> Result<Option<MorbotronResult>> {
         info!("Enhanced Morbotron search for: {}", query);
         
-        // Try direct site search on morbotron.com
-        let direct_site_search = format!("site:morbotron.com {}", query);
-        info!("Trying direct site search: {}", direct_site_search);
-        
-        // Use the Google search client with the site-specific search
-        match self.google_client.search(&direct_site_search).await {
-            Ok(Some(result)) => {
-                info!("Found direct site search result: {} - {}", result.title, result.snippet);
-                
-                // Extract potential search terms from the result
-                let mut search_terms = Vec::new();
-                
-                // Look for quotes in the title and snippet
-                if let Some(quote) = self.extract_quote_from_text(&result.title) {
-                    search_terms.push(quote);
-                }
-                
-                if let Some(quote) = self.extract_quote_from_text(&result.snippet) {
-                    search_terms.push(quote);
-                }
-                
-                // Extract episode information
-                if let Some(episode_info) = self.extract_episode_info(&format!("{} {}", result.title, result.snippet)) {
-                    search_terms.push(episode_info);
-                }
-                
-                // Extract potential phrases
-                let potential_phrases = self.extract_potential_quotes(&result.title, &result.snippet);
-                search_terms.extend(potential_phrases);
-                
-                // Add the original query
-                search_terms.push(query.to_string());
-                
-                // Try each search term with Morbotron
-                let mut results = Vec::new();
-                
-                for term in &search_terms {
-                    info!("Trying search term from direct site search: {}", term);
-                    match self.morbotron_client.search(term).await {
-                        Ok(Some(result)) => {
-                            // Verify that the result actually contains the search terms
-                            if self.result_contains_search_terms(&result, query) {
-                                let score = self.calculate_total_score(&result, query, term);
-                                results.push((result, score));
-                            } else {
-                                info!("Result doesn't contain search terms, skipping");
-                            }
-                        },
-                        _ => {}
-                    }
-                }
-                
-                // If we have results, return the best one
-                if !results.is_empty() {
-                    // Sort by score (descending)
-                    results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-                    info!("Found {} results from direct site search, returning best match with score {:.2}", 
-                          results.len(), results[0].1);
-                    return Ok(Some(results[0].0.clone()));
-                }
-            },
-            Ok(None) => {
-                info!("No results from direct site search, trying Gemini API");
-            },
-            Err(e) => {
-                error!("Error with direct site search: {}, trying Gemini API", e);
-            }
-        }
-        
-        // Try Gemini API as a fallback
-        info!("Trying Gemini API for enhanced search");
+        // First, try to get a quote from Gemini API
+        info!("Trying Gemini API for quote generation");
         let gemini_prompt = GEMINI_MORBOTRON_PROMPT.replace("{}", query);
         
         match self.gemini_client.generate_content(&gemini_prompt).await {
@@ -148,6 +79,7 @@ impl EnhancedMorbotronSearch {
                 // Skip if Gemini returned "pass"
                 if response.trim().to_lowercase().contains("pass") {
                     info!("Gemini API returned 'pass', falling back to direct search");
+                    return self.morbotron_client.search(query).await;
                 } else {
                     // Clean up the response - remove markdown code blocks and any other formatting
                     let cleaned_response = response
@@ -175,198 +107,73 @@ impl EnhancedMorbotronSearch {
                             info!("Extracted character: {}", character);
                             
                             if !quote.is_empty() {
+                                // We have a quote from Gemini, now try to find a matching image
+                                
                                 // First, try a direct site search with the quote
-                                let site_search_query = format!("site:morbotron.com \"{}\"", quote);
-                                info!("Trying direct site search with quote: {}", site_search_query);
-                                
-                                match self.google_client.search(&site_search_query).await {
-                                    Ok(Some(search_result)) => {
-                                        info!("Found direct site search result: {} - {}", search_result.title, search_result.url);
-                                        
-                                        // Try to extract the frame ID from the URL
-                                        if let Some(frame_id) = extract_frame_id_from_url(&search_result.url) {
-                                            info!("Extracted frame ID from URL: {}", frame_id);
-                                            
-                                            // Construct a direct URL to the frame
-                                            let frame_parts: Vec<&str> = frame_id.split('_').collect();
-                                            if frame_parts.len() >= 2 {
-                                                let episode = frame_parts[0];
-                                                let timestamp = frame_parts[1];
-                                                
-                                                // Create a MorbotronResult directly
-                                                let result = MorbotronResult {
-                                                    episode: episode.to_string(),
-                                                    episode_title: search_result.title.clone(),
-                                                    episode_number: 0, // We don't have this info
-                                                    season: 0,         // We don't have this info
-                                                    timestamp: timestamp.to_string(),
-                                                    image_url: format!("https://morbotron.com/img/{}/{}", episode, timestamp),
-                                                    caption: quote.to_string(),
-                                                };
-                                                
-                                                info!("Created direct result from frame ID");
-                                                return Ok(Some(result));
-                                            }
-                                        }
-                                        
-                                        // If we couldn't extract a frame ID, try to use the URL directly
-                                        if search_result.url.contains("morbotron.com/meme/") {
-                                            // Extract the episode and timestamp from the URL
-                                            let url_parts: Vec<&str> = search_result.url.split('/').collect();
-                                            if url_parts.len() >= 5 {
-                                                let episode = url_parts[4];
-                                                let timestamp = if url_parts.len() >= 6 { url_parts[5] } else { "0" };
-                                                
-                                                // Create a MorbotronResult directly
-                                                let result = MorbotronResult {
-                                                    episode: episode.to_string(),
-                                                    episode_title: search_result.title.clone(),
-                                                    episode_number: 0, // We don't have this info
-                                                    season: 0,         // We don't have this info
-                                                    timestamp: timestamp.to_string(),
-                                                    image_url: format!("https://morbotron.com/img/{}/{}", episode, timestamp),
-                                                    caption: quote.to_string(),
-                                                };
-                                                
-                                                info!("Created direct result from URL");
-                                                return Ok(Some(result));
-                                            }
-                                        }
-                                    },
-                                    Ok(None) => {
-                                        info!("No direct site search results found");
-                                    },
-                                    Err(e) => {
-                                        error!("Error with direct site search: {}", e);
-                                    }
-                                }
-                                
-                                // Try with character name + quote
-                                if !character.is_empty() {
-                                    let character_quote_search = format!("site:morbotron.com \"{}\" \"{}\"", character, quote);
-                                    info!("Trying site search with character and quote: {}", character_quote_search);
+                                if let Some(result) = self.find_image_with_site_search(quote, character, episode).await? {
+                                    // Create a custom result with the Gemini quote but the found image
+                                    let custom_result = MorbotronResult {
+                                        episode: result.episode,
+                                        episode_title: result.episode_title,
+                                        episode_number: result.episode_number,
+                                        season: result.season,
+                                        timestamp: result.timestamp,
+                                        image_url: result.image_url,
+                                        caption: quote.to_string(), // Use the Gemini quote
+                                    };
                                     
-                                    match self.google_client.search(&character_quote_search).await {
-                                        Ok(Some(search_result)) => {
-                                            info!("Found character+quote site search result: {} - {}", search_result.title, search_result.url);
-                                            
-                                            // Try to extract the frame ID from the URL
-                                            if let Some(frame_id) = extract_frame_id_from_url(&search_result.url) {
-                                                info!("Extracted frame ID from URL: {}", frame_id);
-                                                
-                                                // Construct a direct URL to the frame
-                                                let frame_parts: Vec<&str> = frame_id.split('_').collect();
-                                                if frame_parts.len() >= 2 {
-                                                    let episode = frame_parts[0];
-                                                    let timestamp = frame_parts[1];
-                                                    
-                                                    // Create a MorbotronResult directly
-                                                    let result = MorbotronResult {
-                                                        episode: episode.to_string(),
-                                                        episode_title: search_result.title.clone(),
-                                                        episode_number: 0, // We don't have this info
-                                                        season: 0,         // We don't have this info
-                                                        timestamp: timestamp.to_string(),
-                                                        image_url: format!("https://morbotron.com/img/{}/{}", episode, timestamp),
-                                                        caption: quote.to_string(),
-                                                    };
-                                                    
-                                                    info!("Created direct result from frame ID");
-                                                    return Ok(Some(result));
-                                                }
-                                            }
-                                        },
-                                        _ => {
-                                            info!("No character+quote site search results found");
-                                        }
-                                    }
+                                    info!("Created custom result with Gemini quote and found image");
+                                    return Ok(Some(custom_result));
                                 }
                                 
-                                // Try to extract season and episode numbers from the episode string
-                                if let Some(season_episode) = extract_season_episode_from_text(episode) {
-                                    info!("Extracted season/episode: {}", season_episode);
+                                // If site search didn't work, try the Morbotron API
+                                if let Some(result) = self.find_image_with_morbotron_api(quote, episode).await? {
+                                    // Create a custom result with the Gemini quote but the found image
+                                    let custom_result = MorbotronResult {
+                                        episode: result.episode,
+                                        episode_title: result.episode_title,
+                                        episode_number: result.episode_number,
+                                        season: result.season,
+                                        timestamp: result.timestamp,
+                                        image_url: result.image_url,
+                                        caption: quote.to_string(), // Use the Gemini quote
+                                    };
                                     
-                                    // First, try searching by season and episode if available
-                                    info!("Trying search by season/episode: {}", season_episode);
-                                    match self.morbotron_client.search(&season_episode).await {
-                                        Ok(Some(result)) => {
-                                            // For season/episode searches, we'll be more lenient
-                                            let score = 0.9; // High score for episode match
-                                            info!("Found result by season/episode with score {:.2}", score);
-                                            
-                                            // Return this result immediately - it's the most reliable method
-                                            return Ok(Some(result));
-                                        },
-                                        _ => {
-                                            info!("No results found for season/episode search");
-                                        }
-                                    }
+                                    info!("Created custom result with Gemini quote and found image");
+                                    return Ok(Some(custom_result));
                                 }
                                 
-                                // If we get here, try the regular search approach with multiple terms
-                                let mut search_terms = Vec::new();
-                                
-                                // Add season/episode if available
-                                if let Some(season_episode) = extract_season_episode_from_text(episode) {
-                                    search_terms.push(season_episode);
+                                // If we still don't have an image, create a result with just the quote
+                                // and a default image (use a random image from Morbotron)
+                                info!("No image found, using random image with Gemini quote");
+                                if let Ok(Some(random_result)) = self.morbotron_client.random().await {
+                                    let custom_result = MorbotronResult {
+                                        episode: random_result.episode,
+                                        episode_title: if !episode.is_empty() { episode.to_string() } else { random_result.episode_title },
+                                        episode_number: random_result.episode_number,
+                                        season: random_result.season,
+                                        timestamp: random_result.timestamp,
+                                        image_url: random_result.image_url,
+                                        caption: quote.to_string(), // Use the Gemini quote
+                                    };
+                                    
+                                    info!("Created custom result with Gemini quote and random image");
+                                    return Ok(Some(custom_result));
                                 }
                                 
-                                // Add the quote as a search term
-                                search_terms.push(quote.to_string());
+                                // If all else fails, create a minimal result with just the quote
+                                let minimal_result = MorbotronResult {
+                                    episode: "S00E00".to_string(),
+                                    episode_title: if !episode.is_empty() { episode.to_string() } else { "Unknown Episode".to_string() },
+                                    episode_number: 0,
+                                    season: 0,
+                                    timestamp: "0".to_string(),
+                                    image_url: "https://morbotron.com/img/S01E01/1".to_string(), // Default image
+                                    caption: quote.to_string(),
+                                };
                                 
-                                // Try searching for exact phrases within the quote
-                                let phrases = extract_phrases(quote);
-                                for phrase in &phrases {
-                                    if phrase.split_whitespace().count() >= 3 {
-                                        search_terms.push(phrase.to_string());
-                                    }
-                                }
-                                
-                                // Add individual words from the quote as search terms
-                                let quote_words: Vec<&str> = quote.split_whitespace().collect();
-                                if quote_words.len() >= 3 {
-                                    // Try combinations of 3 consecutive words
-                                    for i in 0..quote_words.len() - 2 {
-                                        let three_word_term = format!("{} {} {}", 
-                                            quote_words[i], quote_words[i+1], quote_words[i+2]);
-                                        search_terms.push(three_word_term);
-                                    }
-                                }
-                                
-                                // Try each search term with Morbotron
-                                let mut results = Vec::new();
-                                
-                                for term in &search_terms {
-                                    info!("Trying search term from Gemini API: {}", term);
-                                    match self.morbotron_client.search(term).await {
-                                        Ok(Some(result)) => {
-                                            // For Gemini-provided quotes, we'll be more lenient with filtering
-                                            let contains_terms = self.result_contains_search_terms(&result, query);
-                                            let score = self.calculate_total_score(&result, query, term);
-                                            
-                                            if contains_terms {
-                                                info!("Result contains search terms, adding with score {:.2}", score);
-                                                results.push((result, score));
-                                            } else {
-                                                // For the primary Gemini response, accept it even if it doesn't contain
-                                                // all search terms, but with a lower score
-                                                let adjusted_score = score * 0.8;
-                                                info!("Result doesn't contain all search terms, but accepting with adjusted score {:.2}", adjusted_score);
-                                                results.push((result, adjusted_score));
-                                            }
-                                        },
-                                        _ => {}
-                                    }
-                                }
-                                
-                                // If we have results, return the best one
-                                if !results.is_empty() {
-                                    // Sort by score (descending)
-                                    results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-                                    info!("Found {} results from Gemini API, returning best match with score {:.2}", 
-                                          results.len(), results[0].1);
-                                    return Ok(Some(results[0].0.clone()));
-                                }
+                                info!("Created minimal result with Gemini quote and default image");
+                                return Ok(Some(minimal_result));
                             }
                         },
                         Err(e) => {
@@ -374,62 +181,43 @@ impl EnhancedMorbotronSearch {
                             info!("Failed to parse Gemini response as JSON: {}", e);
                             
                             // Try to extract a quote from the response
-                            let mut search_terms = Vec::new();
-                            
-                            // Look for quotes in the response
                             if let Some(quote) = self.extract_quote_from_text(&response) {
-                                search_terms.push(quote);
-                            }
-                            
-                            // If we couldn't extract a quote, use the whole response
-                            if search_terms.is_empty() {
-                                // Clean up the response
-                                let cleaned = response
-                                    .replace("```json", "")
-                                    .replace("```", "")
-                                    .trim()
-                                    .to_string();
+                                info!("Extracted quote from non-JSON response: {}", quote);
                                 
-                                search_terms.push(cleaned);
-                            }
-                            
-                            // Try each search term with Morbotron
-                            let mut results = Vec::new();
-                            
-                            for term in &search_terms {
-                                info!("Trying search term from Gemini API (non-JSON): {}", term);
-                                match self.morbotron_client.search(term).await {
-                                    Ok(Some(result)) => {
-                                        // For Gemini-provided quotes, we'll be more lenient with filtering
-                                        let contains_terms = self.result_contains_search_terms(&result, query);
-                                        let score = self.calculate_total_score(&result, query, term);
-                                        
-                                        if contains_terms {
-                                            info!("Result contains search terms, adding with score {:.2}", score);
-                                            results.push((result, score));
-                                        } else {
-                                            // For the primary Gemini response, accept it even if it doesn't contain
-                                            // all search terms, but with a lower score
-                                            if term == &search_terms[0] {
-                                                let adjusted_score = score * 0.8;
-                                                info!("Result doesn't contain all search terms, but accepting Gemini's primary response with adjusted score {:.2}", adjusted_score);
-                                                results.push((result, adjusted_score));
-                                            } else {
-                                                info!("Result doesn't contain search terms, skipping");
-                                            }
-                                        }
-                                    },
-                                    _ => {}
+                                // Try to find an image for this quote
+                                if let Some(result) = self.find_image_with_site_search(&quote, "", "").await? {
+                                    // Create a custom result with the extracted quote but the found image
+                                    let custom_result = MorbotronResult {
+                                        episode: result.episode,
+                                        episode_title: result.episode_title,
+                                        episode_number: result.episode_number,
+                                        season: result.season,
+                                        timestamp: result.timestamp,
+                                        image_url: result.image_url,
+                                        caption: quote.to_string(), // Use the extracted quote
+                                    };
+                                    
+                                    info!("Created custom result with extracted quote and found image");
+                                    return Ok(Some(custom_result));
                                 }
-                            }
-                            
-                            // If we have results, return the best one
-                            if !results.is_empty() {
-                                // Sort by score (descending)
-                                results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-                                info!("Found {} results from Gemini API (non-JSON), returning best match with score {:.2}", 
-                                      results.len(), results[0].1);
-                                return Ok(Some(results[0].0.clone()));
+                                
+                                // If we still don't have an image, create a result with just the quote
+                                // and a default image (use a random image from Morbotron)
+                                info!("No image found, using random image with extracted quote");
+                                if let Ok(Some(random_result)) = self.morbotron_client.random().await {
+                                    let custom_result = MorbotronResult {
+                                        episode: random_result.episode,
+                                        episode_title: random_result.episode_title,
+                                        episode_number: random_result.episode_number,
+                                        season: random_result.season,
+                                        timestamp: random_result.timestamp,
+                                        image_url: random_result.image_url,
+                                        caption: quote.to_string(), // Use the extracted quote
+                                    };
+                                    
+                                    info!("Created custom result with extracted quote and random image");
+                                    return Ok(Some(custom_result));
+                                }
                             }
                         }
                     }
@@ -443,6 +231,292 @@ impl EnhancedMorbotronSearch {
         // If all else fails, fall back to the regular search
         info!("No results from enhanced search, falling back to regular search");
         self.morbotron_client.search(query).await
+    }
+    
+    // Helper method to find an image using site search
+    async fn find_image_with_site_search(&self, quote: &str, character: &str, episode: &str) -> Result<Option<MorbotronResult>> {
+        // First, try a direct site search with the quote
+        let site_search_query = format!("site:morbotron.com \"{}\"", quote);
+        info!("Trying direct site search with quote: {}", site_search_query);
+        
+        match self.google_client.search(&site_search_query).await {
+            Ok(Some(search_result)) => {
+                info!("Found direct site search result: {} - {}", search_result.title, search_result.url);
+                
+                // Try to extract the frame ID from the URL
+                if let Some(frame_id) = extract_frame_id_from_url(&search_result.url) {
+                    info!("Extracted frame ID from URL: {}", frame_id);
+                    
+                    // Construct a direct URL to the frame
+                    let frame_parts: Vec<&str> = frame_id.split('_').collect();
+                    if frame_parts.len() >= 2 {
+                        let episode_code = frame_parts[0];
+                        let timestamp = frame_parts[1];
+                        
+                        // Create a MorbotronResult directly
+                        let result = MorbotronResult {
+                            episode: episode_code.to_string(),
+                            episode_title: search_result.title.clone(),
+                            episode_number: 0, // We don't have this info
+                            season: 0,         // We don't have this info
+                            timestamp: timestamp.to_string(),
+                            image_url: format!("https://morbotron.com/img/{}/{}", episode_code, timestamp),
+                            caption: quote.to_string(),
+                        };
+                        
+                        info!("Created direct result from frame ID");
+                        return Ok(Some(result));
+                    }
+                }
+                
+                // If we couldn't extract a frame ID, try to use the URL directly
+                if search_result.url.contains("morbotron.com/meme/") {
+                    // Extract the episode and timestamp from the URL
+                    let url_parts: Vec<&str> = search_result.url.split('/').collect();
+                    if url_parts.len() >= 5 {
+                        let episode_code = url_parts[4];
+                        let timestamp = if url_parts.len() >= 6 { url_parts[5] } else { "0" };
+                        
+                        // Create a MorbotronResult directly
+                        let result = MorbotronResult {
+                            episode: episode_code.to_string(),
+                            episode_title: search_result.title.clone(),
+                            episode_number: 0, // We don't have this info
+                            season: 0,         // We don't have this info
+                            timestamp: timestamp.to_string(),
+                            image_url: format!("https://morbotron.com/img/{}/{}", episode_code, timestamp),
+                            caption: quote.to_string(),
+                        };
+                        
+                        info!("Created direct result from URL");
+                        return Ok(Some(result));
+                    }
+                }
+            },
+            Ok(None) => {
+                info!("No direct site search results found");
+            },
+            Err(e) => {
+                error!("Error with direct site search: {}", e);
+            }
+        }
+        
+        // Try with character name + quote if character is provided
+        if !character.is_empty() {
+            let character_quote_search = format!("site:morbotron.com \"{}\" \"{}\"", character, quote);
+            info!("Trying site search with character and quote: {}", character_quote_search);
+            
+            match self.google_client.search(&character_quote_search).await {
+                Ok(Some(search_result)) => {
+                    info!("Found character+quote site search result: {} - {}", search_result.title, search_result.url);
+                    
+                    // Try to extract the frame ID from the URL
+                    if let Some(frame_id) = extract_frame_id_from_url(&search_result.url) {
+                        info!("Extracted frame ID from URL: {}", frame_id);
+                        
+                        // Construct a direct URL to the frame
+                        let frame_parts: Vec<&str> = frame_id.split('_').collect();
+                        if frame_parts.len() >= 2 {
+                            let episode_code = frame_parts[0];
+                            let timestamp = frame_parts[1];
+                            
+                            // Create a MorbotronResult directly
+                            let result = MorbotronResult {
+                                episode: episode_code.to_string(),
+                                episode_title: search_result.title.clone(),
+                                episode_number: 0, // We don't have this info
+                                season: 0,         // We don't have this info
+                                timestamp: timestamp.to_string(),
+                                image_url: format!("https://morbotron.com/img/{}/{}", episode_code, timestamp),
+                                caption: quote.to_string(),
+                            };
+                            
+                            info!("Created direct result from frame ID");
+                            return Ok(Some(result));
+                        }
+                    }
+                    
+                    // If we couldn't extract a frame ID, try to use the URL directly
+                    if search_result.url.contains("morbotron.com/meme/") {
+                        // Extract the episode and timestamp from the URL
+                        let url_parts: Vec<&str> = search_result.url.split('/').collect();
+                        if url_parts.len() >= 5 {
+                            let episode_code = url_parts[4];
+                            let timestamp = if url_parts.len() >= 6 { url_parts[5] } else { "0" };
+                            
+                            // Create a MorbotronResult directly
+                            let result = MorbotronResult {
+                                episode: episode_code.to_string(),
+                                episode_title: search_result.title.clone(),
+                                episode_number: 0, // We don't have this info
+                                season: 0,         // We don't have this info
+                                timestamp: timestamp.to_string(),
+                                image_url: format!("https://morbotron.com/img/{}/{}", episode_code, timestamp),
+                                caption: quote.to_string(),
+                            };
+                            
+                            info!("Created direct result from URL");
+                            return Ok(Some(result));
+                        }
+                    }
+                },
+                _ => {
+                    info!("No character+quote site search results found");
+                }
+            }
+        }
+        
+        // Try with episode information if provided
+        if !episode.is_empty() {
+            let episode_quote_search = format!("site:morbotron.com \"{}\" \"{}\"", episode, quote);
+            info!("Trying site search with episode and quote: {}", episode_quote_search);
+            
+            match self.google_client.search(&episode_quote_search).await {
+                Ok(Some(search_result)) => {
+                    info!("Found episode+quote site search result: {} - {}", search_result.title, search_result.url);
+                    
+                    // Try to extract the frame ID from the URL
+                    if let Some(frame_id) = extract_frame_id_from_url(&search_result.url) {
+                        info!("Extracted frame ID from URL: {}", frame_id);
+                        
+                        // Construct a direct URL to the frame
+                        let frame_parts: Vec<&str> = frame_id.split('_').collect();
+                        if frame_parts.len() >= 2 {
+                            let episode_code = frame_parts[0];
+                            let timestamp = frame_parts[1];
+                            
+                            // Create a MorbotronResult directly
+                            let result = MorbotronResult {
+                                episode: episode_code.to_string(),
+                                episode_title: search_result.title.clone(),
+                                episode_number: 0, // We don't have this info
+                                season: 0,         // We don't have this info
+                                timestamp: timestamp.to_string(),
+                                image_url: format!("https://morbotron.com/img/{}/{}", episode_code, timestamp),
+                                caption: quote.to_string(),
+                            };
+                            
+                            info!("Created direct result from frame ID");
+                            return Ok(Some(result));
+                        }
+                    }
+                },
+                _ => {
+                    info!("No episode+quote site search results found");
+                }
+            }
+        }
+        
+        // Try with just a few words from the quote
+        let words: Vec<&str> = quote.split_whitespace().collect();
+        if words.len() >= 3 {
+            // Try with the first 3 words
+            let first_words = format!("{} {} {}", words[0], words[1], words[2]);
+            let first_words_search = format!("site:morbotron.com \"{}\"", first_words);
+            info!("Trying site search with first words: {}", first_words_search);
+            
+            match self.google_client.search(&first_words_search).await {
+                Ok(Some(search_result)) => {
+                    info!("Found first words site search result: {} - {}", search_result.title, search_result.url);
+                    
+                    // Try to extract the frame ID from the URL
+                    if let Some(frame_id) = extract_frame_id_from_url(&search_result.url) {
+                        info!("Extracted frame ID from URL: {}", frame_id);
+                        
+                        // Construct a direct URL to the frame
+                        let frame_parts: Vec<&str> = frame_id.split('_').collect();
+                        if frame_parts.len() >= 2 {
+                            let episode_code = frame_parts[0];
+                            let timestamp = frame_parts[1];
+                            
+                            // Create a MorbotronResult directly
+                            let result = MorbotronResult {
+                                episode: episode_code.to_string(),
+                                episode_title: search_result.title.clone(),
+                                episode_number: 0, // We don't have this info
+                                season: 0,         // We don't have this info
+                                timestamp: timestamp.to_string(),
+                                image_url: format!("https://morbotron.com/img/{}/{}", episode_code, timestamp),
+                                caption: quote.to_string(),
+                            };
+                            
+                            info!("Created direct result from frame ID");
+                            return Ok(Some(result));
+                        }
+                    }
+                },
+                _ => {
+                    info!("No first words site search results found");
+                }
+            }
+        }
+        
+        Ok(None)
+    }
+    
+    // Helper method to find an image using the Morbotron API
+    async fn find_image_with_morbotron_api(&self, quote: &str, episode: &str) -> Result<Option<MorbotronResult>> {
+        // Try to extract season and episode numbers from the episode string
+        if let Some(season_episode) = extract_season_episode_from_text(episode) {
+            info!("Extracted season/episode: {}", season_episode);
+            
+            // First, try searching by season and episode if available
+            info!("Trying search by season/episode: {}", season_episode);
+            match self.morbotron_client.search(&season_episode).await {
+                Ok(Some(result)) => {
+                    info!("Found result by season/episode");
+                    return Ok(Some(result));
+                },
+                _ => {
+                    info!("No results found for season/episode search");
+                }
+            }
+        }
+        
+        // Try with the full quote
+        info!("Trying search with full quote: {}", quote);
+        match self.morbotron_client.search(quote).await {
+            Ok(Some(result)) => {
+                info!("Found result with full quote search");
+                return Ok(Some(result));
+            },
+            _ => {
+                info!("No results found for full quote search");
+            }
+        }
+        
+        // Try with phrases from the quote
+        let phrases = extract_phrases(quote);
+        for phrase in &phrases {
+            if phrase.split_whitespace().count() >= 3 {
+                info!("Trying search with phrase: {}", phrase);
+                match self.morbotron_client.search(phrase).await {
+                    Ok(Some(result)) => {
+                        info!("Found result with phrase search");
+                        return Ok(Some(result));
+                    },
+                    _ => {}
+                }
+            }
+        }
+        
+        // Try with word combinations
+        let words: Vec<&str> = quote.split_whitespace().collect();
+        if words.len() >= 3 {
+            for i in 0..words.len() - 2 {
+                let three_word_term = format!("{} {} {}", words[i], words[i+1], words[i+2]);
+                info!("Trying search with word combination: {}", three_word_term);
+                match self.morbotron_client.search(&three_word_term).await {
+                    Ok(Some(result)) => {
+                        info!("Found result with word combination search");
+                        return Ok(Some(result));
+                    },
+                    _ => {}
+                }
+            }
+        }
+        
+        Ok(None)
     }
     
     // Helper method to extract quotes from text (looks for text in quotes)
