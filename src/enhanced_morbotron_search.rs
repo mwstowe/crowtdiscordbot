@@ -143,6 +143,46 @@ impl EnhancedMorbotronSearch {
                                     return Ok(Some(custom_result));
                                 }
                                 
+                                // If Morbotron API didn't work, try a general search engine search
+                                info!("Trying general search engine for Futurama images");
+                                let search_query = format!("futurama {} screenshot", quote);
+                                match self.google_client.search(&search_query).await {
+                                    Ok(Some(search_result)) => {
+                                        info!("Found general search result: {} - {}", search_result.title, search_result.url);
+                                        
+                                        // Try to extract a Morbotron URL from the search results
+                                        if search_result.url.contains("morbotron.com") {
+                                            if let Some(frame_id) = extract_frame_id_from_url(&search_result.url) {
+                                                info!("Extracted frame ID from URL: {}", frame_id);
+                                                
+                                                // Construct a direct URL to the frame
+                                                let frame_parts: Vec<&str> = frame_id.split('_').collect();
+                                                if frame_parts.len() >= 2 {
+                                                    let episode_code = frame_parts[0];
+                                                    let timestamp = frame_parts[1];
+                                                    
+                                                    // Create a MorbotronResult directly
+                                                    let result = MorbotronResult {
+                                                        episode: episode_code.to_string(),
+                                                        episode_title: search_result.title.clone(),
+                                                        episode_number: 0, // We don't have this info
+                                                        season: 0,         // We don't have this info
+                                                        timestamp: timestamp.to_string(),
+                                                        image_url: format!("https://morbotron.com/img/{}/{}", episode_code, timestamp),
+                                                        caption: quote.to_string(),
+                                                    };
+                                                    
+                                                    info!("Created direct result from frame ID via general search");
+                                                    return Ok(Some(result));
+                                                }
+                                            }
+                                        }
+                                    },
+                                    _ => {
+                                        info!("No general search results found or error occurred");
+                                    }
+                                }
+                                
                                 // If we still don't have an image, create a result with just the quote
                                 // and a default image (use a random image from Morbotron)
                                 info!("No image found, using random image with Gemini quote");
@@ -199,6 +239,46 @@ impl EnhancedMorbotronSearch {
                                     
                                     info!("Created custom result with extracted quote and found image");
                                     return Ok(Some(custom_result));
+                                }
+                                
+                                // If site search didn't work, try a general search engine search
+                                info!("Trying general search engine for Futurama images");
+                                let search_query = format!("futurama {} screenshot", quote);
+                                match self.google_client.search(&search_query).await {
+                                    Ok(Some(search_result)) => {
+                                        info!("Found general search result: {} - {}", search_result.title, search_result.url);
+                                        
+                                        // Try to extract a Morbotron URL from the search results
+                                        if search_result.url.contains("morbotron.com") {
+                                            if let Some(frame_id) = extract_frame_id_from_url(&search_result.url) {
+                                                info!("Extracted frame ID from URL: {}", frame_id);
+                                                
+                                                // Construct a direct URL to the frame
+                                                let frame_parts: Vec<&str> = frame_id.split('_').collect();
+                                                if frame_parts.len() >= 2 {
+                                                    let episode_code = frame_parts[0];
+                                                    let timestamp = frame_parts[1];
+                                                    
+                                                    // Create a MorbotronResult directly
+                                                    let result = MorbotronResult {
+                                                        episode: episode_code.to_string(),
+                                                        episode_title: search_result.title.clone(),
+                                                        episode_number: 0, // We don't have this info
+                                                        season: 0,         // We don't have this info
+                                                        timestamp: timestamp.to_string(),
+                                                        image_url: format!("https://morbotron.com/img/{}/{}", episode_code, timestamp),
+                                                        caption: quote.to_string(),
+                                                    };
+                                                    
+                                                    info!("Created direct result from frame ID via general search");
+                                                    return Ok(Some(result));
+                                                }
+                                            }
+                                        }
+                                    },
+                                    _ => {
+                                        info!("No general search results found or error occurred");
+                                    }
                                 }
                                 
                                 // If we still don't have an image, create a result with just the quote
