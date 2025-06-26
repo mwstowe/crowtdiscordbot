@@ -201,20 +201,68 @@ impl EnhancedMorbotronSearch {
                                     return Ok(Some(custom_result));
                                 }
                                 
-                                // If all else fails, create a minimal result with just the quote
-                                let episode_code = extract_episode_code_from_title(episode);
-                                let minimal_result = MorbotronResult {
-                                    episode: episode_code.clone(),
-                                    episode_title: if !episode.is_empty() { episode.to_string() } else { "Unknown Episode".to_string() },
-                                    episode_number: 0,
-                                    season: 0,
-                                    timestamp: "1".to_string(),
-                                    image_url: format!("https://morbotron.com/img/{}/1", episode_code),
-                                    caption: quote.to_string(),
-                                };
+                                // If all else fails, try to find an image from the episode using image search
+                                if !episode.is_empty() {
+                                    info!("Trying image search for episode: {}", episode);
+                                    let image_search_query = format!("futurama {} screenshot", episode);
+                                    match self.google_client.search(&image_search_query).await {
+                                        Ok(Some(search_result)) => {
+                                            info!("Found image search result: {} - {}", search_result.title, search_result.url);
+                                            
+                                            // Try to extract a Morbotron URL from the search results
+                                            if search_result.url.contains("morbotron.com") {
+                                                if let Some(frame_id) = extract_frame_id_from_url(&search_result.url) {
+                                                    info!("Extracted frame ID from URL: {}", frame_id);
+                                                    
+                                                    // Construct a direct URL to the frame
+                                                    let frame_parts: Vec<&str> = frame_id.split('_').collect();
+                                                    if frame_parts.len() >= 2 {
+                                                        let episode_code = frame_parts[0];
+                                                        let timestamp = frame_parts[1];
+                                                        
+                                                        // Create a MorbotronResult directly
+                                                        let result = MorbotronResult {
+                                                            episode: episode_code.to_string(),
+                                                            episode_title: episode.to_string(),
+                                                            episode_number: 0, // We don't have this info
+                                                            season: 0,         // We don't have this info
+                                                            timestamp: timestamp.to_string(),
+                                                            image_url: format!("https://morbotron.com/img/{}/{}", episode_code, timestamp),
+                                                            caption: quote.to_string(),
+                                                        };
+                                                        
+                                                        info!("Created result from image search");
+                                                        return Ok(Some(result));
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        _ => {
+                                            info!("No image search results found or error occurred");
+                                        }
+                                    }
+                                }
                                 
-                                info!("Created minimal result with Gemini quote and default image");
-                                return Ok(Some(minimal_result));
+                                // If we still don't have an image, use a random image from Morbotron
+                                info!("No image found, using random image with Gemini quote");
+                                if let Ok(Some(random_result)) = self.morbotron_client.random().await {
+                                    let custom_result = MorbotronResult {
+                                        episode: random_result.episode,
+                                        episode_title: if !episode.is_empty() { episode.to_string() } else { random_result.episode_title },
+                                        episode_number: random_result.episode_number,
+                                        season: random_result.season,
+                                        timestamp: random_result.timestamp,
+                                        image_url: random_result.image_url,
+                                        caption: quote.to_string(), // Use the Gemini quote
+                                    };
+                                    
+                                    info!("Created custom result with Gemini quote and random image");
+                                    return Ok(Some(custom_result));
+                                }
+                                
+                                // If even that fails, return None
+                                info!("Failed to create any result");
+                                return Ok(None);
                             }
                         },
                         Err(e) => {
@@ -282,8 +330,47 @@ impl EnhancedMorbotronSearch {
                                     }
                                 }
                                 
-                                // If we still don't have an image, create a result with just the quote
-                                // and a default image (use a random image from Morbotron)
+                                // If we still don't have an image, try to find an image using general image search
+                                info!("Trying general image search for Futurama screenshot");
+                                let image_search_query = format!("futurama screenshot");
+                                match self.google_client.search(&image_search_query).await {
+                                    Ok(Some(search_result)) => {
+                                        info!("Found image search result: {} - {}", search_result.title, search_result.url);
+                                        
+                                        // Try to extract a Morbotron URL from the search results
+                                        if search_result.url.contains("morbotron.com") {
+                                            if let Some(frame_id) = extract_frame_id_from_url(&search_result.url) {
+                                                info!("Extracted frame ID from URL: {}", frame_id);
+                                                
+                                                // Construct a direct URL to the frame
+                                                let frame_parts: Vec<&str> = frame_id.split('_').collect();
+                                                if frame_parts.len() >= 2 {
+                                                    let episode_code = frame_parts[0];
+                                                    let timestamp = frame_parts[1];
+                                                    
+                                                    // Create a MorbotronResult directly
+                                                    let result = MorbotronResult {
+                                                        episode: episode_code.to_string(),
+                                                        episode_title: search_result.title.clone(),
+                                                        episode_number: 0, // We don't have this info
+                                                        season: 0,         // We don't have this info
+                                                        timestamp: timestamp.to_string(),
+                                                        image_url: format!("https://morbotron.com/img/{}/{}", episode_code, timestamp),
+                                                        caption: quote.to_string(),
+                                                    };
+                                                    
+                                                    info!("Created result from general image search");
+                                                    return Ok(Some(result));
+                                                }
+                                            }
+                                        }
+                                    },
+                                    _ => {
+                                        info!("No general image search results found or error occurred");
+                                    }
+                                }
+                                
+                                // If we still don't have an image, use a random image from Morbotron
                                 info!("No image found, using random image with extracted quote");
                                 if let Ok(Some(random_result)) = self.morbotron_client.random().await {
                                     let custom_result = MorbotronResult {
@@ -299,6 +386,10 @@ impl EnhancedMorbotronSearch {
                                     info!("Created custom result with extracted quote and random image");
                                     return Ok(Some(custom_result));
                                 }
+                                
+                                // If even that fails, return None
+                                info!("Failed to create any result");
+                                return Ok(None);
                             }
                         }
                     }
@@ -787,10 +878,10 @@ fn extract_season_episode_from_text(text: &str) -> Option<String> {
 }
 
 // Helper function to extract episode code from episode title
-fn extract_episode_code_from_title(episode_title: &str) -> String {
+fn extract_episode_code_from_title(episode_title: &str) -> Option<String> {
     // Try to extract season and episode numbers from the title
     if let Some(season_episode) = extract_season_episode_from_text(episode_title) {
-        return season_episode;
+        return Some(season_episode);
     }
     
     // Look for "Season X Episode Y" format
@@ -798,15 +889,15 @@ fn extract_episode_code_from_title(episode_title: &str) -> String {
     if let Some(re) = season_episode_re {
         if let Some(caps) = re.captures(episode_title) {
             if let (Some(season), Some(episode)) = (caps.get(1), caps.get(2)) {
-                return format!("S{:02}E{:02}", 
+                return Some(format!("S{:02}E{:02}", 
                     season.as_str().parse::<u32>().unwrap_or(0),
-                    episode.as_str().parse::<u32>().unwrap_or(0));
+                    episode.as_str().parse::<u32>().unwrap_or(0)));
             }
         }
     }
     
-    // Default to a valid episode code
-    "S01E01".to_string()
+    // No episode code found
+    None
 }
 
 // Helper function to check if a word is a common word that should be ignored in some contexts
