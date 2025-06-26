@@ -112,103 +112,23 @@ impl MorbotronClient {
     pub async fn search(&self, query: &str) -> Result<Option<MorbotronResult>> {
         info!("Morbotron search for: {}", query);
         
-        // Try different search strategies in order of preference
-        
-        // 1. Try exact phrase search with quotes
-        if let Some(result) = self.search_with_strategy(&format!("\"{}\"", query)).await? {
-            info!("Found result with exact phrase search");
-            return Ok(Some(result));
-        }
-        
-        // 2. Try exact phrase search without quotes (in case API handles it differently)
+        // Try a direct search first
         if let Some(result) = self.search_with_strategy(query).await? {
-            info!("Found result with standard search");
+            info!("Found result with direct search");
             return Ok(Some(result));
         }
         
-        // 3. Try with plus signs between words to force word boundaries
-        let plus_query = query.split_whitespace().collect::<Vec<&str>>().join("+");
-        if let Some(result) = self.search_with_strategy(&plus_query).await? {
-            info!("Found result with plus-separated search");
-            return Ok(Some(result));
-        }
-        
-        // 4. Try with variations of "as" phrases (for cases like "as safe as they said")
-        if query.contains(" as ") {
-            let variations = crate::screenshot_search_utils::generate_as_phrase_variations(query);
-            for variation in variations {
-                info!("Trying 'as' phrase variation: {}", variation);
-                if let Some(result) = self.search_with_strategy(&variation).await? {
-                    info!("Found result with 'as' phrase variation");
-                    return Ok(Some(result));
-                }
-            }
-        }
-        
-        // 5. Try with variations for common speech patterns
-        let speech_variations = crate::screenshot_search_utils::generate_speech_pattern_variations(query);
-        for variation in speech_variations {
-            info!("Trying speech pattern variation: {}", variation);
-            if let Some(result) = self.search_with_strategy(&variation).await? {
-                info!("Found result with speech pattern variation");
+        // If direct search fails and it's a multi-word query, try with quotes
+        if query.contains(' ') {
+            if let Some(result) = self.search_with_strategy(&format!("\"{}\"", query)).await? {
+                info!("Found result with quoted search");
                 return Ok(Some(result));
             }
         }
         
-        // 6. If the query has multiple words, try searching for pairs of consecutive words
-        let words: Vec<&str> = query.split_whitespace().collect();
-        if words.len() > 1 {
-            for i in 0..words.len() - 1 {
-                let pair_query = format!("{} {}", words[i], words[i + 1]);
-                info!("Trying pair search: {}", pair_query);
-                if let Some(result) = self.search_with_strategy(&pair_query).await? {
-                    info!("Found result with word pair search");
-                    return Ok(Some(result));
-                }
-            }
-        }
-        
-        // 7. Try searching for individual significant words
-        if words.len() > 1 {
-            // Skip common words and focus on significant ones
-            let significant_words: Vec<&str> = words.iter()
-                .filter(|&&word| {
-                    let word_lower = word.to_lowercase();
-                    word_lower.len() > 3 && !crate::screenshot_search_utils::is_common_word(&word_lower)
-                })
-                .copied()
-                .collect();
-                
-            for word in significant_words {
-                info!("Trying single word search: {}", word);
-                if let Some(result) = self.search_with_strategy(word).await? {
-                    info!("Found result with single word search");
-                    return Ok(Some(result));
-                }
-            }
-        }
-        
-        // 8. Try with fuzzy variations of the query
-        let fuzzy_variations = crate::screenshot_search_utils::generate_fuzzy_variations(query);
-        for variation in fuzzy_variations {
-            info!("Trying fuzzy variation: {}", variation);
-            if let Some(result) = self.search_with_strategy(&variation).await? {
-                info!("Found result with fuzzy variation");
-                return Ok(Some(result));
-            }
-        }
-        
-        // 9. Try with a random popular quote as a fallback
-        info!("No results found with any search strategy, using a random popular quote");
-        
-        // Choose a random search term
-        let random_term = RANDOM_SEARCH_TERMS.choose(&mut rand::thread_rng())
-            .ok_or_else(|| anyhow!("Failed to choose random search term"))?;
-            
-        info!("Using random search term: {}", random_term);
-        
-        // Use the search_with_strategy directly to avoid recursion
-        self.search_with_strategy(random_term).await
+        // If all else fails, return None
+        info!("No results found for query: {}", query);
+        Ok(None)
     }
 
     // Internal method to perform the actual API call with a specific search strategy
@@ -292,7 +212,7 @@ impl MorbotronClient {
         }
         
         // Return the best result, or None if no good matches were found
-        if best_score > 0.3 {  // Minimum threshold for relevance
+        if best_score > 0.1 {  // Lower threshold for relevance
             Ok(best_result)
         } else {
             info!("No relevant results found for query: {}", query);
