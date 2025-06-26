@@ -198,9 +198,17 @@ impl MorbotronClient {
             }
         }
         
-        // No results found with any strategy
-        info!("No Morbotron results found for query: {}", query);
-        Ok(None)
+        // 9. Try with a random popular quote as a fallback
+        info!("No results found with any search strategy, using a random popular quote");
+        
+        // Choose a random search term
+        let random_term = RANDOM_SEARCH_TERMS.choose(&mut rand::thread_rng())
+            .ok_or_else(|| anyhow!("Failed to choose random search term"))?;
+            
+        info!("Using random search term: {}", random_term);
+        
+        // Use the search_with_strategy directly to avoid recursion
+        self.search_with_strategy(random_term).await
     }
 
     // Internal method to perform the actual API call with a specific search strategy

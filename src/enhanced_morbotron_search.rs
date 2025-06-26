@@ -206,6 +206,14 @@ impl EnhancedMorbotronSearch {
                                 // Add the quote as a search term
                                 search_terms.push(quote.to_string());
                                 
+                                // Try searching for exact phrases within the quote
+                                let phrases = extract_phrases(quote);
+                                for phrase in &phrases {
+                                    if phrase.split_whitespace().count() >= 3 {
+                                        search_terms.push(phrase.to_string());
+                                    }
+                                }
+                                
                                 // Add individual words from the quote as search terms
                                 let quote_words: Vec<&str> = quote.split_whitespace().collect();
                                 if quote_words.len() >= 3 {
@@ -538,6 +546,43 @@ fn extract_season_episode_from_text(text: &str) -> Option<String> {
     
     None
 }
+
+// Extract phrases from a quote (split by punctuation)
+fn extract_phrases(text: &str) -> Vec<String> {
+    let mut phrases = Vec::new();
+    
+    // Split by common punctuation that separates phrases
+    let separators = ['.', '!', '?', ';', ':', ','];
+    
+    let mut start = 0;
+    for (i, c) in text.char_indices() {
+        if separators.contains(&c) {
+            if i > start {
+                let phrase = text[start..i].trim().to_string();
+                if !phrase.is_empty() {
+                    phrases.push(phrase);
+                }
+            }
+            start = i + 1;
+        }
+    }
+    
+    // Add the last phrase if there is one
+    if start < text.len() {
+        let phrase = text[start..].trim().to_string();
+        if !phrase.is_empty() {
+            phrases.push(phrase);
+        }
+    }
+    
+    // If no phrases were found (no punctuation), add the whole text as one phrase
+    if phrases.is_empty() && !text.trim().is_empty() {
+        phrases.push(text.trim().to_string());
+    }
+    
+    phrases
+}
+
 // Helper function to check if a word is a common word that should be ignored in some contexts
 fn is_common_word(word: &str) -> bool {
     const COMMON_WORDS: &[&str] = &[
