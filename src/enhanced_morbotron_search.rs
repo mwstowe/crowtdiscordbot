@@ -805,11 +805,6 @@ fn extract_episode_code_from_title(episode_title: &str) -> String {
         }
     }
     
-    // Default to S02E17 for "Bender Gets Made" if the title contains it
-    if episode_title.contains("Bender Gets Made") {
-        return "S02E17".to_string();
-    }
-    
     // Default to a valid episode code
     "S01E01".to_string()
 }
