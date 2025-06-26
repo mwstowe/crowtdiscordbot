@@ -64,8 +64,7 @@ impl EnhancedMorbotronSearch {
             google_client,
         }
     }
-
-    // Main search function that uses search engine to enhance the search
+    
     pub async fn search(&self, query: &str) -> Result<Option<MorbotronResult>> {
         info!("Enhanced Morbotron search for: {}", query);
         
@@ -176,8 +175,112 @@ impl EnhancedMorbotronSearch {
                             info!("Extracted character: {}", character);
                             
                             if !quote.is_empty() {
-                                // Try to extract season and episode numbers
-                                let mut search_terms = Vec::new();
+                                // First, try a direct site search with the quote
+                                let site_search_query = format!("site:morbotron.com \"{}\"", quote);
+                                info!("Trying direct site search with quote: {}", site_search_query);
+                                
+                                match self.google_client.search(&site_search_query).await {
+                                    Ok(Some(search_result)) => {
+                                        info!("Found direct site search result: {} - {}", search_result.title, search_result.url);
+                                        
+                                        // Try to extract the frame ID from the URL
+                                        if let Some(frame_id) = extract_frame_id_from_url(&search_result.url) {
+                                            info!("Extracted frame ID from URL: {}", frame_id);
+                                            
+                                            // Construct a direct URL to the frame
+                                            let frame_parts: Vec<&str> = frame_id.split('_').collect();
+                                            if frame_parts.len() >= 2 {
+                                                let episode = frame_parts[0];
+                                                let timestamp = frame_parts[1];
+                                                
+                                                // Create a MorbotronResult directly
+                                                let result = MorbotronResult {
+                                                    episode: episode.to_string(),
+                                                    episode_title: search_result.title.clone(),
+                                                    episode_number: 0, // We don't have this info
+                                                    season: 0,         // We don't have this info
+                                                    timestamp: timestamp.to_string(),
+                                                    image_url: format!("https://morbotron.com/img/{}/{}", episode, timestamp),
+                                                    caption: quote.to_string(),
+                                                };
+                                                
+                                                info!("Created direct result from frame ID");
+                                                return Ok(Some(result));
+                                            }
+                                        }
+                                        
+                                        // If we couldn't extract a frame ID, try to use the URL directly
+                                        if search_result.url.contains("morbotron.com/meme/") {
+                                            // Extract the episode and timestamp from the URL
+                                            let url_parts: Vec<&str> = search_result.url.split('/').collect();
+                                            if url_parts.len() >= 5 {
+                                                let episode = url_parts[4];
+                                                let timestamp = if url_parts.len() >= 6 { url_parts[5] } else { "0" };
+                                                
+                                                // Create a MorbotronResult directly
+                                                let result = MorbotronResult {
+                                                    episode: episode.to_string(),
+                                                    episode_title: search_result.title.clone(),
+                                                    episode_number: 0, // We don't have this info
+                                                    season: 0,         // We don't have this info
+                                                    timestamp: timestamp.to_string(),
+                                                    image_url: format!("https://morbotron.com/img/{}/{}", episode, timestamp),
+                                                    caption: quote.to_string(),
+                                                };
+                                                
+                                                info!("Created direct result from URL");
+                                                return Ok(Some(result));
+                                            }
+                                        }
+                                    },
+                                    Ok(None) => {
+                                        info!("No direct site search results found");
+                                    },
+                                    Err(e) => {
+                                        error!("Error with direct site search: {}", e);
+                                    }
+                                }
+                                
+                                // Try with character name + quote
+                                if !character.is_empty() {
+                                    let character_quote_search = format!("site:morbotron.com \"{}\" \"{}\"", character, quote);
+                                    info!("Trying site search with character and quote: {}", character_quote_search);
+                                    
+                                    match self.google_client.search(&character_quote_search).await {
+                                        Ok(Some(search_result)) => {
+                                            info!("Found character+quote site search result: {} - {}", search_result.title, search_result.url);
+                                            
+                                            // Try to extract the frame ID from the URL
+                                            if let Some(frame_id) = extract_frame_id_from_url(&search_result.url) {
+                                                info!("Extracted frame ID from URL: {}", frame_id);
+                                                
+                                                // Construct a direct URL to the frame
+                                                let frame_parts: Vec<&str> = frame_id.split('_').collect();
+                                                if frame_parts.len() >= 2 {
+                                                    let episode = frame_parts[0];
+                                                    let timestamp = frame_parts[1];
+                                                    
+                                                    // Create a MorbotronResult directly
+                                                    let result = MorbotronResult {
+                                                        episode: episode.to_string(),
+                                                        episode_title: search_result.title.clone(),
+                                                        episode_number: 0, // We don't have this info
+                                                        season: 0,         // We don't have this info
+                                                        timestamp: timestamp.to_string(),
+                                                        image_url: format!("https://morbotron.com/img/{}/{}", episode, timestamp),
+                                                        caption: quote.to_string(),
+                                                    };
+                                                    
+                                                    info!("Created direct result from frame ID");
+                                                    return Ok(Some(result));
+                                                }
+                                            }
+                                        },
+                                        _ => {
+                                            info!("No character+quote site search results found");
+                                        }
+                                    }
+                                }
                                 
                                 // Try to extract season and episode numbers from the episode string
                                 if let Some(season_episode) = extract_season_episode_from_text(episode) {
@@ -198,8 +301,13 @@ impl EnhancedMorbotronSearch {
                                             info!("No results found for season/episode search");
                                         }
                                     }
-                                    
-                                    // Add the season/episode as a search term for later
+                                }
+                                
+                                // If we get here, try the regular search approach with multiple terms
+                                let mut search_terms = Vec::new();
+                                
+                                // Add season/episode if available
+                                if let Some(season_episode) = extract_season_episode_from_text(episode) {
                                     search_terms.push(season_episode);
                                 }
                                 
@@ -328,175 +436,94 @@ impl EnhancedMorbotronSearch {
                 }
             },
             Err(e) => {
-                error!("Error with Gemini API: {}, falling back to direct search", e);
+                error!("Error with Gemini API: {}", e);
             }
         }
         
-        // If we still have no results, try a direct search with the original query as a last resort
-        info!("No results from enhanced search, falling back to direct search with filtering");
-        match self.morbotron_client.search(query).await {
-            Ok(Some(result)) => {
-                if self.result_contains_search_terms(&result, query) {
-                    Ok(Some(result))
-                } else {
-                    info!("Direct search result doesn't contain search terms, returning None");
-                    Ok(None)
-                }
-            },
-            other => other
-        }
-    }
-
-    // Calculate a total score for a result based on multiple factors
-    fn calculate_total_score(&self, result: &MorbotronResult, query: &str, search_term: &str) -> f32 {
-        // Calculate relevance score based on how well the caption matches the original query
-        let relevance_score = self.calculate_relevance_score(result, query);
-        
-        // Calculate popularity score
-        let popularity_score = self.calculate_popularity_score(result);
-        
-        // Calculate quote match score - how well the caption matches the search term
-        let quote_match_score = self.calculate_quote_match_score(result, search_term);
-        
-        // Calculate exact word match score - how many words from the original query are in the caption
-        let exact_word_match_score = self.calculate_exact_word_match_score(result, query);
-        
-        // Calculate total score (weighted combination of all scores)
-        let total_score = (relevance_score * 0.25) + 
-                         (popularity_score * 0.15) + 
-                         (quote_match_score * 0.25) + 
-                         (exact_word_match_score * 0.35);
-        
-        total_score
+        // If all else fails, fall back to the regular search
+        info!("No results from enhanced search, falling back to regular search");
+        self.morbotron_client.search(query).await
     }
     
-    // Check if a result contains the search terms
-    fn result_contains_search_terms(&self, result: &MorbotronResult, query: &str) -> bool {
-        let query_lower = query.to_lowercase();
-        let caption_lower = result.caption.to_lowercase();
-        let episode_title_lower = result.episode_title.to_lowercase();
-        
-        // Split query into words
-        let query_words: Vec<&str> = query_lower.split_whitespace()
-            .filter(|w| w.len() > 2) // Filter out very short words
-            .collect();
-            
-        if query_words.is_empty() {
-            return true; // Empty query matches everything
-        }
-        
-        // Check if all words from the query appear in either the caption or episode title
-        let all_words_in_caption = query_words.iter()
-            .all(|&word| caption_lower.contains(word));
-            
-        let all_words_in_title = query_words.iter()
-            .filter(|&word| !is_common_word(word)) // Filter out common words for title matching
-            .all(|&word| episode_title_lower.contains(word));
-            
-        // Calculate fuzzy match score using Jaro-Winkler
-        let fuzzy_score = jaro_winkler(&caption_lower, &query_lower) as f32;
-        
-        // Check if a significant portion of words match
-        let matching_words_count = query_words.iter()
-            .filter(|&word| caption_lower.contains(word))
-            .count();
-        let word_match_ratio = if !query_words.is_empty() {
-            matching_words_count as f32 / query_words.len() as f32
-        } else {
-            0.0
-        };
-        
-        // Return true if:
-        // 1. All words are found in either the caption or title, OR
-        // 2. The fuzzy match score is high enough, OR
-        // 3. A significant portion of words match
-        all_words_in_caption || all_words_in_title || fuzzy_score > 0.8 || word_match_ratio > 0.6
-    }
-    
-    // Extract a quote from text (text between quotation marks)
+    // Helper method to extract quotes from text (looks for text in quotes)
     fn extract_quote_from_text(&self, text: &str) -> Option<String> {
         let re = Regex::new(r#""([^"]+)""#).ok()?;
-        if let Some(caps) = re.captures(text) {
-            if let Some(quote) = caps.get(1) {
-                return Some(quote.as_str().to_string());
-            }
-        }
-        None
+        re.captures(text).and_then(|caps| caps.get(1).map(|m| m.as_str().to_string()))
     }
     
-    // Extract episode information from text
+    // Helper method to extract episode information from text
     fn extract_episode_info(&self, text: &str) -> Option<String> {
-        // Look for season and episode information
-        let re = Regex::new(r"(?i)season\s+(\d+)\s+episode\s+(\d+)").ok()?;
-        if let Some(caps) = re.captures(text) {
+        // Look for season/episode patterns like S01E01 or Season 1 Episode 1
+        let re1 = Regex::new(r"S(\d+)E(\d+)").ok()?;
+        if let Some(caps) = re1.captures(text) {
+            if let (Some(season), Some(episode)) = (caps.get(1), caps.get(2)) {
+                return Some(format!("S{}E{}", season.as_str(), episode.as_str()));
+            }
+        }
+        
+        let re2 = Regex::new(r"Season\s+(\d+)\s+Episode\s+(\d+)").ok()?;
+        if let Some(caps) = re2.captures(text) {
             if let (Some(season), Some(episode)) = (caps.get(1), caps.get(2)) {
                 return Some(format!("S{:02}E{:02}", 
                     season.as_str().parse::<u32>().unwrap_or(0),
                     episode.as_str().parse::<u32>().unwrap_or(0)));
             }
         }
+        
         None
     }
     
-    // Extract potential quotes from title and snippet
+    // Helper method to extract potential quotes from text
     fn extract_potential_quotes(&self, title: &str, snippet: &str) -> Vec<String> {
         let mut quotes = Vec::new();
         
-        // Extract sentences that might be quotes
-        let combined_text = format!("{} {}", title, snippet);
-        let sentences = combined_text.split(|c| c == '.' || c == '!' || c == '?')
-            .map(|s| s.trim())
-            .filter(|s| !s.is_empty())
-            .collect::<Vec<&str>>();
-            
-        for sentence in sentences {
-            if sentence.len() > 5 && sentence.len() < 100 {
-                quotes.push(sentence.to_string());
+        // Look for quoted text
+        let re = Regex::new(r#""([^"]+)""#).ok().unwrap_or_else(|| Regex::new(r".*").unwrap());
+        
+        for text in &[title, snippet] {
+            for cap in re.captures_iter(text) {
+                if let Some(quote) = cap.get(1) {
+                    quotes.push(quote.as_str().to_string());
+                }
             }
         }
         
         quotes
     }
-
-    // Calculate relevance score based on how well the caption matches the original query
-    fn calculate_relevance_score(&self, result: &MorbotronResult, query: &str) -> f32 {
-        // Use Jaro-Winkler similarity for fuzzy matching
-        let similarity = jaro_winkler(&result.caption.to_lowercase(), &query.to_lowercase());
-        similarity as f32
-    }
     
-    // Calculate popularity score (placeholder implementation)
-    fn calculate_popularity_score(&self, _result: &MorbotronResult) -> f32 {
-        // In a real implementation, this would use popularity data
-        // For now, return a default value
-        0.5
-    }
-    
-    // Calculate quote match score - how well the caption matches the search term
-    fn calculate_quote_match_score(&self, result: &MorbotronResult, search_term: &str) -> f32 {
-        // Use Jaro-Winkler similarity for fuzzy matching
-        let similarity = jaro_winkler(&result.caption.to_lowercase(), &search_term.to_lowercase());
-        similarity as f32
-    }
-    
-    // Calculate a score based on how many exact words from the query are in the caption
-    fn calculate_exact_word_match_score(&self, result: &MorbotronResult, query: &str) -> f32 {
+    // Helper method to check if a result contains the search terms
+    fn result_contains_search_terms(&self, result: &MorbotronResult, query: &str) -> bool {
         let query_lower = query.to_lowercase();
         let caption_lower = result.caption.to_lowercase();
         let episode_title_lower = result.episode_title.to_lowercase();
         
         // Split query into words
         let query_words: Vec<&str> = query_lower.split_whitespace().collect();
-        if query_words.is_empty() {
-            return 0.0;
+        
+        // Check if all query words are in the caption or episode title
+        for word in &query_words {
+            if !caption_lower.contains(word) && !episode_title_lower.contains(word) {
+                return false;
+            }
         }
         
-        // Count how many words from the query appear in the caption
+        true
+    }
+    
+    // Calculate a total relevance score for a result
+    fn calculate_total_score(&self, result: &MorbotronResult, query: &str, search_term: &str) -> f32 {
+        let query_lower = query.to_lowercase();
+        let caption_lower = result.caption.to_lowercase();
+        let episode_title_lower = result.episode_title.to_lowercase();
+        
+        // Split query into words
+        let query_words: Vec<&str> = query_lower.split_whitespace().collect();
+        
+        // Count how many query words are in the caption and title
         let caption_matching_words = query_words.iter()
             .filter(|&word| caption_lower.contains(word))
             .count();
-            
-        // Count how many words from the query appear in the episode title
+        
         let title_matching_words = query_words.iter()
             .filter(|&word| episode_title_lower.contains(word))
             .count();
@@ -522,25 +549,21 @@ impl EnhancedMorbotronSearch {
     }
 }
 
-// Helper function to extract season and episode information from text
-fn extract_season_episode_from_text(text: &str) -> Option<String> {
-    // Look for "Season X Episode Y" format
-    let season_episode_re = regex::Regex::new(r"Season\s+(\d+)\s+Episode\s+(\d+)").ok()?;
-    if let Some(caps) = season_episode_re.captures(text) {
-        if let (Some(season), Some(episode)) = (caps.get(1), caps.get(2)) {
-            return Some(format!("S{:02}E{:02}", 
-                season.as_str().parse::<u32>().unwrap_or(0),
-                episode.as_str().parse::<u32>().unwrap_or(0)));
+// Helper function to extract frame ID from a Morbotron URL
+fn extract_frame_id_from_url(url: &str) -> Option<String> {
+    // Look for patterns like /meme/S05E08/1211643 or /caption/S05E08_1211643
+    let meme_re = regex::Regex::new(r"/meme/([^/]+)/(\d+)").ok()?;
+    if let Some(caps) = meme_re.captures(url) {
+        if let (Some(episode), Some(timestamp)) = (caps.get(1), caps.get(2)) {
+            return Some(format!("{}_{}", episode.as_str(), timestamp.as_str()));
         }
     }
     
-    // Look for S##E## format
-    let se_format_re = regex::Regex::new(r"S(\d+)E(\d+)").ok()?;
-    if let Some(caps) = se_format_re.captures(text) {
-        if let (Some(season), Some(episode)) = (caps.get(1), caps.get(2)) {
-            return Some(format!("S{:02}E{:02}", 
-                season.as_str().parse::<u32>().unwrap_or(0),
-                episode.as_str().parse::<u32>().unwrap_or(0)));
+    // Look for patterns like /caption/S05E08_1211643
+    let caption_re = regex::Regex::new(r"/caption/([^/]+)").ok()?;
+    if let Some(caps) = caption_re.captures(url) {
+        if let Some(frame_id) = caps.get(1) {
+            return Some(frame_id.as_str().to_string());
         }
     }
     
@@ -583,21 +606,42 @@ fn extract_phrases(text: &str) -> Vec<String> {
     phrases
 }
 
+// Helper function to extract season and episode information from text
+fn extract_season_episode_from_text(text: &str) -> Option<String> {
+    // Look for "Season X Episode Y" format
+    let season_episode_re = regex::Regex::new(r"Season\s+(\d+)\s+Episode\s+(\d+)").ok()?;
+    if let Some(caps) = season_episode_re.captures(text) {
+        if let (Some(season), Some(episode)) = (caps.get(1), caps.get(2)) {
+            return Some(format!("S{:02}E{:02}", 
+                season.as_str().parse::<u32>().unwrap_or(0),
+                episode.as_str().parse::<u32>().unwrap_or(0)));
+        }
+    }
+    
+    // Look for S##E## format
+    let se_format_re = regex::Regex::new(r"S(\d+)E(\d+)").ok()?;
+    if let Some(caps) = se_format_re.captures(text) {
+        if let (Some(season), Some(episode)) = (caps.get(1), caps.get(2)) {
+            return Some(format!("S{:02}E{:02}", 
+                season.as_str().parse::<u32>().unwrap_or(0),
+                episode.as_str().parse::<u32>().unwrap_or(0)));
+        }
+    }
+    
+    None
+}
+
 // Helper function to check if a word is a common word that should be ignored in some contexts
 fn is_common_word(word: &str) -> bool {
     const COMMON_WORDS: &[&str] = &[
-        "the", "and", "that", "this", "with", "for", "was", "not", 
-        "you", "have", "are", "they", "what", "from", "but", "its",
-        "his", "her", "their", "your", "our", "who", "which", "when",
-        "where", "why", "how", "all", "any", "some", "many", "much",
-        "more", "most", "other", "such", "than", "then", "too", "very",
-        "just", "now", "also", "into", "only", "over", "under", "same",
-        "about", "after", "before", "between", "during", "through", "above",
-        "below", "down", "off", "out", "since", "upon", "while", "within",
-        "without", "across", "along", "among", "around", "behind", "beside",
-        "beyond", "near", "toward", "against", "despite", "except", "like",
-        "until", "because", "although", "unless", "whereas", "whether"
+        "the", "and", "that", "have", "for", "not", "with", "you", "this", "but",
+        "his", "from", "they", "she", "will", "say", "would", "can", "been", "one",
+        "all", "were", "when", "there", "what", "them", "some", "her", "who", "could",
+        "make", "like", "time", "just", "him", "know", "take", "into", "year", "your",
+        "good", "more", "than", "then", "look", "only", "come", "its", "over", "think",
+        "also", "back", "after", "use", "two", "how", "our", "work", "first", "well",
+        "way", "even", "new", "want", "because", "any", "these", "give", "day", "most",
     ];
     
-    COMMON_WORDS.contains(&word)
+    COMMON_WORDS.contains(&word.to_lowercase().as_str())
 }
