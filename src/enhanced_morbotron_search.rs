@@ -628,24 +628,7 @@ impl EnhancedMorbotronSearch {
     
     // Helper method to find an image using the Morbotron API
     async fn find_image_with_morbotron_api(&self, quote: &str, episode: &str) -> Result<Option<MorbotronResult>> {
-        // Try to extract season and episode numbers from the episode string
-        if let Some(season_episode) = extract_season_episode_from_text(episode) {
-            info!("Extracted season/episode: {}", season_episode);
-            
-            // First, try searching by season and episode if available
-            info!("Trying search by season/episode: {}", season_episode);
-            match self.morbotron_client.search(&season_episode).await {
-                Ok(Some(result)) => {
-                    info!("Found result by season/episode");
-                    return Ok(Some(result));
-                },
-                _ => {
-                    info!("No results found for season/episode search");
-                }
-            }
-        }
-        
-        // Try with the full quote
+        // Try with the full quote - just one API call
         info!("Trying search with full quote: {}", quote);
         match self.morbotron_client.search(quote).await {
             Ok(Some(result)) => {
@@ -657,33 +640,22 @@ impl EnhancedMorbotronSearch {
             }
         }
         
-        // Try with phrases from the quote
-        let phrases = extract_phrases(quote);
-        for phrase in &phrases {
-            if phrase.split_whitespace().count() >= 3 {
-                info!("Trying search with phrase: {}", phrase);
-                match self.morbotron_client.search(phrase).await {
+        // If episode information is available, try that as a fallback
+        if !episode.is_empty() {
+            // Try to extract season and episode numbers from the episode string
+            if let Some(season_episode) = extract_season_episode_from_text(episode) {
+                info!("Extracted season/episode: {}", season_episode);
+                
+                // Try searching by season and episode
+                info!("Trying search by season/episode: {}", season_episode);
+                match self.morbotron_client.search(&season_episode).await {
                     Ok(Some(result)) => {
-                        info!("Found result with phrase search");
+                        info!("Found result by season/episode");
                         return Ok(Some(result));
                     },
-                    _ => {}
-                }
-            }
-        }
-        
-        // Try with word combinations
-        let words: Vec<&str> = quote.split_whitespace().collect();
-        if words.len() >= 3 {
-            for i in 0..words.len() - 2 {
-                let three_word_term = format!("{} {} {}", words[i], words[i+1], words[i+2]);
-                info!("Trying search with word combination: {}", three_word_term);
-                match self.morbotron_client.search(&three_word_term).await {
-                    Ok(Some(result)) => {
-                        info!("Found result with word combination search");
-                        return Ok(Some(result));
-                    },
-                    _ => {}
+                    _ => {
+                        info!("No results found for season/episode search");
+                    }
                 }
             }
         }
