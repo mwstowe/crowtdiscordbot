@@ -68,22 +68,48 @@ struct MasterOfAllScienceSearchResult {
 
 #[derive(Debug, Deserialize)]
 struct MasterOfAllScienceCaptionResult {
-    Subtitles: Vec<MasterOfAllScienceSubtitle>,
     Episode: MasterOfAllScienceEpisode,
+    Frame: MasterOfAllScienceFrame,
+    Subtitles: Vec<MasterOfAllScienceSubtitle>,
+    Nearby: Vec<MasterOfAllScienceNearbyFrame>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MasterOfAllScienceFrame {
+    Id: u64,
+    Episode: String,
+    Timestamp: u64,
+}
+
+#[derive(Debug, Deserialize)]
+struct MasterOfAllScienceNearbyFrame {
+    Id: u64,
+    Episode: String,
+    Timestamp: u64,
 }
 
 #[derive(Debug, Deserialize)]
 struct MasterOfAllScienceSubtitle {
-    Content: String,
+    Id: u64,
+    RepresentativeTimestamp: u64,
+    Episode: String,
     StartTimestamp: u64,
     EndTimestamp: u64,
+    Content: String,
+    Language: String,
 }
 
 #[derive(Debug, Deserialize)]
 struct MasterOfAllScienceEpisode {
-    Title: String,
+    Id: u64,
+    Key: String,
     Season: u32,
-    Episode: u32,
+    EpisodeNumber: u32,
+    Title: String,
+    Director: String,
+    Writer: String,
+    OriginalAirDate: String,
+    WikiLink: String,
 }
 
 // Result struct for MasterOfAllScience searches
@@ -248,7 +274,7 @@ impl MasterOfAllScienceClient {
         // Extract episode information
         let episode_title = caption_result.Episode.Title.clone();
         let season = caption_result.Episode.Season;
-        let episode_number = caption_result.Episode.Episode;
+        let episode_number = caption_result.Episode.EpisodeNumber;
         
         // Return the result
         Ok(Some(MasterOfAllScienceResult {

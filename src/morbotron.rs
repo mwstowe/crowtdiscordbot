@@ -42,22 +42,48 @@ struct MorbotronSearchResult {
 
 #[derive(Debug, Deserialize)]
 struct MorbotronCaptionResult {
-    Subtitles: Vec<MorbotronSubtitle>,
     Episode: MorbotronEpisode,
+    Frame: MorbotronFrame,
+    Subtitles: Vec<MorbotronSubtitle>,
+    Nearby: Vec<MorbotronNearbyFrame>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MorbotronFrame {
+    Id: u64,
+    Episode: String,
+    Timestamp: u64,
+}
+
+#[derive(Debug, Deserialize)]
+struct MorbotronNearbyFrame {
+    Id: u64,
+    Episode: String,
+    Timestamp: u64,
 }
 
 #[derive(Debug, Deserialize)]
 struct MorbotronSubtitle {
-    Content: String,
+    Id: u64,
+    RepresentativeTimestamp: u64,
+    Episode: String,
     StartTimestamp: u64,
     EndTimestamp: u64,
+    Content: String,
+    Language: String,
 }
 
 #[derive(Debug, Deserialize)]
 struct MorbotronEpisode {
-    Title: String,
+    Id: u64,
+    Key: String,
     Season: u32,
-    Episode: u32,
+    EpisodeNumber: u32,
+    Title: String,
+    Director: String,
+    Writer: String,
+    OriginalAirDate: String,
+    WikiLink: String,
 }
 
 // Result struct for Morbotron searches
@@ -223,7 +249,7 @@ impl MorbotronClient {
         // Extract episode information
         let episode_title = caption_result.Episode.Title.clone();
         let season = caption_result.Episode.Season;
-        let episode_number = caption_result.Episode.Episode;
+        let episode_number = caption_result.Episode.EpisodeNumber;
         
         // Return the result
         Ok(Some(MorbotronResult {
