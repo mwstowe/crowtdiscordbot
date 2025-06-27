@@ -105,7 +105,9 @@ impl MorbotronClient {
             .ok_or_else(|| anyhow!("Failed to choose random search term"))?;
             
         info!("Using random search term: {}", random_term);
-        self.search(random_term).await
+        
+        // Use search_with_strategy directly to avoid recursion
+        self.search_with_strategy(random_term).await
     }
     
     // Search for a screenshot matching the query
@@ -126,9 +128,9 @@ impl MorbotronClient {
             }
         }
         
-        // If all else fails, return None
-        info!("No results found for query: {}", query);
-        Ok(None)
+        // If all else fails, return a random result
+        info!("No results found for query: {}, returning random result", query);
+        self.random().await
     }
 
     // Internal method to perform the actual API call with a specific search strategy
@@ -187,8 +189,10 @@ impl MorbotronClient {
     
     // Get the caption for a specific frame
     async fn get_caption_for_frame(&self, episode: &str, timestamp: u64) -> Result<Option<MorbotronResult>> {
-        // Build the caption URL
+        // Build the caption URL - ensure the episode is properly formatted
         let caption_url = format!("{}/{}/{}", MORBOTRON_CAPTION_URL, episode, timestamp);
+        
+        info!("Fetching caption from URL: {}", caption_url);
         
         // Make the caption request
         let caption_response = self.http_client.get(&caption_url)
@@ -196,7 +200,75 @@ impl MorbotronClient {
             .await
             .map_err(|e| anyhow!("Failed to get Morbotron caption: {}", e))?;
             
-        if !caption_response.status().is_success() {
+        let status = caption_response.status();
+        info!("Caption API response status: {}", status);
+        
+        if !status.is_success() {
+            // If we get a 404, try with a different URL format
+            if status.as_u16() == 404 {
+                info!("Got 404 for caption, trying alternative URL format");
+                
+                // Try with a different format - some episodes might be formatted differently
+                let alt_episode = if episode.starts_with("S") {
+                    // If it's already in SxxExx format, try with just the episode number
+                    if let Some(ep_num) = episode.strip_prefix("S").and_then(|s| s.split('E').nth(1)) {
+                        ep_num.to_string()
+                    } else {
+                        episode.to_string()
+                    }
+                } else {
+                    // If it's not in SxxExx format, try with that format
+                    format!("S01E{:02}", episode.parse::<u32>().unwrap_or(1))
+                };
+                
+                let alt_caption_url = format!("{}/{}/{}", MORBOTRON_CAPTION_URL, alt_episode, timestamp);
+                info!("Trying alternative caption URL: {}", alt_caption_url);
+                
+                let alt_caption_response = self.http_client.get(&alt_caption_url)
+                    .send()
+                    .await
+                    .map_err(|e| anyhow!("Failed to get Morbotron caption with alternative URL: {}", e))?;
+                    
+                if !alt_caption_response.status().is_success() {
+                    return Err(anyhow!("Morbotron caption request failed with both URL formats"));
+                }
+                
+                // Parse the caption result from the alternative URL
+                let caption_result: MorbotronCaptionResult = alt_caption_response.json()
+                    .await
+                    .map_err(|e| anyhow!("Failed to parse Morbotron caption: {}", e))?;
+                    
+                // If no subtitles, return None
+                if caption_result.Subtitles.is_empty() {
+                    return Ok(None);
+                }
+                
+                // Extract the caption text
+                let caption = caption_result.Subtitles.iter()
+                    .map(|s| s.Content.clone())
+                    .collect::<Vec<String>>()
+                    .join("\n");
+                    
+                // Build the image URL
+                let image_url = format!("{}/{}/{}.jpg", MORBOTRON_IMAGE_URL, alt_episode, timestamp);
+                
+                // Extract episode information
+                let episode_title = caption_result.Episode.Title.clone();
+                let season = caption_result.Episode.Season;
+                let episode_number = caption_result.Episode.Episode;
+                
+                // Return the result
+                return Ok(Some(MorbotronResult {
+                    episode: alt_episode,
+                    season,
+                    episode_number,
+                    episode_title,
+                    timestamp: timestamp.to_string(),
+                    image_url,
+                    caption,
+                }));
+            }
+            
             return Err(anyhow!("Morbotron caption request failed with status: {}", caption_response.status()));
         }
         
