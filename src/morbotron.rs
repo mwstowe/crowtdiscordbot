@@ -7,8 +7,6 @@ use serde::Deserialize;
 use serde_json;
 use std::time::Duration;
 use rand::seq::SliceRandom;
-use std::future::Future;
-use std::pin::Pin;
 use std::sync::RwLock;
 use crate::gemini_api::GeminiClient;
 use crate::text_formatting;
@@ -17,7 +15,6 @@ use crate::text_formatting;
 const MORBOTRON_BASE_URL: &str = "https://morbotron.com/api/search";
 const MORBOTRON_CAPTION_URL: &str = "https://morbotron.com/api/caption";
 const MORBOTRON_IMAGE_URL: &str = "https://morbotron.com/img";
-const MORBOTRON_RANDOM_URL: &str = "https://morbotron.com/api/random";
 
 // Common search terms for random screenshots when no query is provided
 const RANDOM_SEARCH_TERMS: &[&str] = &[
@@ -43,48 +40,74 @@ struct MorbotronSearchResult {
 
 #[derive(Debug, Deserialize)]
 struct MorbotronCaptionResult {
-    Episode: MorbotronEpisode,
-    Frame: MorbotronFrame,
-    Subtitles: Vec<MorbotronSubtitle>,
-    Nearby: Vec<MorbotronNearbyFrame>,
+    #[serde(rename = "Episode")]
+    episode: MorbotronEpisode,
+    #[serde(rename = "Frame")]
+    frame: MorbotronFrame,
+    #[serde(rename = "Subtitles")]
+    subtitles: Vec<MorbotronSubtitle>,
+    #[serde(rename = "Nearby")]
+    nearby: Vec<MorbotronNearbyFrame>,
 }
 
 #[derive(Debug, Deserialize)]
 struct MorbotronFrame {
-    Id: u64,
-    Episode: String,
-    Timestamp: u64,
+    #[serde(rename = "Id")]
+    id: u64,
+    #[serde(rename = "Episode")]
+    episode: String,
+    #[serde(rename = "Timestamp")]
+    timestamp: u64,
 }
 
 #[derive(Debug, Deserialize)]
 struct MorbotronNearbyFrame {
-    Id: u64,
-    Episode: String,
-    Timestamp: u64,
+    #[serde(rename = "Id")]
+    id: u64,
+    #[serde(rename = "Episode")]
+    episode: String,
+    #[serde(rename = "Timestamp")]
+    timestamp: u64,
 }
 
 #[derive(Debug, Deserialize)]
 struct MorbotronSubtitle {
-    Id: u64,
-    RepresentativeTimestamp: u64,
-    Episode: String,
-    StartTimestamp: u64,
-    EndTimestamp: u64,
-    Content: String,
-    Language: String,
+    #[serde(rename = "Id")]
+    id: u64,
+    #[serde(rename = "RepresentativeTimestamp")]
+    representative_timestamp: u64,
+    #[serde(rename = "Episode")]
+    episode: String,
+    #[serde(rename = "StartTimestamp")]
+    start_timestamp: u64,
+    #[serde(rename = "EndTimestamp")]
+    end_timestamp: u64,
+    #[serde(rename = "Content")]
+    content: String,
+    #[serde(rename = "Language")]
+    language: String,
 }
 
 #[derive(Debug, Deserialize)]
 struct MorbotronEpisode {
-    Id: u64,
-    Key: String,
-    Season: u32,
-    EpisodeNumber: u32,
-    Title: String,
-    Director: String,
-    Writer: String,
-    OriginalAirDate: String,
-    WikiLink: String,
+    #[serde(rename = "Id")]
+    id: u64,
+    #[serde(rename = "Key")]
+    key: String,
+    #[serde(rename = "Season")]
+    season: u32,
+    #[serde(rename = "EpisodeNumber")]
+    episode_number: u32,
+    #[serde(rename = "Title")]
+    title: String,
+    #[serde(rename = "Director")]
+    director: String,
+    #[serde(rename = "Writer")]
+    writer: String,
+    #[serde(rename = "OriginalAirDate")]
+    original_air_date: String,
+    #[serde(rename = "WikiLink")]
+    wiki_link: String,
 }
 
 // Result struct for Morbotron searches
@@ -254,13 +277,13 @@ impl MorbotronClient {
             .map_err(|e| anyhow!("Failed to parse Morbotron caption: {}", e))?;
             
         // If no subtitles, return None
-        if caption_result.Subtitles.is_empty() {
+        if caption_result.subtitles.is_empty() {
             return Ok(None);
         }
         
         // Extract the caption text
-        let caption = caption_result.Subtitles.iter()
-            .map(|s| s.Content.clone())
+        let caption = caption_result.subtitles.iter()
+            .map(|s| s.content.clone())
             .collect::<Vec<String>>()
             .join("\n");
             
@@ -268,9 +291,9 @@ impl MorbotronClient {
         let image_url = format!("{}/{}/{}.jpg", MORBOTRON_IMAGE_URL, episode, timestamp);
         
         // Extract episode information
-        let episode_title = caption_result.Episode.Title.clone();
-        let season = caption_result.Episode.Season;
-        let episode_number = caption_result.Episode.EpisodeNumber;
+        let episode_title = caption_result.episode.title.clone();
+        let season = caption_result.episode.season;
+        let episode_number = caption_result.episode.episode_number;
         
         // Return the result
         Ok(Some(MorbotronResult {
