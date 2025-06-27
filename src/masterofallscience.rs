@@ -7,12 +7,14 @@ use serde::Deserialize;
 use serde_json;
 use std::time::Duration;
 use rand::seq::SliceRandom;
+use std::future::Future;
+use std::pin::Pin;
 use crate::text_formatting;
 use crate::gemini_api::GeminiClient;
 
 // API endpoints
 const MASTEROFALLSCIENCE_BASE_URL: &str = "https://masterofallscience.com/api/search";
-const MASTEROFALLSCIENCE_CAPTION_URL: &str = "https://masterofallscience.com/api/caption";
+const MASTEROFALLSCIENCE_CAPTION_URL: &str = "https://masterofallscience.com/caption";
 const MASTEROFALLSCIENCE_IMAGE_URL: &str = "https://masterofallscience.com/img";
 const MASTEROFALLSCIENCE_RANDOM_URL: &str = "https://masterofallscience.com/api/random";
 
@@ -147,7 +149,7 @@ impl MasterOfAllScienceClient {
         
         // If all else fails, return a random result
         info!("No results found for query: {}, returning random result", query);
-        self.random().await
+        Box::pin(self.random()).await
     }
     
     // Internal method to perform the actual API call with a specific search strategy
@@ -204,126 +206,67 @@ impl MasterOfAllScienceClient {
         self.get_caption_for_frame(episode, timestamp).await
     }
     
-    // Get the caption for a specific frame
     async fn get_caption_for_frame(&self, episode: &str, timestamp: u64) -> Result<Option<MasterOfAllScienceResult>> {
-        // Build the caption URL
-        let caption_url = format!("{}/{}/{}", MASTEROFALLSCIENCE_CAPTION_URL, episode, timestamp);
-        
-        info!("Fetching caption from URL: {}", caption_url);
-        
-        // Make the caption request
-        let caption_response = self.http_client.get(&caption_url)
-            .send()
-            .await
-            .map_err(|e| anyhow!("Failed to get MasterOfAllScience caption: {}", e))?;
+        // Extract season and episode numbers from the episode code (e.g., S07E06 -> 7, 6)
+        if let Some((season, ep)) = extract_season_episode(episode) {
+            // Use the correct URL format: /caption/season/episode/timestamp
+            let caption_url = format!("{}/{}/{}/{}", MASTEROFALLSCIENCE_CAPTION_URL, season, ep, timestamp);
+            info!("Using caption URL: {}", caption_url);
             
-        let status = caption_response.status();
-        info!("Caption API response status: {}", status);
-        
-        if !status.is_success() {
-            // If we get a 404, try with a different URL format
-            if status.as_u16() == 404 {
-                info!("Got 404 for caption, trying alternative URL format");
+            // Make the caption request
+            let caption_response = self.http_client.get(&caption_url)
+                .send()
+                .await
+                .map_err(|e| anyhow!("Failed to get MasterOfAllScience caption: {}", e))?;
                 
-                // Try with a different format - some episodes might be formatted differently
-                let alt_episode = if episode.contains("E") || episode.contains("S") {
-                    // If it's already in SxxExx format, try with just the episode number
-                    let parts: Vec<&str> = episode.split(|c| c == 'E' || c == 'S').collect();
-                    if parts.len() > 1 {
-                        parts[parts.len() - 1].to_string()
-                    } else {
-                        episode.to_string()
-                    }
-                } else {
-                    // If it's not in SxxExx format, try with that format
-                    format!("S01E{:02}", episode.parse::<u32>().unwrap_or(1))
-                };
-                
-                let alt_caption_url = format!("{}/{}/{}", MASTEROFALLSCIENCE_CAPTION_URL, alt_episode, timestamp);
-                info!("Trying alternative caption URL: {}", alt_caption_url);
-                
-                let alt_caption_response = self.http_client.get(&alt_caption_url)
-                    .send()
-                    .await
-                    .map_err(|e| anyhow!("Failed to get MasterOfAllScience caption with alternative URL: {}", e))?;
-                    
-                if !alt_caption_response.status().is_success() {
-                    return Err(anyhow!("MasterOfAllScience caption request failed with both URL formats"));
-                }
-                
-                // Parse the caption result
-                let caption_result: MasterOfAllScienceCaptionResult = alt_caption_response.json()
-                    .await
-                    .map_err(|e| anyhow!("Failed to parse MasterOfAllScience caption: {}", e))?;
-                    
-                // If no subtitles, return None
-                if caption_result.Subtitles.is_empty() {
-                    return Ok(None);
-                }
-                
-                // Extract the caption text
-                let caption = caption_result.Subtitles.iter()
-                    .map(|s| s.Content.clone())
-                    .collect::<Vec<String>>()
-                    .join("\n");
-                    
-                // Build the image URL
-                let image_url = format!("{}/{}/{}.jpg", MASTEROFALLSCIENCE_IMAGE_URL, alt_episode, timestamp);
-                
-                // Extract episode information
-                let episode_title = caption_result.Episode.Title.clone();
-                let season = caption_result.Episode.Season;
-                let episode_number = caption_result.Episode.Episode;
-                
-                // Return the result
-                return Ok(Some(MasterOfAllScienceResult {
-                    episode: alt_episode,
-                    season,
-                    episode_number,
-                    episode_title,
-                    timestamp: timestamp.to_string(),
-                    image_url,
-                    caption: format_caption(&caption),
-                }));
+            let status = caption_response.status();
+            info!("Caption API response status: {}", status);
+            
+            if !status.is_success() {
+                // If the request failed, return a random result instead of an error
+                info!("Caption request failed with status: {}, returning random result", status);
+                return Box::pin(self.random()).await;
             }
             
-            return Err(anyhow!("MasterOfAllScience caption request failed with status: {}", caption_response.status()));
+            // Parse the caption result
+            let caption_result: MasterOfAllScienceCaptionResult = caption_response.json()
+                .await
+                .map_err(|e| anyhow!("Failed to parse MasterOfAllScience caption: {}", e))?;
+                
+            // If no subtitles, return None
+            if caption_result.Subtitles.is_empty() {
+                return Ok(None);
+            }
+            
+            // Extract the caption text
+            let caption = caption_result.Subtitles.iter()
+                .map(|s| s.Content.clone())
+                .collect::<Vec<String>>()
+                .join("\n");
+                
+            // Build the image URL - use the season/episode format for the image URL
+            let image_url = format!("{}/{}/{}/{}.jpg", MASTEROFALLSCIENCE_IMAGE_URL, season, ep, timestamp);
+            
+            // Extract episode information
+            let episode_title = caption_result.Episode.Title.clone();
+            let season_num = caption_result.Episode.Season;
+            let episode_number = caption_result.Episode.Episode;
+            
+            // Return the result
+            return Ok(Some(MasterOfAllScienceResult {
+                episode: episode.to_string(),
+                season: season_num,
+                episode_number,
+                episode_title,
+                timestamp: timestamp.to_string(),
+                image_url,
+                caption: format_caption(&caption),
+            }));
         }
         
-        // Parse the caption result
-        let caption_result: MasterOfAllScienceCaptionResult = caption_response.json()
-            .await
-            .map_err(|e| anyhow!("Failed to parse MasterOfAllScience caption: {}", e))?;
-            
-        // If no subtitles, return None
-        if caption_result.Subtitles.is_empty() {
-            return Ok(None);
-        }
-        
-        // Extract the caption text
-        let caption = caption_result.Subtitles.iter()
-            .map(|s| s.Content.clone())
-            .collect::<Vec<String>>()
-            .join("\n");
-            
-        // Build the image URL
-        let image_url = format!("{}/{}/{}.jpg", MASTEROFALLSCIENCE_IMAGE_URL, episode, timestamp);
-        
-        // Extract episode information
-        let episode_title = caption_result.Episode.Title.clone();
-        let season = caption_result.Episode.Season;
-        let episode_number = caption_result.Episode.Episode;
-        
-        // Return the result
-        Ok(Some(MasterOfAllScienceResult {
-            episode: episode.to_string(),
-            season,
-            episode_number,
-            episode_title,
-            timestamp: timestamp.to_string(),
-            image_url,
-            caption: format_caption(&caption),
-        }))
+        // If we couldn't extract season/episode, return a random result
+        info!("Could not extract season/episode from '{}', returning random result", episode);
+        Box::pin(self.random()).await
     }
 }
 
@@ -335,11 +278,11 @@ fn format_caption(caption: &str) -> String {
 // Format a MasterOfAllScience result for display
 pub fn format_masterofallscience_result(result: &MasterOfAllScienceResult) -> String {
     format!(
-        "{}\n{} (Season {}, Episode {})\n{}",
-        result.image_url,
+        "**S{:02}E{:02} - {}**\n{}\n\n{}",
+        result.season, 
+        result.episode_number, 
         result.episode_title,
-        result.season,
-        result.episode_number,
+        result.image_url,
         result.caption
     )
 }
@@ -511,4 +454,20 @@ pub async fn handle_masterofallscience_command(
     }
     
     Ok(())
+}
+
+// Extract season and episode numbers from an episode code (e.g., S07E06 -> 7, 6)
+fn extract_season_episode(episode: &str) -> Option<(u32, u32)> {
+    // Handle SxxExx format (e.g., S07E06)
+    if episode.contains('S') && episode.contains('E') {
+        let parts: Vec<&str> = episode.split(['S', 'E']).collect();
+        if parts.len() >= 3 {
+            let season = parts[1].trim().parse::<u32>().ok()?;
+            let ep = parts[2].trim().parse::<u32>().ok()?;
+            return Some((season, ep));
+        }
+    }
+    
+    // Handle other formats or return None if we can't parse
+    None
 }
