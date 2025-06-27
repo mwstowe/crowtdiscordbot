@@ -9,6 +9,7 @@ use std::time::Duration;
 use rand::seq::SliceRandom;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::RwLock;
 use crate::gemini_api::GeminiClient;
 use crate::text_formatting;
 
@@ -30,7 +31,7 @@ const RANDOM_SEARCH_TERMS: &[&str] = &[
 ];
 
 // JSON structs for Morbotron API responses
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 struct MorbotronSearchResult {
     #[serde(rename = "Id")]
     id: u64,
@@ -100,6 +101,9 @@ pub struct MorbotronResult {
 
 pub struct MorbotronClient {
     http_client: HttpClient,
+    last_query: RwLock<Option<String>>,
+    last_results: RwLock<Vec<MorbotronSearchResult>>,
+    current_index: RwLock<usize>,
 }
 
 impl MorbotronClient {
@@ -112,7 +116,12 @@ impl MorbotronClient {
             .build()
             .expect("Failed to create HTTP client");
             
-        Self { http_client }
+        Self { 
+            http_client,
+            last_query: RwLock::new(None),
+            last_results: RwLock::new(Vec::new()),
+            current_index: RwLock::new(0),
+        }
     }
     
     // Get a random screenshot
@@ -125,25 +134,91 @@ impl MorbotronClient {
             
         info!("Using random search term: {}", random_term);
         
-        // Use search_with_strategy directly to avoid recursion
-        self.search_with_strategy(random_term).await
+        // Search for the random term
+        let results = self.search_api(random_term).await?;
+        if !results.is_empty() {
+            // Choose a random result
+            let random_result = results.choose(&mut rand::thread_rng())
+                .ok_or_else(|| anyhow!("Failed to choose random result"))?;
+                
+            return self.get_caption_for_frame(&random_result.episode, random_result.timestamp).await;
+        }
+        
+        // If no results, return None
+        Ok(None)
     }
     
     // Search for a screenshot matching the query
     pub async fn search(&self, query: &str) -> Result<Option<MorbotronResult>> {
         info!("Morbotron search for: {}", query);
         
+        // Check if this is the same query as last time
+        let same_query;
+        let result_to_use;
+        
+        {
+            let last_query = self.last_query.read().unwrap();
+            let last_results = self.last_results.read().unwrap();
+            let last_results_len = last_results.len();
+            
+            if let Some(last_q) = last_query.as_ref() {
+                if last_q == query && last_results_len > 0 {
+                    // Same query, increment the index to cycle through results
+                    let mut index = *self.current_index.read().unwrap() + 1;
+                    if index >= last_results_len {
+                        index = 0; // Wrap around to the beginning
+                    }
+                    
+                    // Update the current index
+                    *self.current_index.write().unwrap() = index;
+                    info!("Same query as last time, using result {} of {}", index + 1, last_results_len);
+                    
+                    // Get the result at the current index
+                    result_to_use = Some((last_results[index].episode.clone(), last_results[index].timestamp));
+                    same_query = true;
+                } else {
+                    same_query = false;
+                    result_to_use = None;
+                }
+            } else {
+                same_query = false;
+                result_to_use = None;
+            }
+        }
+        
+        // If it's the same query, use the result we found
+        if same_query && result_to_use.is_some() {
+            let (episode, timestamp) = result_to_use.unwrap();
+            return self.get_caption_for_frame(&episode, timestamp).await;
+        }
+        
+        // New query, reset the index and fetch new results
+        *self.current_index.write().unwrap() = 0;
+        
         // Try a direct search first
-        if let Some(result) = self.search_with_strategy(query).await? {
-            info!("Found result with direct search");
-            return Ok(Some(result));
+        let results = self.search_api(query).await?;
+        if !results.is_empty() {
+            // Store the query and results for next time
+            *self.last_query.write().unwrap() = Some(query.to_string());
+            *self.last_results.write().unwrap() = results.clone();
+            
+            info!("Found {} results with direct search", results.len());
+            let first_result = &results[0];
+            return self.get_caption_for_frame(&first_result.episode, first_result.timestamp).await;
         }
         
         // If direct search fails and it's a multi-word query, try with quotes
         if query.contains(' ') {
-            if let Some(result) = self.search_with_strategy(&format!("\"{}\"", query)).await? {
-                info!("Found result with quoted search");
-                return Ok(Some(result));
+            let quoted_query = format!("\"{}\"", query);
+            let results = self.search_api(&quoted_query).await?;
+            if !results.is_empty() {
+                // Store the query and results for next time
+                *self.last_query.write().unwrap() = Some(query.to_string());
+                *self.last_results.write().unwrap() = results.clone();
+                
+                info!("Found {} results with quoted search", results.len());
+                let first_result = &results[0];
+                return self.get_caption_for_frame(&first_result.episode, first_result.timestamp).await;
             }
         }
         
@@ -151,60 +226,6 @@ impl MorbotronClient {
         info!("No results found for query: {}, returning random result", query);
         // Use Box::pin to avoid recursion issues
         Box::pin(self.random()).await
-    }
-
-    // Internal method to perform the actual API call with a specific search strategy
-    async fn search_with_strategy(&self, query: &str) -> Result<Option<MorbotronResult>> {
-        // URL encode the query
-        let encoded_query = urlencoding::encode(query);
-        let search_url = format!("{}?q={}", MORBOTRON_BASE_URL, encoded_query);
-        
-        info!("Sending request to Morbotron API: {}", search_url);
-        
-        // Make the search request
-        let search_response = self.http_client.get(&search_url)
-            .send()
-            .await
-            .map_err(|e| anyhow!("Failed to search Morbotron: {}", e))?;
-            
-        let status = search_response.status();
-        info!("Morbotron API response status: {}", status);
-        
-        if !status.is_success() {
-            return Err(anyhow!("Morbotron search failed with status: {}", status));
-        }
-        
-        // Get the response body as text first
-        let response_body = search_response.text().await
-            .map_err(|e| anyhow!("Failed to get Morbotron response body: {}", e))?;
-        
-        info!("Morbotron API response body: {}", response_body);
-        
-        // Parse the search results
-        let search_results: Vec<MorbotronSearchResult> = match serde_json::from_str::<Vec<MorbotronSearchResult>>(&response_body) {
-            Ok(results) => {
-                info!("Successfully parsed Morbotron search results: {} results", results.len());
-                results
-            },
-            Err(e) => {
-                error!("Failed to parse Morbotron search results: {}. Response body: {}", e, response_body);
-                return Err(anyhow!("Failed to parse Morbotron search results: {}", e));
-            }
-        };
-            
-        // If no results, return None
-        if search_results.is_empty() {
-            info!("No results found for query: {}", query);
-            return Ok(None);
-        }
-        
-        // Just take the first result
-        let first_result = &search_results[0];
-        let episode = &first_result.episode;
-        let timestamp = first_result.timestamp;
-        
-        // Get the caption for this frame
-        self.get_caption_for_frame(episode, timestamp).await
     }
     
     async fn get_caption_for_frame(&self, episode: &str, timestamp: u64) -> Result<Option<MorbotronResult>> {
@@ -261,6 +282,48 @@ impl MorbotronClient {
             image_url,
             caption: format_caption(&caption),
         }))
+    }
+    
+    // Internal method to search the API and return the raw results
+    async fn search_api(&self, query: &str) -> Result<Vec<MorbotronSearchResult>> {
+        // URL encode the query
+        let encoded_query = urlencoding::encode(query);
+        let search_url = format!("{}?q={}", MORBOTRON_BASE_URL, encoded_query);
+        
+        info!("Sending request to Morbotron API: {}", search_url);
+        
+        // Make the search request
+        let search_response = self.http_client.get(&search_url)
+            .send()
+            .await
+            .map_err(|e| anyhow!("Failed to search Morbotron: {}", e))?;
+            
+        let status = search_response.status();
+        info!("Morbotron API response status: {}", status);
+        
+        if !status.is_success() {
+            return Err(anyhow!("Morbotron search failed with status: {}", status));
+        }
+        
+        // Get the response body as text first
+        let response_body = search_response.text().await
+            .map_err(|e| anyhow!("Failed to get Morbotron response body: {}", e))?;
+        
+        info!("Morbotron API response body: {}", response_body);
+        
+        // Parse the search results
+        let search_results: Vec<MorbotronSearchResult> = match serde_json::from_str::<Vec<MorbotronSearchResult>>(&response_body) {
+            Ok(results) => {
+                info!("Successfully parsed Morbotron search results: {} results", results.len());
+                results
+            },
+            Err(e) => {
+                error!("Failed to parse Morbotron search results: {}. Response body: {}", e, response_body);
+                return Err(anyhow!("Failed to parse Morbotron search results: {}", e));
+            }
+        };
+        
+        Ok(search_results)
     }
 }
 
