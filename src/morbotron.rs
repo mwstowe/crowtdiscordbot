@@ -7,15 +7,14 @@ use serde::Deserialize;
 use serde_json;
 use std::time::Duration;
 use rand::seq::SliceRandom;
-use crate::google_search::GoogleSearchClient;
+use std::future::Future;
+use std::pin::Pin;
 use crate::gemini_api::GeminiClient;
-use crate::enhanced_morbotron_search::EnhancedMorbotronSearch;
 use crate::text_formatting;
-use crate::screenshot_search_common;
 
 // API endpoints
 const MORBOTRON_BASE_URL: &str = "https://morbotron.com/api/search";
-const MORBOTRON_CAPTION_URL: &str = "https://morbotron.com/api/caption";
+const MORBOTRON_CAPTION_URL: &str = "https://morbotron.com/caption";
 const MORBOTRON_IMAGE_URL: &str = "https://morbotron.com/img";
 const MORBOTRON_RANDOM_URL: &str = "https://morbotron.com/api/random";
 
@@ -28,15 +27,10 @@ const RANDOM_SEARCH_TERMS: &[&str] = &[
     "death by snu snu", "blackjack and hookers", "i'm back baby", "woop woop woop",
     "oh my yes", "robot devil", "kill all humans", "nixon", "agnew", "morbo",
     "all glory to the hypnotoad", "slurm", "suicide booth", "what if", "technically correct",
-    "i'm 40% something", "scruffy", "kif", "brannigan's law", "neutral", "robot mafia",
-    "flexo", "roberto", "calculon", "lrrr", "omicron persei 8", "robot hell",
-    "anthology of interest", "farnsworth", "mom", "universe b", "universe 1", "what if machine",
-    "new new york", "old new york", "robot", "human", "mutant", "sewer", "space",
-    "future", "year 3000", "delivery", "package", "ship", "planet", "alien", "robot"
 ];
 
-// Morbotron search result structure
-#[derive(Deserialize, Debug)]
+// JSON structs for Morbotron API responses
+#[derive(Debug, Deserialize)]
 struct MorbotronSearchResult {
     #[serde(rename = "Id")]
     id: u64,
@@ -46,28 +40,27 @@ struct MorbotronSearchResult {
     timestamp: u64,
 }
 
-// Morbotron caption result structure
-#[derive(Deserialize, Debug)]
+#[derive(Debug, Deserialize)]
 struct MorbotronCaptionResult {
     Subtitles: Vec<MorbotronSubtitle>,
     Episode: MorbotronEpisode,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Debug, Deserialize)]
 struct MorbotronSubtitle {
     Content: String,
     StartTimestamp: u64,
     EndTimestamp: u64,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Debug, Deserialize)]
 struct MorbotronEpisode {
     Title: String,
     Season: u32,
     Episode: u32,
 }
 
-// Morbotron result structure for returning to the caller
+// Result struct for Morbotron searches
 #[derive(Debug, Clone)]
 pub struct MorbotronResult {
     pub episode: String,
@@ -79,27 +72,27 @@ pub struct MorbotronResult {
     pub caption: String,
 }
 
-// Morbotron client for searching and retrieving captions
-#[derive(Clone)]
 pub struct MorbotronClient {
     http_client: HttpClient,
 }
 
 impl MorbotronClient {
-    // Create a new Morbotron client
     pub fn new() -> Self {
+        info!("Creating Morbotron client");
+        
+        // Create HTTP client with reasonable timeouts
         let http_client = HttpClient::builder()
             .timeout(Duration::from_secs(10))
             .build()
-            .unwrap_or_default();
+            .expect("Failed to create HTTP client");
             
-        MorbotronClient {
-            http_client,
-        }
+        Self { http_client }
     }
     
     // Get a random screenshot
     pub async fn random(&self) -> Result<Option<MorbotronResult>> {
+        info!("Getting random Morbotron screenshot");
+        
         // Choose a random search term
         let random_term = RANDOM_SEARCH_TERMS.choose(&mut rand::thread_rng())
             .ok_or_else(|| anyhow!("Failed to choose random search term"))?;
@@ -130,7 +123,8 @@ impl MorbotronClient {
         
         // If all else fails, return a random result
         info!("No results found for query: {}, returning random result", query);
-        self.random().await
+        // Use Box::pin to avoid recursion issues
+        Box::pin(self.random()).await
     }
 
     // Internal method to perform the actual API call with a specific search strategy
@@ -187,125 +181,69 @@ impl MorbotronClient {
         self.get_caption_for_frame(episode, timestamp).await
     }
     
-    // Get the caption for a specific frame
     async fn get_caption_for_frame(&self, episode: &str, timestamp: u64) -> Result<Option<MorbotronResult>> {
-        // Build the caption URL - ensure the episode is properly formatted
-        let caption_url = format!("{}/{}/{}", MORBOTRON_CAPTION_URL, episode, timestamp);
-        
-        info!("Fetching caption from URL: {}", caption_url);
-        
-        // Make the caption request
-        let caption_response = self.http_client.get(&caption_url)
-            .send()
-            .await
-            .map_err(|e| anyhow!("Failed to get Morbotron caption: {}", e))?;
+        // Extract season and episode numbers from the episode code (e.g., S07E06 -> 7, 6)
+        if let Some((season, ep)) = extract_season_episode(episode) {
+            // Use the correct URL format: /caption/season/episode/timestamp
+            let caption_url = format!("{}/{}/{}/{}", MORBOTRON_CAPTION_URL, season, ep, timestamp);
+            info!("Using caption URL: {}", caption_url);
             
-        let status = caption_response.status();
-        info!("Caption API response status: {}", status);
-        
-        if !status.is_success() {
-            // If we get a 404, try with a different URL format
-            if status.as_u16() == 404 {
-                info!("Got 404 for caption, trying alternative URL format");
+            // Make the caption request
+            let caption_response = self.http_client.get(&caption_url)
+                .send()
+                .await
+                .map_err(|e| anyhow!("Failed to get Morbotron caption: {}", e))?;
                 
-                // Try with a different format - some episodes might be formatted differently
-                let alt_episode = if episode.starts_with("S") {
-                    // If it's already in SxxExx format, try with just the episode number
-                    if let Some(ep_num) = episode.strip_prefix("S").and_then(|s| s.split('E').nth(1)) {
-                        ep_num.to_string()
-                    } else {
-                        episode.to_string()
-                    }
-                } else {
-                    // If it's not in SxxExx format, try with that format
-                    format!("S01E{:02}", episode.parse::<u32>().unwrap_or(1))
-                };
-                
-                let alt_caption_url = format!("{}/{}/{}", MORBOTRON_CAPTION_URL, alt_episode, timestamp);
-                info!("Trying alternative caption URL: {}", alt_caption_url);
-                
-                let alt_caption_response = self.http_client.get(&alt_caption_url)
-                    .send()
-                    .await
-                    .map_err(|e| anyhow!("Failed to get Morbotron caption with alternative URL: {}", e))?;
-                    
-                if !alt_caption_response.status().is_success() {
-                    return Err(anyhow!("Morbotron caption request failed with both URL formats"));
-                }
-                
-                // Parse the caption result from the alternative URL
-                let caption_result: MorbotronCaptionResult = alt_caption_response.json()
-                    .await
-                    .map_err(|e| anyhow!("Failed to parse Morbotron caption: {}", e))?;
-                    
-                // If no subtitles, return None
-                if caption_result.Subtitles.is_empty() {
-                    return Ok(None);
-                }
-                
-                // Extract the caption text
-                let caption = caption_result.Subtitles.iter()
-                    .map(|s| s.Content.clone())
-                    .collect::<Vec<String>>()
-                    .join("\n");
-                    
-                // Build the image URL
-                let image_url = format!("{}/{}/{}.jpg", MORBOTRON_IMAGE_URL, alt_episode, timestamp);
-                
-                // Extract episode information
-                let episode_title = caption_result.Episode.Title.clone();
-                let season = caption_result.Episode.Season;
-                let episode_number = caption_result.Episode.Episode;
-                
-                // Return the result
-                return Ok(Some(MorbotronResult {
-                    episode: alt_episode,
-                    season,
-                    episode_number,
-                    episode_title,
-                    timestamp: timestamp.to_string(),
-                    image_url,
-                    caption,
-                }));
+            let status = caption_response.status();
+            info!("Caption API response status: {}", status);
+            
+            if !status.is_success() {
+                // If the request failed, return a random result instead of an error
+                info!("Caption request failed with status: {}, returning random result", status);
+                // Use Box::pin to avoid recursion issues
+                return Box::pin(self.random()).await;
             }
             
-            return Err(anyhow!("Morbotron caption request failed with status: {}", caption_response.status()));
+            // Parse the caption result
+            let caption_result: MorbotronCaptionResult = caption_response.json()
+                .await
+                .map_err(|e| anyhow!("Failed to parse Morbotron caption: {}", e))?;
+                
+            // If no subtitles, return None
+            if caption_result.Subtitles.is_empty() {
+                return Ok(None);
+            }
+            
+            // Extract the caption text
+            let caption = caption_result.Subtitles.iter()
+                .map(|s| s.Content.clone())
+                .collect::<Vec<String>>()
+                .join("\n");
+                
+            // Build the image URL - use the season/episode format for the image URL
+            let image_url = format!("{}/{}/{}/{}.jpg", MORBOTRON_IMAGE_URL, season, ep, timestamp);
+            
+            // Extract episode information
+            let episode_title = caption_result.Episode.Title.clone();
+            let season_num = caption_result.Episode.Season;
+            let episode_number = caption_result.Episode.Episode;
+            
+            // Return the result
+            return Ok(Some(MorbotronResult {
+                episode: episode.to_string(),
+                season: season_num,
+                episode_number,
+                episode_title,
+                timestamp: timestamp.to_string(),
+                image_url,
+                caption: format_caption(&caption),
+            }));
         }
         
-        // Parse the caption result
-        let caption_result: MorbotronCaptionResult = caption_response.json()
-            .await
-            .map_err(|e| anyhow!("Failed to parse Morbotron caption: {}", e))?;
-            
-        // If no subtitles, return None
-        if caption_result.Subtitles.is_empty() {
-            return Ok(None);
-        }
-        
-        // Extract the caption text
-        let caption = caption_result.Subtitles.iter()
-            .map(|s| s.Content.clone())
-            .collect::<Vec<String>>()
-            .join("\n");
-            
-        // Build the image URL
-        let image_url = format!("{}/{}/{}.jpg", MORBOTRON_IMAGE_URL, episode, timestamp);
-        
-        // Extract episode information
-        let episode_title = caption_result.Episode.Title.clone();
-        let season = caption_result.Episode.Season;
-        let episode_number = caption_result.Episode.Episode;
-        
-        // Return the result
-        Ok(Some(MorbotronResult {
-            episode: episode.to_string(),
-            season,
-            episode_number,
-            episode_title,
-            timestamp: timestamp.to_string(),
-            image_url,
-            caption,
-        }))
+        // If we couldn't extract season/episode, return a random result
+        info!("Could not extract season/episode from '{}', returning random result", episode);
+        // Use Box::pin to avoid recursion issues
+        Box::pin(self.random()).await
     }
 }
 
@@ -322,7 +260,7 @@ fn format_morbotron_result(result: &MorbotronResult) -> String {
         result.episode_number, 
         result.episode_title,
         result.image_url,
-        format_caption(&result.caption)
+        result.caption
     )
 }
 
@@ -332,116 +270,161 @@ pub async fn handle_morbotron_command(
     msg: &Message, 
     args: Option<String>,
     morbotron_client: &MorbotronClient,
-    gemini_client: Option<&GeminiClient>
+    _gemini_client: Option<&GeminiClient>
 ) -> Result<()> {
-    // Parse arguments to support filtering by season/episode
-    let (search_term, season_filter, episode_filter) = if let Some(args_str) = args {
-        parse_morbotron_args(&args_str)
-    } else {
-        (None, None, None)
-    };
-    
-    // Show a "searching" message that we'll edit later with the result
-    let searching_msg = if let Ok(sent_msg) = msg.channel_id.say(http, "🔍 Searching Futurama quotes...").await {
-        Some(sent_msg)
-    } else {
-        None
-    };
-    
-    // Determine whether to use enhanced search or regular search
-    let mut search_result = if let Some(term) = &search_term {
-        // Always use regular search directly
-        info!("Using regular search directly");
-        morbotron_client.search(term).await
-    } else {
-        // If no search term but we have filters, get a random screenshot
-        morbotron_client.random().await
-    };
-    
-    // Apply filters if needed
-    if let Ok(Some(ref mut result)) = search_result {
-        let mut filtered_out = false;
+    // If no search term is provided, get a random screenshot
+    if args.is_none() {
+        info!("Morbotron request for random screenshot");
         
-        // Filter by season if specified
-        if let Some(season) = season_filter {
-            if result.season != season {
-                filtered_out = true;
-                info!("Result filtered out: season {} doesn't match filter {}", result.season, season);
+        // Send a "searching" message
+        let searching_msg = match msg.channel_id.say(http, "Finding a random Futurama moment...").await {
+            Ok(msg) => Some(msg),
+            Err(e) => {
+                error!("Error sending searching message: {:?}", e);
+                None
             }
-        }
+        };
         
-        // Filter by episode if specified
-        if let Some(episode) = episode_filter {
-            if result.episode_number != episode {
-                filtered_out = true;
-                info!("Result filtered out: episode {} doesn't match filter {}", result.episode_number, episode);
-            }
-        }
-        
-        // If filtered out, return appropriate message
-        if filtered_out {
-            search_result = Ok(None);
-        }
-    }
-    
-    // Process the search result
-    match search_result {
-        Ok(Some(result)) => {
-            // Format the response
-            let response = format_morbotron_result(&result);
-            
-            // Edit the searching message if we have one, otherwise send a new message
-            if let Some(mut search_msg) = searching_msg {
-                if let Err(e) = search_msg.edit(http, serenity::builder::EditMessage::new().content(&response)).await {
-                    error!("Error editing searching message: {:?}", e);
-                    // Try sending a new message if editing fails
+        // Get a random screenshot
+        match morbotron_client.random().await {
+            Ok(Some(result)) => {
+                // Format the response
+                let response = format_morbotron_result(&result);
+                
+                // Edit the searching message if we have one, otherwise send a new message
+                if let Some(mut search_msg) = searching_msg {
+                    if let Err(e) = search_msg.edit(http, serenity::builder::EditMessage::new().content(&response)).await {
+                        error!("Error editing searching message: {:?}", e);
+                        // Try sending a new message if editing fails
+                        if let Err(e) = msg.channel_id.say(http, &response).await {
+                            error!("Error sending Morbotron result: {:?}", e);
+                        }
+                    }
+                } else {
+                    // Send a new message
                     if let Err(e) = msg.channel_id.say(http, &response).await {
                         error!("Error sending Morbotron result: {:?}", e);
                     }
                 }
-            } else {
-                if let Err(e) = msg.channel_id.say(http, &response).await {
-                    error!("Error sending Morbotron result: {:?}", e);
-                }
-            }
-        },
-        Ok(None) => {
-            let error_msg = "Couldn't find any Futurama screenshots. Good news, everyone! I'm a failure!";
-            
-            // Edit the searching message if we have one, otherwise send a new message
-            if let Some(mut search_msg) = searching_msg {
-                if let Err(e) = search_msg.edit(http, serenity::builder::EditMessage::new().content(error_msg)).await {
-                    error!("Error editing searching message: {:?}", e);
-                    // Try sending a new message if editing fails
+            },
+            Ok(None) => {
+                let error_msg = "Couldn't find any Futurama screenshots. Bite my shiny metal...";
+                
+                // Edit the searching message if we have one, otherwise send a new message
+                if let Some(mut search_msg) = searching_msg {
+                    if let Err(e) = search_msg.edit(http, serenity::builder::EditMessage::new().content(error_msg)).await {
+                        error!("Error editing searching message: {:?}", e);
+                        // Try sending a new message if editing fails
+                        if let Err(e) = msg.channel_id.say(http, error_msg).await {
+                            error!("Error sending error message: {:?}", e);
+                        }
+                    }
+                } else {
+                    // Send a new message
                     if let Err(e) = msg.channel_id.say(http, error_msg).await {
-                        error!("Error sending Morbotron error message: {:?}", e);
+                        error!("Error sending error message: {:?}", e);
                     }
                 }
-            } else {
-                if let Err(e) = msg.channel_id.say(http, error_msg).await {
-                    error!("Error sending Morbotron error message: {:?}", e);
+            },
+            Err(e) => {
+                error!("Error getting random Morbotron screenshot: {:?}", e);
+                
+                let error_msg = "Error getting Futurama screenshot. Bite my shiny metal...";
+                
+                // Edit the searching message if we have one, otherwise send a new message
+                if let Some(mut search_msg) = searching_msg {
+                    if let Err(e) = search_msg.edit(http, serenity::builder::EditMessage::new().content(error_msg)).await {
+                        error!("Error editing searching message: {:?}", e);
+                        // Try sending a new message if editing fails
+                        if let Err(e) = msg.channel_id.say(http, error_msg).await {
+                            error!("Error sending error message: {:?}", e);
+                        }
+                    }
+                } else {
+                    // Send a new message
+                    if let Err(e) = msg.channel_id.say(http, error_msg).await {
+                        error!("Error sending error message: {:?}", e);
+                    }
                 }
             }
-        },
-        Err(e) => {
-            // Create a user-friendly error message
-            let user_error_msg = "Couldn't find any Futurama screenshots. Good news, everyone! I'm a failure!";
-            
-            // Log the detailed error for debugging
-            error!("Error searching Morbotron: {}", e);
-            
-            // Edit the searching message if we have one, otherwise send a new message
-            if let Some(mut search_msg) = searching_msg {
-                if let Err(e) = search_msg.edit(http, serenity::builder::EditMessage::new().content(user_error_msg)).await {
-                    error!("Error editing searching message: {:?}", e);
-                    // Try sending a new message if editing fails
-                    if let Err(e) = msg.channel_id.say(http, user_error_msg).await {
-                        error!("Error sending Morbotron error message: {:?}", e);
+        }
+        
+        return Ok(());
+    }
+    
+    // If we have a search term, search for it
+    if let Some(term) = args {
+        info!("Morbotron search for: {}", term);
+        
+        // Show a "searching" message that we'll edit later with the result
+        let searching_msg = match msg.channel_id.say(http, "🔍 Searching Futurama quotes...").await {
+            Ok(msg) => Some(msg),
+            Err(e) => {
+                error!("Error sending searching message: {:?}", e);
+                None
+            }
+        };
+        
+        // Search for the term
+        match morbotron_client.search(&term).await {
+            Ok(Some(result)) => {
+                // Format the response
+                let response = format_morbotron_result(&result);
+                
+                // Edit the searching message if we have one, otherwise send a new message
+                if let Some(mut search_msg) = searching_msg {
+                    if let Err(e) = search_msg.edit(http, serenity::builder::EditMessage::new().content(&response)).await {
+                        error!("Error editing searching message: {:?}", e);
+                        // Try sending a new message if editing fails
+                        if let Err(e) = msg.channel_id.say(http, &response).await {
+                            error!("Error sending Morbotron result: {:?}", e);
+                        }
+                    }
+                } else {
+                    // Send a new message
+                    if let Err(e) = msg.channel_id.say(http, &response).await {
+                        error!("Error sending Morbotron result: {:?}", e);
                     }
                 }
-            } else {
-                if let Err(e) = msg.channel_id.say(http, user_error_msg).await {
-                    error!("Error sending Morbotron error message: {:?}", e);
+            },
+            Ok(None) => {
+                let error_msg = format!("Couldn't find any Futurama screenshots matching \"{}\".", term);
+                
+                // Edit the searching message if we have one, otherwise send a new message
+                if let Some(mut search_msg) = searching_msg {
+                    if let Err(e) = search_msg.edit(http, serenity::builder::EditMessage::new().content(&error_msg)).await {
+                        error!("Error editing searching message: {:?}", e);
+                        // Try sending a new message if editing fails
+                        if let Err(e) = msg.channel_id.say(http, &error_msg).await {
+                            error!("Error sending error message: {:?}", e);
+                        }
+                    }
+                } else {
+                    // Send a new message
+                    if let Err(e) = msg.channel_id.say(http, &error_msg).await {
+                        error!("Error sending error message: {:?}", e);
+                    }
+                }
+            },
+            Err(e) => {
+                error!("Error searching Morbotron: {:?}", e);
+                
+                let error_msg = "Error searching Futurama quotes. Bite my shiny metal...";
+                
+                // Edit the searching message if we have one, otherwise send a new message
+                if let Some(mut search_msg) = searching_msg {
+                    if let Err(e) = search_msg.edit(http, serenity::builder::EditMessage::new().content(error_msg)).await {
+                        error!("Error editing searching message: {:?}", e);
+                        // Try sending a new message if editing fails
+                        if let Err(e) = msg.channel_id.say(http, error_msg).await {
+                            error!("Error sending error message: {:?}", e);
+                        }
+                    }
+                } else {
+                    // Send a new message
+                    if let Err(e) = msg.channel_id.say(http, error_msg).await {
+                        error!("Error sending error message: {:?}", e);
+                    }
                 }
             }
         }
@@ -450,43 +433,18 @@ pub async fn handle_morbotron_command(
     Ok(())
 }
 
-// Parse arguments for the !morbotron command
-// Format: !morbotron [search term] [-s season] [-e episode]
-fn parse_morbotron_args(args: &str) -> (Option<String>, Option<u32>, Option<u32>) {
-    let mut search_term = String::new();
-    let mut season: Option<u32> = None;
-    let mut episode: Option<u32> = None;
-    
-    let mut parts = args.split_whitespace().peekable();
-    
-    while let Some(part) = parts.next() {
-        match part {
-            "-s" | "-season" => {
-                if let Some(season_str) = parts.next() {
-                    season = season_str.parse::<u32>().ok();
-                }
-            },
-            "-e" | "-episode" => {
-                if let Some(episode_str) = parts.next() {
-                    episode = episode_str.parse::<u32>().ok();
-                }
-            },
-            _ => {
-                // If we already have some search term, add a space
-                if !search_term.is_empty() {
-                    search_term.push(' ');
-                }
-                search_term.push_str(part);
-            }
+// Extract season and episode numbers from an episode code (e.g., S07E06 -> 7, 6)
+fn extract_season_episode(episode: &str) -> Option<(u32, u32)> {
+    // Handle SxxExx format (e.g., S07E06)
+    if episode.contains('S') && episode.contains('E') {
+        let parts: Vec<&str> = episode.split(['S', 'E']).collect();
+        if parts.len() >= 3 {
+            let season = parts[1].trim().parse::<u32>().ok()?;
+            let ep = parts[2].trim().parse::<u32>().ok()?;
+            return Some((season, ep));
         }
     }
     
-    // If search term is empty, return None
-    let search_term = if search_term.is_empty() {
-        None
-    } else {
-        Some(search_term)
-    };
-    
-    (search_term, season, episode)
+    // Handle other formats or return None if we can't parse
+    None
 }
