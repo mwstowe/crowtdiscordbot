@@ -7,11 +7,8 @@ use serde::Deserialize;
 use serde_json;
 use std::time::Duration;
 use rand::seq::SliceRandom;
-use crate::google_search::GoogleSearchClient;
-use crate::gemini_api::GeminiClient;
-use crate::enhanced_masterofallscience_search::EnhancedMasterOfAllScienceSearch;
 use crate::text_formatting;
-use crate::screenshot_search_common;
+use crate::gemini_api::GeminiClient;
 
 // API endpoints
 const MASTEROFALLSCIENCE_BASE_URL: &str = "https://masterofallscience.com/api/search";
@@ -21,24 +18,43 @@ const MASTEROFALLSCIENCE_RANDOM_URL: &str = "https://masterofallscience.com/api/
 
 // Common search terms for random screenshots when no query is provided
 const RANDOM_SEARCH_TERMS: &[&str] = &[
-    "rick", "morty", "summer", "beth", "jerry", "portal gun", "wubba lubba dub dub",
-    "get schwifty", "pickle rick", "tiny rick", "mr. meeseeks", "look at me",
-    "plumbus", "interdimensional cable", "gazorpazorp", "unity", "bird person",
-    "squanchy", "council of ricks", "citadel", "dimension c-137", "cronenberg",
-    "purge", "szechuan sauce", "evil morty", "mr. poopybutthole", "scary terry",
-    "butter robot", "pass the butter", "snuffles", "snowball", "where are my testicles",
-    "keep summer safe", "show me what you got", "head bent over", "raised up posterior",
-    "ants in my eyes johnson", "two brothers", "ball fondlers", "real fake doors",
-    "personal space", "lil' bits", "eyeholes", "gazorpazorpfield", "turbulent juice",
-    "microverse", "miniverse", "teenyverse", "roy", "morty's mind blowers",
-    "vindicators", "noob noob", "got damn", "toxic rick", "toxic morty",
-    "froopyland", "simple rick", "story train", "vat of acid", "snake jazz",
-    "time travel", "space", "alien", "dimension", "universe", "multiverse",
-    "science", "adventure", "family", "garage", "lab", "ship", "gun", "portal"
+    "wubba lubba", "pickle rick", "morty", "rick", "summer", "beth", "jerry", "portal gun",
+    "meeseeks", "schwifty", "plumbus", "gazorpazorp", "interdimensional", "szechuan",
+    "tiny rick", "bird person", "mr meeseeks", "unity", "council of ricks", "cronenberg",
+    "squanch", "evil morty", "mr poopybutthole", "butter robot", "purge", "microverse",
+    "dimension c-137", "eyeholes", "show me what you got", "get schwifty", "aw geez",
+    "aw jeez", "oh my god", "i'm pickle rick", "wubba lubba dub dub", "grass tastes bad",
+    "lick lick lick my balls", "and that's the way the news goes", "hit the sack jack",
+    "uh oh somersault jump", "aids", "burger time", "rubber baby buggy bumpers",
+    "it's a rick and morty thing", "nobody exists on purpose", "nobody belongs anywhere",
+    "everybody's gonna die", "come watch tv", "i'm mr meeseeks look at me", "existence is pain",
+    "can do", "keep your requests simple", "i just wanna die", "we all wanna die",
+    "life is pain", "your failures are your own old man", "i'm mr meeseeks",
+    "ooh he's tryin", "meeseeks don't usually have to exist this long", "things are getting weird",
+    "what about your short game", "i'm a bit of a stickler meeseeks", "square your shoulders",
+    "follow through", "that's not a real song", "there's one every season", "get schwifty",
+    "i like what you got", "disqualified", "show me what you got", "head bent over",
+    "raised up posterior", "oh yeah", "you gotta get schwifty", "take off your pants and your panties",
+    "shit on the floor", "time to get schwifty in here", "i'm mr bulldops", "i'm mr bulldops",
+    "don't analyze it", "it's working", "that's my catchphrase", "that's my catchphrase",
+    "ricky ticky tavy", "grass tastes bad", "lick lick lick my balls", "uh oh somersault jump",
+    "aids", "burger time", "rubber baby buggy bumpers", "and that's the way the news goes",
+    "hit the sack jack", "shum shum schlippity dop", "wubba lubba dub dub", "much obliged",
+    "blow me", "no no blow me", "eek barba durkle", "that's a pretty fucked up ooh la la",
+    "and that's why i always say shum shum schlippity dop", "i don't give a fuck",
+    "i'm pickle rick", "solenya", "i turned myself into a pickle morty", "pickle rick",
+    "i'm pickle rick", "i'm tiny rick", "let me out", "let me out", "this is not a dance",
+    "i'm begging for help", "i'm screaming for help", "please come let me out", "i'm dying in a vat",
+    "in the garage", "tiny rick", "wubba lubba dub dub", "i'm tiny rick", "fuck yeah",
+    "tiny rick", "old rick", "gotta save tiny rick", "help me morty", "help me summer",
+    "i'm gonna die", "tiny rick is dying", "let me out of here", "i'm old rick trapped in a young body",
+    "tiny rick", "fuck tiny rick", "i love tiny rick", "save me", "let me out", "help me",
+    "i'm trapped in a vat", "i'm dying", "i'm going to die", "i'm going to die in here",
+    "i'm going to die in a vat", "i'm going to die in the garage", "i'm going to die in a vat in the garage",
 ];
 
-// MasterOfAllScience search result structure
-#[derive(Deserialize, Debug)]
+// JSON structs for MasterOfAllScience API responses
+#[derive(Debug, Deserialize)]
 struct MasterOfAllScienceSearchResult {
     #[serde(rename = "Id")]
     id: u64,
@@ -48,28 +64,27 @@ struct MasterOfAllScienceSearchResult {
     timestamp: u64,
 }
 
-// MasterOfAllScience caption result structure
-#[derive(Deserialize, Debug)]
+#[derive(Debug, Deserialize)]
 struct MasterOfAllScienceCaptionResult {
     Subtitles: Vec<MasterOfAllScienceSubtitle>,
     Episode: MasterOfAllScienceEpisode,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Debug, Deserialize)]
 struct MasterOfAllScienceSubtitle {
     Content: String,
     StartTimestamp: u64,
     EndTimestamp: u64,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Debug, Deserialize)]
 struct MasterOfAllScienceEpisode {
     Title: String,
     Season: u32,
     Episode: u32,
 }
 
-// MasterOfAllScience result structure for returning to the caller
+// Result struct for MasterOfAllScience searches
 #[derive(Debug, Clone)]
 pub struct MasterOfAllScienceResult {
     pub episode: String,
@@ -81,130 +96,60 @@ pub struct MasterOfAllScienceResult {
     pub caption: String,
 }
 
-// MasterOfAllScience client for searching and retrieving captions
-#[derive(Clone)]
 pub struct MasterOfAllScienceClient {
     http_client: HttpClient,
 }
 
 impl MasterOfAllScienceClient {
-    // Create a new MasterOfAllScience client
     pub fn new() -> Self {
+        info!("Creating MasterOfAllScience client");
+        
+        // Create HTTP client with reasonable timeouts
         let http_client = HttpClient::builder()
             .timeout(Duration::from_secs(10))
             .build()
-            .unwrap_or_default();
+            .expect("Failed to create HTTP client");
             
-        MasterOfAllScienceClient {
-            http_client,
-        }
+        Self { http_client }
     }
     
     // Get a random screenshot
     pub async fn random(&self) -> Result<Option<MasterOfAllScienceResult>> {
+        info!("Getting random MasterOfAllScience screenshot");
+        
         // Choose a random search term
         let random_term = RANDOM_SEARCH_TERMS.choose(&mut rand::thread_rng())
             .ok_or_else(|| anyhow!("Failed to choose random search term"))?;
             
         info!("Using random search term: {}", random_term);
-        self.search(random_term).await
+        
+        // Use search_with_strategy directly to avoid recursion
+        self.search_with_strategy(random_term).await
     }
     
     // Search for a screenshot matching the query
     pub async fn search(&self, query: &str) -> Result<Option<MasterOfAllScienceResult>> {
         info!("MasterOfAllScience search for: {}", query);
         
-        // Try different search strategies in order of preference
-        
-        // 1. Try exact phrase search with quotes
-        if let Some(result) = self.search_with_strategy(&format!("\"{}\"", query)).await? {
-            info!("Found result with exact phrase search");
-            return Ok(Some(result));
-        }
-        
-        // 2. Try exact phrase search without quotes (in case API handles it differently)
+        // Try a direct search first
         if let Some(result) = self.search_with_strategy(query).await? {
-            info!("Found result with standard search");
+            info!("Found result with direct search");
             return Ok(Some(result));
         }
         
-        // 3. Try with plus signs between words to force word boundaries
-        let plus_query = query.split_whitespace().collect::<Vec<&str>>().join("+");
-        if let Some(result) = self.search_with_strategy(&plus_query).await? {
-            info!("Found result with plus-separated search");
-            return Ok(Some(result));
-        }
-        
-        // 4. Try with variations of "as" phrases (for cases like "as safe as they said")
-        if query.contains(" as ") {
-            let variations = crate::screenshot_search_utils::generate_as_phrase_variations(query);
-            for variation in variations {
-                info!("Trying 'as' phrase variation: {}", variation);
-                if let Some(result) = self.search_with_strategy(&variation).await? {
-                    info!("Found result with 'as' phrase variation");
-                    return Ok(Some(result));
-                }
-            }
-        }
-        
-        // 5. Try with variations for common speech patterns
-        let speech_variations = crate::screenshot_search_utils::generate_speech_pattern_variations(query);
-        for variation in speech_variations {
-            info!("Trying speech pattern variation: {}", variation);
-            if let Some(result) = self.search_with_strategy(&variation).await? {
-                info!("Found result with speech pattern variation");
+        // If direct search fails and it's a multi-word query, try with quotes
+        if query.contains(' ') {
+            if let Some(result) = self.search_with_strategy(&format!("\"{}\"", query)).await? {
+                info!("Found result with quoted search");
                 return Ok(Some(result));
             }
         }
         
-        // 6. If the query has multiple words, try searching for pairs of consecutive words
-        let words: Vec<&str> = query.split_whitespace().collect();
-        if words.len() > 1 {
-            for i in 0..words.len() - 1 {
-                let pair_query = format!("{} {}", words[i], words[i + 1]);
-                info!("Trying pair search: {}", pair_query);
-                if let Some(result) = self.search_with_strategy(&pair_query).await? {
-                    info!("Found result with word pair search");
-                    return Ok(Some(result));
-                }
-            }
-        }
-        
-        // 7. Try searching for individual significant words
-        if words.len() > 1 {
-            // Skip common words and focus on significant ones
-            let significant_words: Vec<&str> = words.iter()
-                .filter(|&&word| {
-                    let word_lower = word.to_lowercase();
-                    word_lower.len() > 3 && !crate::screenshot_search_utils::is_common_word(&word_lower)
-                })
-                .copied()
-                .collect();
-                
-            for word in significant_words {
-                info!("Trying single word search: {}", word);
-                if let Some(result) = self.search_with_strategy(word).await? {
-                    info!("Found result with single word search");
-                    return Ok(Some(result));
-                }
-            }
-        }
-        
-        // 8. Try with fuzzy variations of the query
-        let fuzzy_variations = crate::screenshot_search_utils::generate_fuzzy_variations(query);
-        for variation in fuzzy_variations {
-            info!("Trying fuzzy variation: {}", variation);
-            if let Some(result) = self.search_with_strategy(&variation).await? {
-                info!("Found result with fuzzy variation");
-                return Ok(Some(result));
-            }
-        }
-        
-        // No results found with any strategy
-        info!("No MasterOfAllScience results found for query: {}", query);
-        Ok(None)
+        // If all else fails, return a random result
+        info!("No results found for query: {}, returning random result", query);
+        self.random().await
     }
-
+    
     // Internal method to perform the actual API call with a specific search strategy
     async fn search_with_strategy(&self, query: &str) -> Result<Option<MasterOfAllScienceResult>> {
         // URL encode the query
@@ -264,13 +209,84 @@ impl MasterOfAllScienceClient {
         // Build the caption URL
         let caption_url = format!("{}/{}/{}", MASTEROFALLSCIENCE_CAPTION_URL, episode, timestamp);
         
+        info!("Fetching caption from URL: {}", caption_url);
+        
         // Make the caption request
         let caption_response = self.http_client.get(&caption_url)
             .send()
             .await
             .map_err(|e| anyhow!("Failed to get MasterOfAllScience caption: {}", e))?;
             
-        if !caption_response.status().is_success() {
+        let status = caption_response.status();
+        info!("Caption API response status: {}", status);
+        
+        if !status.is_success() {
+            // If we get a 404, try with a different URL format
+            if status.as_u16() == 404 {
+                info!("Got 404 for caption, trying alternative URL format");
+                
+                // Try with a different format - some episodes might be formatted differently
+                let alt_episode = if episode.contains("E") || episode.contains("S") {
+                    // If it's already in SxxExx format, try with just the episode number
+                    let parts: Vec<&str> = episode.split(|c| c == 'E' || c == 'S').collect();
+                    if parts.len() > 1 {
+                        parts[parts.len() - 1].to_string()
+                    } else {
+                        episode.to_string()
+                    }
+                } else {
+                    // If it's not in SxxExx format, try with that format
+                    format!("S01E{:02}", episode.parse::<u32>().unwrap_or(1))
+                };
+                
+                let alt_caption_url = format!("{}/{}/{}", MASTEROFALLSCIENCE_CAPTION_URL, alt_episode, timestamp);
+                info!("Trying alternative caption URL: {}", alt_caption_url);
+                
+                let alt_caption_response = self.http_client.get(&alt_caption_url)
+                    .send()
+                    .await
+                    .map_err(|e| anyhow!("Failed to get MasterOfAllScience caption with alternative URL: {}", e))?;
+                    
+                if !alt_caption_response.status().is_success() {
+                    return Err(anyhow!("MasterOfAllScience caption request failed with both URL formats"));
+                }
+                
+                // Parse the caption result
+                let caption_result: MasterOfAllScienceCaptionResult = alt_caption_response.json()
+                    .await
+                    .map_err(|e| anyhow!("Failed to parse MasterOfAllScience caption: {}", e))?;
+                    
+                // If no subtitles, return None
+                if caption_result.Subtitles.is_empty() {
+                    return Ok(None);
+                }
+                
+                // Extract the caption text
+                let caption = caption_result.Subtitles.iter()
+                    .map(|s| s.Content.clone())
+                    .collect::<Vec<String>>()
+                    .join("\n");
+                    
+                // Build the image URL
+                let image_url = format!("{}/{}/{}.jpg", MASTEROFALLSCIENCE_IMAGE_URL, alt_episode, timestamp);
+                
+                // Extract episode information
+                let episode_title = caption_result.Episode.Title.clone();
+                let season = caption_result.Episode.Season;
+                let episode_number = caption_result.Episode.Episode;
+                
+                // Return the result
+                return Ok(Some(MasterOfAllScienceResult {
+                    episode: alt_episode,
+                    season,
+                    episode_number,
+                    episode_title,
+                    timestamp: timestamp.to_string(),
+                    image_url,
+                    caption: format_caption(&caption),
+                }));
+            }
+            
             return Err(anyhow!("MasterOfAllScience caption request failed with status: {}", caption_response.status()));
         }
         
@@ -306,7 +322,7 @@ impl MasterOfAllScienceClient {
             episode_title,
             timestamp: timestamp.to_string(),
             image_url,
-            caption,
+            caption: format_caption(&caption),
         }))
     }
 }
@@ -317,14 +333,14 @@ fn format_caption(caption: &str) -> String {
 }
 
 // Format a MasterOfAllScience result for display
-fn format_masterofallscience_result(result: &MasterOfAllScienceResult) -> String {
+pub fn format_masterofallscience_result(result: &MasterOfAllScienceResult) -> String {
     format!(
-        "**S{:02}E{:02} - {}**\n{}\n\n{}",
-        result.season, 
-        result.episode_number, 
-        result.episode_title,
+        "{}\n{} (Season {}, Episode {})\n{}",
         result.image_url,
-        format_caption(&result.caption)
+        result.episode_title,
+        result.season,
+        result.episode_number,
+        result.caption
     )
 }
 
@@ -334,167 +350,165 @@ pub async fn handle_masterofallscience_command(
     msg: &Message, 
     args: Option<String>,
     masterofallscience_client: &MasterOfAllScienceClient,
-    gemini_client: Option<&GeminiClient>
+    _gemini_client: Option<&GeminiClient>
 ) -> Result<()> {
-    // Parse arguments to support filtering by season/episode
-    let (search_term, season_filter, episode_filter) = if let Some(args_str) = args {
-        parse_masterofallscience_args(&args_str)
-    } else {
-        (None, None, None)
-    };
-    
-    // Show a "searching" message that we'll edit later with the result
-    let searching_msg = if let Ok(sent_msg) = msg.channel_id.say(http, "🔍 Searching Rick and Morty quotes...").await {
-        Some(sent_msg)
-    } else {
-        None
-    };
-    
-    // Determine whether to use enhanced search or regular search
-    let mut search_result = if let Some(term) = &search_term {
-        if let Some(gemini) = gemini_client {
-            info!("Using enhanced search with Gemini API and Google Search");
-            let google_client = GoogleSearchClient::new();
-            let enhanced_search = EnhancedMasterOfAllScienceSearch::new(gemini.clone(), masterofallscience_client.clone(), google_client);
-            enhanced_search.search(term).await
-        } else {
-            info!("Using regular search (Gemini API not available)");
-            masterofallscience_client.search(term).await
-        }
-    } else {
-        // If no search term but we have filters, get a random screenshot
-        masterofallscience_client.random().await
-    };
-    
-    // Apply filters if needed
-    if let Ok(Some(ref mut result)) = search_result {
-        let mut filtered_out = false;
+    // If no search term is provided, get a random screenshot
+    if args.is_none() {
+        info!("MasterOfAllScience request for random screenshot");
         
-        // Filter by season if specified
-        if let Some(season) = season_filter {
-            if result.season != season {
-                filtered_out = true;
-                info!("Result filtered out: season {} doesn't match filter {}", result.season, season);
+        // Send a "searching" message
+        let searching_msg = match msg.channel_id.say(http, "Finding a random Rick and Morty moment...").await {
+            Ok(msg) => Some(msg),
+            Err(e) => {
+                error!("Error sending searching message: {:?}", e);
+                None
             }
-        }
+        };
         
-        // Filter by episode if specified
-        if let Some(episode) = episode_filter {
-            if result.episode_number != episode {
-                filtered_out = true;
-                info!("Result filtered out: episode {} doesn't match filter {}", result.episode_number, episode);
-            }
-        }
-        
-        // If filtered out, return appropriate message
-        if filtered_out {
-            search_result = Ok(None);
-        }
-    }
-    
-    // Process the search result
-    match search_result {
-        Ok(Some(result)) => {
-            // Format the response
-            let response = format_masterofallscience_result(&result);
-            
-            // Edit the searching message if we have one, otherwise send a new message
-            if let Some(mut search_msg) = searching_msg {
-                if let Err(e) = search_msg.edit(http, serenity::builder::EditMessage::new().content(&response)).await {
-                    error!("Error editing searching message: {:?}", e);
-                    // Try sending a new message if editing fails
+        // Get a random screenshot
+        match masterofallscience_client.random().await {
+            Ok(Some(result)) => {
+                // Format the response
+                let response = format_masterofallscience_result(&result);
+                
+                // Edit the searching message if we have one, otherwise send a new message
+                if let Some(mut search_msg) = searching_msg {
+                    if let Err(e) = search_msg.edit(http, serenity::builder::EditMessage::new().content(&response)).await {
+                        error!("Error editing searching message: {:?}", e);
+                        // Try sending a new message if editing fails
+                        if let Err(e) = msg.channel_id.say(http, &response).await {
+                            error!("Error sending MasterOfAllScience result: {:?}", e);
+                        }
+                    }
+                } else {
+                    // Send a new message
                     if let Err(e) = msg.channel_id.say(http, &response).await {
                         error!("Error sending MasterOfAllScience result: {:?}", e);
                     }
                 }
-            } else {
-                if let Err(e) = msg.channel_id.say(http, &response).await {
-                    error!("Error sending MasterOfAllScience result: {:?}", e);
-                }
-            }
-        },
-        Ok(None) => {
-            let error_msg = "Couldn't find any Rick and Morty screenshots. Wubba lubba dub dub!";
-            
-            // Edit the searching message if we have one, otherwise send a new message
-            if let Some(mut search_msg) = searching_msg {
-                if let Err(e) = search_msg.edit(http, serenity::builder::EditMessage::new().content(error_msg)).await {
-                    error!("Error editing searching message: {:?}", e);
-                    // Try sending a new message if editing fails
+            },
+            Ok(None) => {
+                let error_msg = "Couldn't find any Rick and Morty screenshots. Wubba lubba dub dub!";
+                
+                // Edit the searching message if we have one, otherwise send a new message
+                if let Some(mut search_msg) = searching_msg {
+                    if let Err(e) = search_msg.edit(http, serenity::builder::EditMessage::new().content(error_msg)).await {
+                        error!("Error editing searching message: {:?}", e);
+                        // Try sending a new message if editing fails
+                        if let Err(e) = msg.channel_id.say(http, error_msg).await {
+                            error!("Error sending error message: {:?}", e);
+                        }
+                    }
+                } else {
+                    // Send a new message
                     if let Err(e) = msg.channel_id.say(http, error_msg).await {
-                        error!("Error sending MasterOfAllScience error message: {:?}", e);
+                        error!("Error sending error message: {:?}", e);
                     }
                 }
-            } else {
-                if let Err(e) = msg.channel_id.say(http, error_msg).await {
-                    error!("Error sending MasterOfAllScience error message: {:?}", e);
+            },
+            Err(e) => {
+                error!("Error getting random MasterOfAllScience screenshot: {:?}", e);
+                
+                let error_msg = "Error getting Rick and Morty screenshot. Wubba lubba dub dub!";
+                
+                // Edit the searching message if we have one, otherwise send a new message
+                if let Some(mut search_msg) = searching_msg {
+                    if let Err(e) = search_msg.edit(http, serenity::builder::EditMessage::new().content(error_msg)).await {
+                        error!("Error editing searching message: {:?}", e);
+                        // Try sending a new message if editing fails
+                        if let Err(e) = msg.channel_id.say(http, error_msg).await {
+                            error!("Error sending error message: {:?}", e);
+                        }
+                    }
+                } else {
+                    // Send a new message
+                    if let Err(e) = msg.channel_id.say(http, error_msg).await {
+                        error!("Error sending error message: {:?}", e);
+                    }
                 }
             }
-        },
-        Err(e) => {
-            // Create a user-friendly error message
-            let user_error_msg = "Couldn't find any Rick and Morty screenshots. Wubba lubba dub dub!";
-            
-            // Log the detailed error for debugging
-            error!("Error searching MasterOfAllScience: {}", e);
-            
-            // Edit the searching message if we have one, otherwise send a new message
-            if let Some(mut search_msg) = searching_msg {
-                if let Err(e) = search_msg.edit(http, serenity::builder::EditMessage::new().content(user_error_msg)).await {
-                    error!("Error editing searching message: {:?}", e);
-                    // Try sending a new message if editing fails
-                    if let Err(e) = msg.channel_id.say(http, user_error_msg).await {
-                        error!("Error sending MasterOfAllScience error message: {:?}", e);
+        }
+        
+        return Ok(());
+    }
+    
+    // If we have a search term, search for it
+    if let Some(term) = args {
+        info!("MasterOfAllScience search for: {}", term);
+        
+        // Show a "searching" message that we'll edit later with the result
+        let searching_msg = match msg.channel_id.say(http, "🔍 Searching Rick and Morty quotes...").await {
+            Ok(msg) => Some(msg),
+            Err(e) => {
+                error!("Error sending searching message: {:?}", e);
+                None
+            }
+        };
+        
+        // Search for the term
+        match masterofallscience_client.search(&term).await {
+            Ok(Some(result)) => {
+                // Format the response
+                let response = format_masterofallscience_result(&result);
+                
+                // Edit the searching message if we have one, otherwise send a new message
+                if let Some(mut search_msg) = searching_msg {
+                    if let Err(e) = search_msg.edit(http, serenity::builder::EditMessage::new().content(&response)).await {
+                        error!("Error editing searching message: {:?}", e);
+                        // Try sending a new message if editing fails
+                        if let Err(e) = msg.channel_id.say(http, &response).await {
+                            error!("Error sending MasterOfAllScience result: {:?}", e);
+                        }
+                    }
+                } else {
+                    // Send a new message
+                    if let Err(e) = msg.channel_id.say(http, &response).await {
+                        error!("Error sending MasterOfAllScience result: {:?}", e);
                     }
                 }
-            } else {
-                if let Err(e) = msg.channel_id.say(http, user_error_msg).await {
-                    error!("Error sending MasterOfAllScience error message: {:?}", e);
+            },
+            Ok(None) => {
+                let error_msg = format!("Couldn't find any Rick and Morty screenshots matching \"{}\".", term);
+                
+                // Edit the searching message if we have one, otherwise send a new message
+                if let Some(mut search_msg) = searching_msg {
+                    if let Err(e) = search_msg.edit(http, serenity::builder::EditMessage::new().content(&error_msg)).await {
+                        error!("Error editing searching message: {:?}", e);
+                        // Try sending a new message if editing fails
+                        if let Err(e) = msg.channel_id.say(http, &error_msg).await {
+                            error!("Error sending error message: {:?}", e);
+                        }
+                    }
+                } else {
+                    // Send a new message
+                    if let Err(e) = msg.channel_id.say(http, &error_msg).await {
+                        error!("Error sending error message: {:?}", e);
+                    }
+                }
+            },
+            Err(e) => {
+                error!("Error searching MasterOfAllScience: {:?}", e);
+                
+                let error_msg = "Error searching Rick and Morty quotes. Wubba lubba dub dub!";
+                
+                // Edit the searching message if we have one, otherwise send a new message
+                if let Some(mut search_msg) = searching_msg {
+                    if let Err(e) = search_msg.edit(http, serenity::builder::EditMessage::new().content(error_msg)).await {
+                        error!("Error editing searching message: {:?}", e);
+                        // Try sending a new message if editing fails
+                        if let Err(e) = msg.channel_id.say(http, error_msg).await {
+                            error!("Error sending error message: {:?}", e);
+                        }
+                    }
+                } else {
+                    // Send a new message
+                    if let Err(e) = msg.channel_id.say(http, error_msg).await {
+                        error!("Error sending error message: {:?}", e);
+                    }
                 }
             }
         }
     }
     
     Ok(())
-}
-
-// Parse arguments for the !masterofallscience command
-// Format: !masterofallscience [search term] [-s season] [-e episode]
-fn parse_masterofallscience_args(args: &str) -> (Option<String>, Option<u32>, Option<u32>) {
-    let mut search_term = String::new();
-    let mut season: Option<u32> = None;
-    let mut episode: Option<u32> = None;
-    
-    let mut parts = args.split_whitespace().peekable();
-    
-    while let Some(part) = parts.next() {
-        match part {
-            "-s" | "-season" => {
-                if let Some(season_str) = parts.next() {
-                    season = season_str.parse::<u32>().ok();
-                }
-            },
-            "-e" | "-episode" => {
-                if let Some(episode_str) = parts.next() {
-                    episode = episode_str.parse::<u32>().ok();
-                }
-            },
-            _ => {
-                // If we already have some search term, add a space
-                if !search_term.is_empty() {
-                    search_term.push(' ');
-                }
-                search_term.push_str(part);
-            }
-        }
-    }
-    
-    // If search term is empty, return None
-    let search_term = if search_term.is_empty() {
-        None
-    } else {
-        Some(search_term)
-    };
-    
-    (search_term, season, episode)
 }
