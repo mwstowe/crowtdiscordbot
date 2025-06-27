@@ -212,7 +212,7 @@ impl MorbotronClient {
         }
         
         // Return the best result, or None if no good matches were found
-        if best_score > 0.1 {  // Lower threshold for relevance
+        if best_score > 0.0 {  // Accept any result with a non-zero score
             Ok(best_result)
         } else {
             info!("No relevant results found for query: {}", query);
