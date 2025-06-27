@@ -313,15 +313,9 @@ pub async fn handle_morbotron_command(
     
     // Determine whether to use enhanced search or regular search
     let mut search_result = if let Some(term) = &search_term {
-        if let Some(gemini) = gemini_client {
-            info!("Using enhanced search with Gemini API and Google Search");
-            let google_client = GoogleSearchClient::new();
-            let enhanced_search = EnhancedMorbotronSearch::new(gemini.clone(), morbotron_client.clone(), google_client);
-            enhanced_search.search(term).await
-        } else {
-            info!("Using regular search (Gemini API not available)");
-            morbotron_client.search(term).await
-        }
+        // Always use regular search directly
+        info!("Using regular search directly");
+        morbotron_client.search(term).await
     } else {
         // If no search term but we have filters, get a random screenshot
         morbotron_client.random().await
