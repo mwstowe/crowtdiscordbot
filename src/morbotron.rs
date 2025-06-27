@@ -14,7 +14,7 @@ use crate::text_formatting;
 
 // API endpoints
 const MORBOTRON_BASE_URL: &str = "https://morbotron.com/api/search";
-const MORBOTRON_CAPTION_URL: &str = "https://morbotron.com/caption";
+const MORBOTRON_CAPTION_URL: &str = "https://morbotron.com/api/caption";
 const MORBOTRON_IMAGE_URL: &str = "https://morbotron.com/img";
 const MORBOTRON_RANDOM_URL: &str = "https://morbotron.com/api/random";
 
@@ -182,68 +182,59 @@ impl MorbotronClient {
     }
     
     async fn get_caption_for_frame(&self, episode: &str, timestamp: u64) -> Result<Option<MorbotronResult>> {
-        // Extract season and episode numbers from the episode code (e.g., S07E06 -> 7, 6)
-        if let Some((season, ep)) = extract_season_episode(episode) {
-            // Use the correct URL format: /caption/season/episode/timestamp
-            let caption_url = format!("{}/{}/{}/{}", MORBOTRON_CAPTION_URL, season, ep, timestamp);
-            info!("Using caption URL: {}", caption_url);
+        // Use the correct URL format: /api/caption?e=S01E02&t=242434
+        let caption_url = format!("{}?e={}&t={}", MORBOTRON_CAPTION_URL, episode, timestamp);
+        info!("Using caption URL: {}", caption_url);
+        
+        // Make the caption request
+        let caption_response = self.http_client.get(&caption_url)
+            .send()
+            .await
+            .map_err(|e| anyhow!("Failed to get Morbotron caption: {}", e))?;
             
-            // Make the caption request
-            let caption_response = self.http_client.get(&caption_url)
-                .send()
-                .await
-                .map_err(|e| anyhow!("Failed to get Morbotron caption: {}", e))?;
-                
-            let status = caption_response.status();
-            info!("Caption API response status: {}", status);
-            
-            if !status.is_success() {
-                // If the request failed, return a random result instead of an error
-                info!("Caption request failed with status: {}, returning random result", status);
-                // Use Box::pin to avoid recursion issues
-                return Box::pin(self.random()).await;
-            }
-            
-            // Parse the caption result
-            let caption_result: MorbotronCaptionResult = caption_response.json()
-                .await
-                .map_err(|e| anyhow!("Failed to parse Morbotron caption: {}", e))?;
-                
-            // If no subtitles, return None
-            if caption_result.Subtitles.is_empty() {
-                return Ok(None);
-            }
-            
-            // Extract the caption text
-            let caption = caption_result.Subtitles.iter()
-                .map(|s| s.Content.clone())
-                .collect::<Vec<String>>()
-                .join("\n");
-                
-            // Build the image URL - use the season/episode format for the image URL
-            let image_url = format!("{}/{}/{}/{}.jpg", MORBOTRON_IMAGE_URL, season, ep, timestamp);
-            
-            // Extract episode information
-            let episode_title = caption_result.Episode.Title.clone();
-            let season_num = caption_result.Episode.Season;
-            let episode_number = caption_result.Episode.Episode;
-            
-            // Return the result
-            return Ok(Some(MorbotronResult {
-                episode: episode.to_string(),
-                season: season_num,
-                episode_number,
-                episode_title,
-                timestamp: timestamp.to_string(),
-                image_url,
-                caption: format_caption(&caption),
-            }));
+        let status = caption_response.status();
+        info!("Caption API response status: {}", status);
+        
+        if !status.is_success() {
+            // If the request failed, return a random result instead of an error
+            info!("Caption request failed with status: {}, returning random result", status);
+            return Box::pin(self.random()).await;
         }
         
-        // If we couldn't extract season/episode, return a random result
-        info!("Could not extract season/episode from '{}', returning random result", episode);
-        // Use Box::pin to avoid recursion issues
-        Box::pin(self.random()).await
+        // Parse the caption result
+        let caption_result: MorbotronCaptionResult = caption_response.json()
+            .await
+            .map_err(|e| anyhow!("Failed to parse Morbotron caption: {}", e))?;
+            
+        // If no subtitles, return None
+        if caption_result.Subtitles.is_empty() {
+            return Ok(None);
+        }
+        
+        // Extract the caption text
+        let caption = caption_result.Subtitles.iter()
+            .map(|s| s.Content.clone())
+            .collect::<Vec<String>>()
+            .join("\n");
+            
+        // Build the image URL
+        let image_url = format!("{}/{}/{}.jpg", MORBOTRON_IMAGE_URL, episode, timestamp);
+        
+        // Extract episode information
+        let episode_title = caption_result.Episode.Title.clone();
+        let season = caption_result.Episode.Season;
+        let episode_number = caption_result.Episode.Episode;
+        
+        // Return the result
+        Ok(Some(MorbotronResult {
+            episode: episode.to_string(),
+            season,
+            episode_number,
+            episode_title,
+            timestamp: timestamp.to_string(),
+            image_url,
+            caption: format_caption(&caption),
+        }))
     }
 }
 
@@ -431,20 +422,4 @@ pub async fn handle_morbotron_command(
     }
     
     Ok(())
-}
-
-// Extract season and episode numbers from an episode code (e.g., S07E06 -> 7, 6)
-fn extract_season_episode(episode: &str) -> Option<(u32, u32)> {
-    // Handle SxxExx format (e.g., S07E06)
-    if episode.contains('S') && episode.contains('E') {
-        let parts: Vec<&str> = episode.split(['S', 'E']).collect();
-        if parts.len() >= 3 {
-            let season = parts[1].trim().parse::<u32>().ok()?;
-            let ep = parts[2].trim().parse::<u32>().ok()?;
-            return Some((season, ep));
-        }
-    }
-    
-    // Handle other formats or return None if we can't parse
-    None
 }
