@@ -20,17 +20,17 @@ const GEMINI_MORBOTRON_PROMPT: &str = r#"You are a Futurama quote expert tasked 
 Search terms: "{}"
 
 Instructions:
-1. Find a Futurama quote that EXPLICITLY contains the search terms when possible
-2. If no exact match exists, find quotes that contain synonyms or related concepts
-3. Prioritize quotes that include the EXACT search terms in them
-4. Consider famous quotes that might relate to these concepts
+1. Find a REAL Futurama quote that EXPLICITLY contains the search terms when possible
+2. ONLY return quotes that you are 100% certain exist in the show
+3. If no exact match exists, find quotes that contain synonyms or related concepts
+4. Prioritize quotes that include the EXACT search terms in them
 5. Return your response in this exact JSON format:
    {{
      "quote": "The exact quote text",
      "episode": "Season X Episode Y: Episode Title",
      "character": "Character who said it"
    }}
-6. If you can't find a relevant quote, respond with: {{"result": "pass"}}
+6. If you can't find a relevant quote or are unsure if the quote is real, respond with: {{"result": "pass"}}
 
 Examples:
 - Search: "bite metal"
@@ -68,7 +68,23 @@ impl EnhancedMorbotronSearch {
     pub async fn search(&self, query: &str) -> Result<Option<MorbotronResult>> {
         info!("Enhanced Morbotron search for: {}", query);
         
-        // First, try to get a quote from Gemini API
+        // First, try a direct search with the Morbotron API
+        // This is best for simple queries like "sucks" or "good news everyone"
+        info!("Trying direct search with Morbotron API first");
+        match self.morbotron_client.search(query).await {
+            Ok(Some(result)) => {
+                info!("Found result with direct search");
+                return Ok(Some(result));
+            },
+            Ok(None) => {
+                info!("No results from direct search, trying Gemini API");
+            },
+            Err(e) => {
+                error!("Error with direct search: {}, trying Gemini API", e);
+            }
+        }
+        
+        // If direct search fails, try Gemini API for a more sophisticated search
         info!("Trying Gemini API for quote generation");
         let gemini_prompt = GEMINI_MORBOTRON_PROMPT.replace("{}", query);
         
