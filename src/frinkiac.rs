@@ -406,49 +406,17 @@ impl FrinkiacClient {
             
         // If no results, return None
         if search_results.is_empty() {
+            info!("No results found for query: {}", query);
             return Ok(None);
         }
         
-        // Process all results and find the best match
-        let mut best_result: Option<FrinkiacResult> = None;
-        let mut best_score = 0.0;
+        // Just take the first result
+        let first_result = &search_results[0];
+        let episode = &first_result.episode;
+        let timestamp = first_result.timestamp;
         
-        // Get the original query words for validation
-        let query_lower = query.to_lowercase();
-        let query_words: Vec<&str> = query_lower.split_whitespace().collect();
-        
-        // Process up to 5 results to find the best match
-        for (i, result) in search_results.iter().take(5).enumerate() {
-            let episode = &result.episode;
-            let timestamp = result.timestamp;
-            
-            // Get the caption for this frame
-            if let Ok(Some(frinkiac_result)) = self.get_caption_for_frame(episode, timestamp).await {
-                // Calculate relevance score using our common utility
-                let score = screenshot_search_common::calculate_result_relevance(
-                    &frinkiac_result.caption,
-                    &frinkiac_result.episode_title,
-                    query,
-                    &query_words
-                );
-                
-                info!("Result #{} score: {:.2} for query: {}", i+1, score, query);
-                
-                // If this is the best result so far, keep it
-                if score > best_score {
-                    best_score = score;
-                    best_result = Some(frinkiac_result);
-                }
-            }
-        }
-        
-        // Return the best result, or None if no good matches were found
-        if best_score > 0.3 {  // Minimum threshold for relevance
-            Ok(best_result)
-        } else {
-            info!("No relevant results found for query: {}", query);
-            Ok(None)
-        }
+        // Get the caption for this frame
+        self.get_caption_for_frame(episode, timestamp).await
     }
 }
 
