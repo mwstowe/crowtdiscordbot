@@ -1,5 +1,3 @@
-use tracing::info;
-
 // Common search utilities for screenshot search modules
 
 // Normalize a search term to handle common variations

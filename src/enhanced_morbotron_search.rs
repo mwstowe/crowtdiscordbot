@@ -5,7 +5,6 @@ use crate::morbotron::{MorbotronClient, MorbotronResult};
 use crate::google_search::GoogleSearchClient;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use strsim::jaro_winkler;
 use regex::Regex;
 
 // A struct to hold the popularity data for quotes
@@ -237,7 +236,7 @@ impl EnhancedMorbotronSearch {
     }
     
     // Calculate a total relevance score for a result
-    fn calculate_total_score(&self, result: &MorbotronResult, query: &str, search_term: &str) -> f32 {
+    fn calculate_total_score(&self, result: &MorbotronResult, query: &str, _search_term: &str) -> f32 {
         let query_lower = query.to_lowercase();
         let caption_lower = result.caption.to_lowercase();
         let episode_title_lower = result.episode_title.to_lowercase();

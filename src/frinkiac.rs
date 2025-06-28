@@ -517,7 +517,7 @@ pub async fn handle_frinkiac_command(
         
         // Search for the term
         match frinkiac_client.search(&term).await {
-            Ok(Some(mut result)) => {
+            Ok(Some(result)) => {
                 // Apply filters if needed
                 let mut filtered_out = false;
                 
