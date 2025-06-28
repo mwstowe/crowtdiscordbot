@@ -31,7 +31,7 @@ const RANDOM_SEARCH_TERMS: &[&str] = &[
 #[derive(Debug, Deserialize, Clone)]
 struct MorbotronSearchResult {
     #[serde(rename = "Id")]
-    id: u64,
+    _id: u64,
     #[serde(rename = "Episode")]
     episode: String,
     #[serde(rename = "Timestamp")]
@@ -43,57 +43,57 @@ struct MorbotronCaptionResult {
     #[serde(rename = "Episode")]
     episode: MorbotronEpisode,
     #[serde(rename = "Frame")]
-    frame: MorbotronFrame,
+    _frame: MorbotronFrame,
     #[serde(rename = "Subtitles")]
     subtitles: Vec<MorbotronSubtitle>,
     #[serde(rename = "Nearby")]
-    nearby: Vec<MorbotronNearbyFrame>,
+    _nearby: Vec<MorbotronNearbyFrame>,
 }
 
 #[derive(Debug, Deserialize)]
 struct MorbotronFrame {
     #[serde(rename = "Id")]
-    id: u64,
+    _id: u64,
     #[serde(rename = "Episode")]
-    episode: String,
+    _episode: String,
     #[serde(rename = "Timestamp")]
-    timestamp: u64,
+    _timestamp: u64,
 }
 
 #[derive(Debug, Deserialize)]
 struct MorbotronNearbyFrame {
     #[serde(rename = "Id")]
-    id: u64,
+    _id: u64,
     #[serde(rename = "Episode")]
-    episode: String,
+    _episode: String,
     #[serde(rename = "Timestamp")]
-    timestamp: u64,
+    _timestamp: u64,
 }
 
 #[derive(Debug, Deserialize)]
 struct MorbotronSubtitle {
     #[serde(rename = "Id")]
-    id: u64,
+    _id: u64,
     #[serde(rename = "RepresentativeTimestamp")]
-    representative_timestamp: u64,
+    _representative_timestamp: u64,
     #[serde(rename = "Episode")]
-    episode: String,
+    _episode: String,
     #[serde(rename = "StartTimestamp")]
-    start_timestamp: u64,
+    _start_timestamp: u64,
     #[serde(rename = "EndTimestamp")]
-    end_timestamp: u64,
+    _end_timestamp: u64,
     #[serde(rename = "Content")]
     content: String,
     #[serde(rename = "Language")]
-    language: String,
+    _language: String,
 }
 
 #[derive(Debug, Deserialize)]
 struct MorbotronEpisode {
     #[serde(rename = "Id")]
-    id: u64,
+    _id: u64,
     #[serde(rename = "Key")]
-    key: String,
+    _key: String,
     #[serde(rename = "Season")]
     season: u32,
     #[serde(rename = "EpisodeNumber")]
@@ -101,23 +101,23 @@ struct MorbotronEpisode {
     #[serde(rename = "Title")]
     title: String,
     #[serde(rename = "Director")]
-    director: String,
+    _director: String,
     #[serde(rename = "Writer")]
-    writer: String,
+    _writer: String,
     #[serde(rename = "OriginalAirDate")]
-    original_air_date: String,
+    _original_air_date: String,
     #[serde(rename = "WikiLink")]
-    wiki_link: String,
+    _wiki_link: String,
 }
 
 // Result struct for Morbotron searches
 #[derive(Debug, Clone)]
 pub struct MorbotronResult {
-    pub episode: String,
+    pub _episode: String,
     pub season: u32,
     pub episode_number: u32,
     pub episode_title: String,
-    pub timestamp: String,
+    pub _timestamp: String,
     pub image_url: String,
     pub caption: String,
 }
@@ -297,11 +297,11 @@ impl MorbotronClient {
         
         // Return the result
         Ok(Some(MorbotronResult {
-            episode: episode.to_string(),
+            _episode: episode.to_string(),
             season,
             episode_number,
             episode_title,
-            timestamp: timestamp.to_string(),
+            _timestamp: timestamp.to_string(),
             image_url,
             caption: format_caption(&caption),
         }))

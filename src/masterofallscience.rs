@@ -57,7 +57,7 @@ const RANDOM_SEARCH_TERMS: &[&str] = &[
 #[derive(Debug, Deserialize, Clone)]
 struct MasterOfAllScienceSearchResult {
     #[serde(rename = "Id")]
-    id: u64,
+    _id: u64,
     #[serde(rename = "Episode")]
     episode: String,
     #[serde(rename = "Timestamp")]
@@ -69,57 +69,57 @@ struct MasterOfAllScienceCaptionResult {
     #[serde(rename = "Episode")]
     episode: MasterOfAllScienceEpisode,
     #[serde(rename = "Frame")]
-    frame: MasterOfAllScienceFrame,
+    _frame: MasterOfAllScienceFrame,
     #[serde(rename = "Subtitles")]
     subtitles: Vec<MasterOfAllScienceSubtitle>,
     #[serde(rename = "Nearby")]
-    nearby: Vec<MasterOfAllScienceNearbyFrame>,
+    _nearby: Vec<MasterOfAllScienceNearbyFrame>,
 }
 
 #[derive(Debug, Deserialize)]
 struct MasterOfAllScienceFrame {
     #[serde(rename = "Id")]
-    id: u64,
+    _id: u64,
     #[serde(rename = "Episode")]
-    episode: String,
+    _episode: String,
     #[serde(rename = "Timestamp")]
-    timestamp: u64,
+    _timestamp: u64,
 }
 
 #[derive(Debug, Deserialize)]
 struct MasterOfAllScienceNearbyFrame {
     #[serde(rename = "Id")]
-    id: u64,
+    _id: u64,
     #[serde(rename = "Episode")]
-    episode: String,
+    _episode: String,
     #[serde(rename = "Timestamp")]
-    timestamp: u64,
+    _timestamp: u64,
 }
 
 #[derive(Debug, Deserialize)]
 struct MasterOfAllScienceSubtitle {
     #[serde(rename = "Id")]
-    id: u64,
+    _id: u64,
     #[serde(rename = "RepresentativeTimestamp")]
-    representative_timestamp: u64,
+    _representative_timestamp: u64,
     #[serde(rename = "Episode")]
-    episode: String,
+    _episode: String,
     #[serde(rename = "StartTimestamp")]
-    start_timestamp: u64,
+    _start_timestamp: u64,
     #[serde(rename = "EndTimestamp")]
-    end_timestamp: u64,
+    _end_timestamp: u64,
     #[serde(rename = "Content")]
     content: String,
     #[serde(rename = "Language")]
-    language: String,
+    _language: String,
 }
 
 #[derive(Debug, Deserialize)]
 struct MasterOfAllScienceEpisode {
     #[serde(rename = "Id")]
-    id: u64,
+    _id: u64,
     #[serde(rename = "Key")]
-    key: String,
+    _key: String,
     #[serde(rename = "Season")]
     season: u32,
     #[serde(rename = "EpisodeNumber")]
@@ -127,23 +127,23 @@ struct MasterOfAllScienceEpisode {
     #[serde(rename = "Title")]
     title: String,
     #[serde(rename = "Director")]
-    director: String,
+    _director: String,
     #[serde(rename = "Writer")]
-    writer: String,
+    _writer: String,
     #[serde(rename = "OriginalAirDate")]
-    original_air_date: String,
+    _original_air_date: String,
     #[serde(rename = "WikiLink")]
-    wiki_link: String,
+    _wiki_link: String,
 }
 
 // Result struct for MasterOfAllScience searches
 #[derive(Debug, Clone)]
 pub struct MasterOfAllScienceResult {
-    pub episode: String,
+    pub _episode: String,
     pub season: u32,
     pub episode_number: u32,
     pub episode_title: String,
-    pub timestamp: String,
+    pub _timestamp: String,
     pub image_url: String,
     pub caption: String,
 }
@@ -323,11 +323,11 @@ impl MasterOfAllScienceClient {
         
         // Return the result
         Ok(Some(MasterOfAllScienceResult {
-            episode: episode.to_string(),
+            _episode: episode.to_string(),
             season,
             episode_number,
             episode_title,
-            timestamp: timestamp.to_string(),
+            _timestamp: timestamp.to_string(),
             image_url,
             caption: format_caption(&caption),
         }))
