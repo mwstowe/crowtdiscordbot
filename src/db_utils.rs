@@ -505,34 +505,6 @@ pub async fn get_recent_messages(
     Ok(deduplicated_messages)
 }
 
-// Fix display names in the database for a specific user
-pub async fn fix_display_name_for_user(
-    conn: Arc<Mutex<SqliteConnection>>,
-    user_id: &str,
-    correct_display_name: &str
-) -> Result<usize, Box<dyn std::error::Error>> {
-    let conn_guard = conn.lock().await;
-    let user_id_str = user_id.to_string();
-    let display_name = correct_display_name.to_string();
-    
-    info!("Fixing display name for user {} to {}", user_id_str, display_name);
-    
-    let updated = conn_guard.call({
-        let user_id_clone = user_id_str.clone();
-        move |conn| {
-            let result = conn.execute(
-                "UPDATE messages SET display_name = ? WHERE author_id = ?",
-                [&display_name, &user_id_clone],
-            )?;
-            Ok::<_, rusqlite::Error>(result)
-        }
-    }).await?;
-    
-    info!("Updated {} message records for user {}", updated, user_id_str);
-    
-    Ok(updated)
-}
-
 // Trim the message history to keep only the most recent messages
 pub async fn trim_message_history(
     conn: Arc<tokio::sync::Mutex<SqliteConnection>>,

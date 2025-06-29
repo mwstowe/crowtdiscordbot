@@ -43,13 +43,13 @@ const RANDOM_SEARCH_TERMS: &[&str] = &[
 // Result struct for Frinkiac searches
 #[derive(Debug, Clone)]
 pub struct FrinkiacResult {
-    pub episode: String,
+    pub _episode: String,
     pub episode_title: String,
     pub season: u32,
     pub episode_number: u32,
-    pub timestamp: String,
+    pub _timestamp: String,
     pub image_url: String,
-    pub meme_url: String,
+    pub _meme_url: String,
     pub caption: String,
 }
 
@@ -279,13 +279,13 @@ impl FrinkiacClient {
                 let meme_url = format!("{}/{}/{}.jpg", FRINKIAC_MEME_URL, alt_episode, timestamp);
                 
                 return Ok(Some(FrinkiacResult {
-                    episode: alt_episode,
+                    _episode: alt_episode,
                     episode_title,
                     season,
                     episode_number,
-                    timestamp: timestamp.to_string(),
+                    _timestamp: timestamp.to_string(),
                     image_url,
-                    meme_url,
+                    _meme_url: meme_url,
                     caption: format_caption(&caption),
                 }));
             }
@@ -332,13 +332,13 @@ impl FrinkiacClient {
         let meme_url = format!("{}/{}/{}.jpg", FRINKIAC_MEME_URL, episode, timestamp);
         
         Ok(Some(FrinkiacResult {
-            episode: episode.to_string(),
+            _episode: episode.to_string(),
             episode_title,
             season,
             episode_number,
-            timestamp: timestamp.to_string(),
+            _timestamp: timestamp.to_string(),
             image_url,
-            meme_url,
+            _meme_url: meme_url,
             caption: format_caption(&caption),
         }))
     }
