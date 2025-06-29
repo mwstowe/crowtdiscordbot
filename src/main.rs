@@ -3401,14 +3401,14 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                                         Ok(response) => {
                                                             if response.trim().to_lowercase() == "pass" {
                                                                 info!("Gemini API chose to pass on memory interjection");
-                                                                String::new()
+                                                                String::new() // Return empty string to skip the interjection
                                                             } else {
                                                                 response
                                                             }
                                                         },
                                                         Err(e) => {
                                                             error!("Error generating memory interjection: {:?}", e);
-                                                            String::new()
+                                                            String::new() // Return empty string to skip the interjection
                                                         }
                                                     }
                                                 } else {
@@ -3557,7 +3557,7 @@ Be creative but realistic with your article title and URL."#)
                                             // Check if the response is "pass" - if so, don't send anything
                                             if response.trim().to_lowercase() == "pass" {
                                                 info!("News interjection evaluation: decided to PASS - no response sent");
-                                                String::new()
+                                                String::new() // Return empty string to skip the interjection
                                             } else {
                                                 // Remove any "(via search)" or similar tags using regex
                                                 let via_regex = regex::Regex::new(r"\s*\(via\s+[^)]+\)\s*").unwrap();
@@ -3622,7 +3622,7 @@ Be creative but realistic with your article title and URL."#)
                         };
                         
                         // Only send the message if it's not empty
-                        if !message.is_empty() {
+                        if !message.trim().is_empty() {
                             if let Err(e) = channel_id.say(&http, message.clone()).await {
                                 error!("Failed to send spontaneous interjection: {:?}", e);
                             } else {
