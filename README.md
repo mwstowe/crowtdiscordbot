@@ -8,7 +8,7 @@ A Discord bot that follows specific channels and responds to various triggers in
 - Responds to direct mentions
 - Responds to messages starting with the bot's name
 - Detects and responds to specific keywords
-- Performs Google searches via web scraping
+- Performs searches via DuckDuckGo
 - Generates AI responses using Google's Gemini API with conversation context
 - Stores message history in a SQLite database
 - Automatically trims the database to prevent excessive growth
@@ -57,7 +57,7 @@ A Discord bot that follows specific channels and responds to various triggers in
 9. Configure the number of context messages with `GEMINI_CONTEXT_MESSAGES` (defaults to 5)
 10. Configure interjection probabilities with the `INTERJECTION_*_PROBABILITY` fields
 11. For database functionality, add MySQL credentials
-12. To enable/disable Google search, set `GOOGLE_SEARCH_ENABLED` to "true" or "false" (defaults to "true")
+12. To enable/disable search, set `GOOGLE_SEARCH_ENABLED` to "true" or "false" (defaults to "true")
 13. For AI responses, add Gemini API key
 
 ## Available Commands
@@ -254,5 +254,5 @@ The bot can be configured through the `CrowConfig.toml` file:
 - `GEMINI_API_KEY` - Your Gemini API key
 - `GEMINI_API_ENDPOINT` - Custom Gemini API endpoint
 - `GEMINI_PROMPT_WRAPPER` - Custom prompt wrapper for Gemini API calls
-- `GOOGLE_SEARCH_ENABLED` - Enable or disable Google search feature (defaults to "true")
+- `GOOGLE_SEARCH_ENABLED` - Enable or disable DuckDuckGo search feature (defaults to "true") (Note: Despite the name, this controls DuckDuckGo search)
 - `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` - MySQL database credentials
