@@ -2,7 +2,23 @@
 
 A Discord bot that follows specific channels and responds to various triggers including commands, mentions, and keywords.
 
-## Discord Bot Setup
+## Features
+
+- Responds to commands starting with `!`
+- Responds to direct mentions
+- Responds to messages starting with the bot's name
+- Detects and responds to specific keywords
+- Performs Google searches via web scraping
+- Generates AI responses using Google's Gemini API with conversation context
+- Stores message history in a SQLite database
+- Automatically trims the database to prevent excessive growth
+- Can follow multiple channels simultaneously
+- Maintains channel-specific conversation contexts
+- Configurable random interjections with separate probability controls
+
+## Installation and Setup
+
+### 1. Discord Bot Setup
 
 1. Go to the [Discord Developer Portal](https://discord.com/developers/applications)
 2. Click "New Application" and give your bot a name
@@ -26,99 +42,10 @@ A Discord bot that follows specific channels and responds to various triggers in
 11. Open this URL in a browser to invite the bot to your server
     - You must have "Manage Server" permission in the Discord server
 
-## Features
-
-- Responds to commands starting with `!`
-- Responds to direct mentions
-- Responds to messages starting with the bot's name
-- Detects and responds to specific keywords
-- Performs Google searches via web scraping
-- Generates AI responses using Google's Gemini API with conversation context
-- Stores message history in a SQLite database
-- Automatically trims the database to prevent excessive growth
-- **Can follow multiple channels simultaneously**
-- Maintains channel-specific conversation contexts
-- Configurable random interjections with separate probability controls
-
-## Setup Instructions
+### 2. Bot Configuration
 
 1. Create a `CrowConfig.toml` file based on the `CrowConfig.toml.example` template
-## Random Interjections
-
-The bot occasionally makes random interjections in the conversation. There are six types of interjections, each with its own configurable probability:
-
-1. **MST3K Quotes** - Random quotes from Mystery Science Theater 3000
-2. **Channel Memory** - Quotes something someone previously said in the channel
-3. **Message Pondering** - Thoughtful comments about the conversation
-4. **AI Interjection** - AI-generated comments using the Gemini API
-5. **Fact Interjection** - AI-generated interesting facts related to the conversation
-6. **News Interjection** - AI-generated links to interesting technology or weird news articles with commentary
-
-Each interjection type can be configured separately in the `CrowConfig.toml` file:
-
-```toml
-# Random Interjection Probabilities (chance per message)
-# Each type has its own probability - set to 0 to disable
-INTERJECTION_MST3K_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
-INTERJECTION_MEMORY_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
-INTERJECTION_PONDERING_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
-INTERJECTION_AI_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
-INTERJECTION_FACT_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
-INTERJECTION_NEWS_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
-```
-
-Setting any probability to 0 will disable that type of interjection completely.
-
-### MST3K Quotes
-
-These are random quotes from Mystery Science Theater 3000, a cult classic TV show. The bot will occasionally interject with one of these quotes, adding humor to the conversation.
-
-### Channel Memory
-
-The bot will occasionally quote something that was previously said in the channel. This creates a sense of continuity and can bring up relevant past discussions.
-
-### Message Pondering
-
-The bot will occasionally make thoughtful comments about the conversation, such as "That's an interesting point" or "I was just thinking about that." These interjections make the bot feel more engaged in the conversation.
-
-### AI Interjection
-
-The bot uses the Gemini API to generate contextually relevant comments based on the recent conversation. The bot analyzes the conversation context and provides a comment that feels like a natural part of the discussion.
-
-For AI interjections, the bot:
-1. Retrieves recent conversation context
-2. Sends a specialized prompt to the Gemini API
-3. Evaluates whether to interject (the AI can decide to "pass" if it doesn't have a relevant comment)
-4. Applies a realistic typing delay before sending the response
-
-### Fact Interjection
-
-The most educational type of interjection, where the bot uses the Gemini API to generate interesting facts related to the conversation. Unlike the general AI interjection, fact interjections are specifically focused on providing informative content.
-
-For fact interjections, the bot:
-1. Retrieves recent conversation context
-2. Sends a specialized prompt to the Gemini API asking for a relevant fact
-3. Evaluates whether to interject (the AI can decide to "pass" if it can't find a relevant fact)
-4. Applies a realistic typing delay before sending the response
-5. Delivers a concise, interesting fact that relates to the conversation topic
-
-### News Interjection
-
-The news interjection feature shares links to interesting technology or weird news articles (excluding sports) with commentary on why they're interesting and how they relate to the conversation.
-
-For news interjections, the bot:
-1. Retrieves recent conversation context
-2. Sends a specialized prompt to the Gemini API asking for a fictional but plausible news article link
-3. Evaluates whether to interject (the AI can decide to "pass" if it can't find a relevant article idea)
-4. Applies a realistic typing delay before sending the response
-5. Delivers a fictional article title, URL, and brief commentary on why it's interesting or relevant to the conversation
-
-The news interjection format looks like:
-"Article title: https://example.com/article-path This shows how [technology/topic] is advancing in interesting ways."
-
 2. Add your Discord bot token to the `DISCORD_TOKEN` field
-   - Privileged Gateway Intents: Message Content Intent
-   - Scopes: `bot`, `messages.read`, `applications.commands`
 3. Configure channels to follow using one of these options:
    - Single channel: `FOLLOWED_CHANNEL_ID` or `FOLLOWED_CHANNEL_NAME`
    - Multiple channels: `FOLLOWED_CHANNEL_IDS` or `FOLLOWED_CHANNEL_NAMES` (comma-separated)
@@ -152,6 +79,82 @@ The news interjection format looks like:
 - `!imagine [text]` - Generate an image (if configured)
 - `!alive [name]` - Check if a celebrity is alive or dead
 - `!info` - Show bot statistics
+
+## AI Response Feature
+
+When the bot is directly mentioned in a message or when a message starts with the bot's name, it will:
+1. Show a typing indicator while waiting for the API response
+2. Send the content to Google's Gemini API with conversation context
+3. Apply a realistic typing delay based on response length (0.2 seconds per word, minimum 2s, maximum 5s)
+4. Post the AI-generated response as a reply to the user's message
+
+When directly addressed (via mention or when a message starts with the bot's name), the bot will reply to the message, making it clear which message it's responding to. For other triggers like keyword detection, the bot will respond with a regular message.
+
+### Conversation Context
+
+The bot includes conversation context when making API calls to Gemini. This means:
+
+1. The bot retrieves the last 5 messages from the conversation history
+2. These messages are included in the prompt sent to Gemini
+3. Gemini can generate more contextually relevant responses based on the conversation flow
+4. The bot appears more coherent and can maintain conversation threads
+
+This feature makes the bot feel more natural in conversations and helps it remember what was previously discussed.
+
+### Customizing Prompts and Models
+
+The prompt sent to Gemini can be customized by setting the `GEMINI_PROMPT_WRAPPER` in your `CrowConfig.toml` file. The wrapper should include placeholders:
+- `{message}` - The user's message
+- `{bot_name}` - The bot's name
+- `{user}` - The user's display name
+- `{context}` - Recent conversation history (last 5 messages)
+
+You can also configure which Gemini model to use by setting the `GEMINI_API_ENDPOINT` in your `CrowConfig.toml` file. This allows you to switch between different models like `gemini-1.0-pro`, `gemini-1.5-pro`, `gemini-1.5-flash` or `gemini-2.0-flash`.
+
+## Random Interjections
+
+The bot occasionally makes random interjections in the conversation. There are six types of interjections, each with its own configurable probability:
+
+### Configuration
+
+Each interjection type can be configured separately in the `CrowConfig.toml` file:
+
+```toml
+# Random Interjection Probabilities (chance per message)
+# Each type has its own probability - set to 0 to disable
+INTERJECTION_MST3K_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
+INTERJECTION_MEMORY_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
+INTERJECTION_PONDERING_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
+INTERJECTION_AI_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
+INTERJECTION_FACT_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
+INTERJECTION_NEWS_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
+```
+
+Setting any probability to 0 will disable that type of interjection completely.
+
+### Interjection Types
+
+1. **MST3K Quotes** - Random quotes from Mystery Science Theater 3000, a cult classic TV show. The bot will occasionally interject with one of these quotes, adding humor to the conversation.
+
+2. **Channel Memory** - Quotes something someone previously said in the channel. This creates a sense of continuity and can bring up relevant past discussions.
+
+3. **Message Pondering** - Thoughtful comments about the conversation, such as "That's an interesting point" or "I was just thinking about that." These interjections make the bot feel more engaged in the conversation.
+
+4. **AI Interjection** - AI-generated comments using the Gemini API. The bot analyzes the conversation context and provides a comment that feels like a natural part of the discussion.
+
+5. **Fact Interjection** - AI-generated interesting facts related to the conversation. Unlike the general AI interjection, fact interjections are specifically focused on providing informative content.
+
+6. **News Interjection** - AI-generated links to interesting technology or weird news articles (excluding sports) with commentary on why they're interesting and how they relate to the conversation. The format looks like: "Article title: https://example.com/article-path This shows how [technology/topic] is advancing in interesting ways."
+
+## Display Name Handling
+
+The bot uses a sophisticated approach to determine the best display name for users:
+
+1. **Server Nickname** - First priority, if the user has set a nickname in the server
+2. **Global Display Name** - Second priority, if the user has set a global display name
+3. **Username** - Last resort, if no other display name is available
+
+This ensures that users are addressed by their preferred name in the server context, improving the personalization of the bot's responses.
 
 ## Database Structure
 
@@ -253,74 +256,3 @@ The bot can be configured through the `CrowConfig.toml` file:
 - `GEMINI_PROMPT_WRAPPER` - Custom prompt wrapper for Gemini API calls
 - `GOOGLE_SEARCH_ENABLED` - Enable or disable Google search feature (defaults to "true")
 - `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` - MySQL database credentials
-
-## Display Name Handling
-
-The bot uses a sophisticated approach to determine the best display name for users:
-
-1. **Server Nickname** - First priority, if the user has set a nickname in the server
-2. **Global Display Name** - Second priority, if the user has set a global display name
-3. **Username** - Last resort, if no other display name is available
-
-This ensures that users are addressed by their preferred name in the server context, improving the personalization of the bot's responses.
-
-The display name is used in various features:
-- When addressing users in AI responses
-- When storing messages in the database for `!quote -dud` command
-- When generating crime fighting duos
-- When responding to direct mentions or messages starting with the bot's name
-
-## AI Response Feature
-
-When the bot is directly mentioned in a message or when a message starts with the bot's name, it will:
-1. Show a typing indicator while waiting for the API response
-2. Send the content to Google's Gemini API with conversation context
-3. Apply a realistic typing delay based on response length (0.2 seconds per word, minimum 2s, maximum 5s)
-4. Post the AI-generated response as a reply to the user's message
-
-When directly addressed (via mention or when a message starts with the bot's name), the bot will reply to the message, making it clear which message it's responding to. For other triggers like keyword detection, the bot will respond with a regular message.
-
-The prompt sent to Gemini can be customized by setting the `GEMINI_PROMPT_WRAPPER` in your `CrowConfig.toml` file. The wrapper should include placeholders:
-- `{message}` - The user's message
-- `{bot_name}` - The bot's name
-- `{user}` - The user's display name
-- `{context}` - Recent conversation history (last 5 messages)
-
-You can also configure which Gemini model to use by setting the `GEMINI_API_ENDPOINT` in your `CrowConfig.toml` file. This allows you to switch between different models like `gemini-1.0-pro`, `gemini-1.5-pro`, `gemini-1.5-flash` or `gemini-2.0-flash`.
-
-## Conversation Context
-
-The bot includes conversation context when making API calls to Gemini. This means:
-
-1. The bot retrieves the last 5 messages from the conversation history
-2. These messages are included in the prompt sent to Gemini
-3. Gemini can generate more contextually relevant responses based on the conversation flow
-4. The bot appears more coherent and can maintain conversation threads
-
-This feature makes the bot feel more natural in conversations and helps it remember what was previously discussed.
-
-## Random Interjections
-
-The bot occasionally makes random interjections in the conversation. There are six types of interjections, each with its own configurable probability:
-
-1. **MST3K Quotes** - Random quotes from Mystery Science Theater 3000
-2. **Channel Memory** - Quotes something someone previously said in the channel
-3. **Message Pondering** - Thoughtful comments about the conversation
-4. **AI Interjection** - AI-generated comments using the Gemini API
-5. **Fact Interjection** - AI-generated interesting facts related to the conversation
-6. **News Interjection** - AI-generated links to interesting technology or weird news articles with commentary
-
-Each interjection type can be configured separately in the `CrowConfig.toml` file:
-
-```toml
-# Random Interjection Probabilities (chance per message)
-# Each type has its own probability - set to 0 to disable
-INTERJECTION_MST3K_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
-INTERJECTION_MEMORY_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
-INTERJECTION_PONDERING_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
-INTERJECTION_AI_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
-INTERJECTION_FACT_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
-INTERJECTION_NEWS_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
-```
-
-Setting any probability to 0 will disable that type of interjection completely.
