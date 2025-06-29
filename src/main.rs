@@ -2630,6 +2630,16 @@ impl EventHandler for Bot {
             return;
         }
         
+        // Special case: respond with "I know kung fu!" when someone says exactly "whoa"
+        let trimmed_content = msg.content.trim().to_lowercase();
+        if trimmed_content == "whoa" || trimmed_content == "woah" {
+            info!("Responding to 'whoa' with Matrix reference");
+            if let Err(e) = msg.channel_id.say(&ctx.http, "I know kung fu!").await {
+                error!("Error sending kung fu response: {:?}", e);
+            }
+            return;
+        }
+        
         // Check for regex substitution (!s/, .s/, !/, ./)
         if msg.content.starts_with("!s/") || msg.content.starts_with(".s/") || 
            msg.content.starts_with("!/") || msg.content.starts_with("./") {
