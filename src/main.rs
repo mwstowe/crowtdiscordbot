@@ -1693,25 +1693,8 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                            response.contains("Requirements:") || 
                            response.contains("Example good responses:") {
                             error!("Pondering interjection error: API returned the prompt instead of a response");
-                            // Fall back to hard-coded responses
-                            let ponderings = [
-                                "Hmm, that's an interesting point.",
-                                "I was just thinking about that!",
-                                "That reminds me of something...",
-                                "Fascinating perspective.",
-                                "I never thought of it that way before.",
-                                "You know, that's actually quite profound.",
-                                "Wait, what?",
-                            ];
-                            
-                            let pondering = ponderings.choose(&mut rand::thread_rng()).unwrap_or(&"Hmm, interesting.").to_string();
-                            let pondering_text = pondering.clone(); // Clone for logging
-                            
-                            if let Err(e) = msg.channel_id.say(&ctx.http, pondering).await {
-                                error!("Error sending random pondering: {:?}", e);
-                            } else {
-                                info!("Hard-coded pondering interjection sent: {}", pondering_text);
-                            }
+                            // Log the issue but don't send any message to the channel
+                            error!("Suppressing fallback pondering message as configured");
                             return Ok(());
                         }
                         
@@ -1738,47 +1721,14 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                     },
                     Err(e) => {
                         error!("Pondering interjection error: {:?}", e);
-                        // Fall back to hard-coded responses
-                        let ponderings = [
-                            "Hmm, that's an interesting point.",
-                            "I was just thinking about that!",
-                            "That reminds me of something...",
-                            "Fascinating perspective.",
-                            "I never thought of it that way before.",
-                            "You know, that's actually quite profound.",
-                            "Wait, what?",
-                        ];
-                        
-                        let pondering = ponderings.choose(&mut rand::thread_rng()).unwrap_or(&"Hmm, interesting.").to_string();
-                        let pondering_text = pondering.clone(); // Clone for logging
-                        
-                        if let Err(e) = msg.channel_id.say(&ctx.http, pondering).await {
-                            error!("Error sending random pondering: {:?}", e);
-                        } else {
-                            info!("Hard-coded pondering interjection sent: {}", pondering_text);
-                        }
+                        // Log the issue but don't send any message to the channel
+                        error!("Suppressing fallback pondering message as configured");
                     }
                 }
             } else {
-                // If Gemini API is not configured, use hard-coded responses
-                let ponderings = [
-                    "Hmm, that's an interesting point.",
-                    "I was just thinking about that!",
-                    "That reminds me of something...",
-                    "Fascinating perspective.",
-                    "I never thought of it that way before.",
-                    "You know, that's actually quite profound.",
-                    "Wait, what?",
-                ];
-                
-                let pondering = ponderings.choose(&mut rand::thread_rng()).unwrap_or(&"Hmm, interesting.").to_string();
-                let pondering_text = pondering.clone(); // Clone for logging
-                
-                if let Err(e) = msg.channel_id.say(&ctx.http, pondering).await {
-                    error!("Error sending random pondering: {:?}", e);
-                } else {
-                    info!("Hard-coded pondering interjection sent: {}", pondering_text);
-                }
+                // If Gemini API is not configured, just log and don't send anything
+                error!("Pondering interjection not available (Gemini API not configured) - no response sent");
+                return Ok(());
             }
         }
         
@@ -3328,35 +3278,9 @@ Keep it brief and natural, as if you're just another participant in the conversa
                         // Send a message based on the interjection type
                         let message = match interjection_type {
                             0 => {
-                                // MST3K Quote interjection
-                                let quotes = [
-                                    "Watch out for snakes!",
-                                    "It's the amazing Rando!",
-                                    "Hi-keeba!",
-                                    "He tampered in God's domain.",
-                                    "Normal view... Normal view... NORMAL VIEW... NORMAL VIEWWWW!",
-                                    "Rowsdower!",
-                                    "Mitchell!",
-                                    "Chief? McCloud!",
-                                    "It's the 70s. No one has to be who they are.",
-                                    "Trumpy, you can do magic things!",
-                                    "Huzzah!",
-                                    "I'm a grimace of pain!",
-                                    "Packers won the Super Bowl!",
-                                    "Knew your father, I did.",
-                                    "Sampo... Sampo...",
-                                    "Rock climbing, Joel!",
-                                    "Deep hurting!",
-                                    "Torgo!",
-                                    "The Master would not approve.",
-                                    "Manos: The Hands of Fate",
-                                ];
-                                
-                                quotes.choose(&mut rand::thread_rng()).map(|s| s.to_string()).unwrap_or_else(|| {
-                                    // If we somehow got no quotes, skip the interjection
-                                    info!("No MST3K quotes available, skipping interjection");
-                                    String::new()
-                                })
+                                // MST3K Quote interjection - log but don't send anything
+                                info!("Spontaneous MST3K quote interjection requested but fallbacks are disabled");
+                                String::new()
                             },
                             1 => {
                                 // Memory interjection - get a random message from the database and process it
@@ -3433,42 +3357,14 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                 }
                             },
                             2 => {
-                                // Pondering interjection
-                                let ponderings = [
-                                    "I wonder what everyone's working on today.",
-                                    "Hmm, I was just thinking about quantum computing.",
-                                    "Just had a thought about the nature of consciousness.",
-                                    "I've been pondering the future of AI development.",
-                                    "Fascinating how technology evolves so quickly.",
-                                    "I never thought I'd enjoy discussing programming languages this much.",
-                                    "You know, philosophy and computer science have a lot in common.",
-                                    "I was just thinking about that new sci-fi show everyone's talking about.",
-                                ];
-                                
-                                ponderings.choose(&mut rand::thread_rng()).map(|s| s.to_string()).unwrap_or_else(|| {
-                                    // If we somehow got no ponderings, skip the interjection
-                                    info!("No ponderings available, skipping interjection");
-                                    String::new()
-                                })
+                                // Pondering interjection - log but don't send anything
+                                info!("Spontaneous pondering interjection requested but fallbacks are disabled");
+                                String::new()
                             },
                             3 => {
-                                // AI-like interjection
-                                let ai_comments = [
-                                    "I've been analyzing some interesting data patterns lately.",
-                                    "Based on my calculations, today is an optimal day for coding.",
-                                    "I've been processing some fascinating information about neural networks.",
-                                    "My algorithms suggest that coffee consumption improves programming efficiency by 37%.",
-                                    "I've been running simulations of potential chess strategies.",
-                                    "The ratio of bugs to features in most software is approximately 1:4.",
-                                    "I've been contemplating the philosophical implications of the Turing test.",
-                                    "My sensors detect that it's a perfect day for debugging.",
-                                ];
-                                
-                                ai_comments.choose(&mut rand::thread_rng()).map(|s| s.to_string()).unwrap_or_else(|| {
-                                    // If we somehow got no AI comments, skip the interjection
-                                    info!("No AI comments available, skipping interjection");
-                                    String::new()
-                                })
+                                // AI-like interjection - log but don't send anything
+                                info!("Spontaneous AI-like interjection requested but fallbacks are disabled");
+                                String::new()
                             },
                             4 => {
                                 // Fact interjection using Gemini API

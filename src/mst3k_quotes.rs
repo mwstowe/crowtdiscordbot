@@ -2,30 +2,12 @@ use anyhow::Result;
 use serenity::all::*;
 use serenity::model::channel::Message;
 use tracing::{error, info};
-use rand::seq::SliceRandom;
 
-// Helper function for fallback MST3K quotes when database query fails
-pub async fn fallback_mst3k_quote(ctx: &Context, msg: &Message) -> Result<()> {
-    let mst3k_quotes = [
-        "Watch out for snakes!",
-        "It's the amazing Rando!",
-        "Normal view... Normal view... NORMAL VIEW!",
-        "Hi-keeba!",
-        "I'm different!",
-        "Rowsdower!",
-        "Mitchell!",
-        "Deep hurting...",
-        "Trumpy, you can do magic things!",
-        "Torgo's theme intensifies",
-    ];
-            
-    let quote = mst3k_quotes.choose(&mut rand::thread_rng()).unwrap_or(&"I'm different!").to_string();
-    let quote_text = quote.clone(); // Clone for logging
-    if let Err(e) = msg.channel_id.say(&ctx.http, quote).await {
-        error!("Error sending fallback MST3K quote: {:?}", e);
-    } else {
-        info!("Fallback MST3K quote sent: {}", quote_text);
-    }
+// Helper function for when MST3K database query fails - now just logs the issue
+pub async fn fallback_mst3k_quote(_ctx: &Context, _msg: &Message) -> Result<()> {
+    // Log the issue but don't send any message to the channel
+    error!("MST3K quote database query failed - no fallback message sent");
+    info!("Suppressing fallback MST3K quote as configured");
     
     Ok(())
 }
