@@ -110,7 +110,8 @@ Guidelines:
 5. Make it interesting and educational
 6. If possible, relate it to the conversation topic, but don't force it
 7. If you can't find a relevant fact based on the conversation, share a general interesting fact about technology, science, history, or nature
-8. If you can't think of a relevant fact, respond with "pass"
+8. If you can't think of a relevant fact, respond with ONLY the word "pass" - nothing else
+9. If you include a reference to MST3K, it should be a direct quote that fits naturally in context (like "Watch out for snakes!"), not a forced reference (like "Even Tom Servo would find that interesting!")
 
 Example good response: "Fun fact: The average cloud weighs around 1.1 million pounds due to the weight of water droplets."
 
@@ -123,8 +124,8 @@ Be concise and factual."#)
     // Call Gemini API with the fact prompt
     match gemini_client.generate_response_with_context(&fact_prompt, "", &Vec::new(), None).await {
         Ok(response) => {
-            // Check if the response is "pass" - if so, don't send anything
-            if response.trim().to_lowercase() == "pass" {
+            // Check if the response starts with "pass" (case-insensitive) - if so, don't send anything
+            if response.trim().to_lowercase().starts_with("pass") {
                 info!("Fact interjection evaluation: decided to PASS - no response sent");
                 return Ok(());
             }

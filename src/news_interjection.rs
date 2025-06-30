@@ -65,7 +65,8 @@ Guidelines:
 7. If possible, relate it to the conversation, but don't force it
 8. Don't use phrases like "Check out this article" or "You might find this interesting"
 9. NEVER include tags like "(via search)", "(via Google)", or any other source attribution
-10. If you can't think of a relevant article, respond with "pass"
+10. If you can't think of a relevant article, respond with ONLY the word "pass" - nothing else
+11. If you include a reference to MST3K, it should be a direct quote that fits naturally in context (like "Watch out for snakes!"), not a forced reference (like "Even Tom Servo would find this interesting!")
 
 Example good response: "AI Creates Perfect Pizza Recipe Through Taste Simulation: https://techcrunch.com/2025/06/ai-taste-simulation-pizza This shows how AI sensory processing is advancing beyond visual and audio into taste simulation."
 
@@ -78,8 +79,8 @@ Be creative but realistic with your article title and URL."#)
     // Call Gemini API with the news prompt
     match gemini_client.generate_response_with_context(&news_prompt, "", &Vec::new(), None).await {
         Ok(response) => {
-            // Check if the response is "pass" - if so, don't send anything
-            if response.trim().to_lowercase() == "pass" {
+            // Check if the response starts with "pass" (case-insensitive) - if so, don't send anything
+            if response.trim().to_lowercase().starts_with("pass") {
                 info!("News interjection evaluation: decided to PASS - no response sent");
                 return Ok(());
             }

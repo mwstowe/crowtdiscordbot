@@ -1661,7 +1661,8 @@ Requirements:
 - Sound natural and conversational
 - Don't use phrases like "I wonder" or "I was thinking"
 - Don't introduce yourself or explain your reasoning
-- If you have nothing valuable to add, just respond with "pass"
+- If you have nothing valuable to add, just respond with ONLY the word "pass" - nothing else
+- If you include a reference to MST3K, it should be a direct quote that fits naturally in context (like "Watch out for snakes!"), not a forced reference (like "Even Tom Servo would find that interesting!")
 
 Example good responses:
 "That's an interesting perspective."
@@ -1681,8 +1682,8 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                 // Call Gemini API
                 match gemini_client.generate_content(&pondering_prompt).await {
                     Ok(response) => {
-                        // Check if the response is "pass" - if so, don't send anything
-                        if response.trim().to_lowercase() == "pass" {
+                        // Check if the response starts with "pass" (case-insensitive) - if so, don't send anything
+                        if response.trim().to_lowercase().starts_with("pass") {
                             info!("Pondering interjection evaluation: decided to PASS - no response sent");
                             return Ok(());
                         }
@@ -1838,8 +1839,8 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                     // Call Gemini API with the custom prompt - use bot name as user name
                     match gemini_client.generate_response_with_context(&prompt, &self.bot_name, &Vec::new(), None).await {
                         Ok(response) => {
-                            // Check if the response is "pass" - if so, don't send anything
-                            if response.trim().to_lowercase() == "pass" {
+                            // Check if the response starts with "pass" (case-insensitive) - if so, don't send anything
+                            if response.trim().to_lowercase().starts_with("pass") {
                                 info!("AI interjection evaluation: decided to PASS - no response sent");
                                 return Ok(());
                             }
@@ -2921,7 +2922,8 @@ Requirements:
 - Don't introduce yourself or explain your reasoning
 - Don't use phrases like "I noticed" or "I see that"
 - Don't reference this prompt or your role
-- If you have nothing valuable to add, just respond with "pass"
+- If you have nothing valuable to add, just respond with ONLY the word "pass" - nothing else
+- If you include a reference to MST3K, it should be a direct quote that fits naturally in context (like "Watch out for snakes!"), not a forced reference (like "Even Tom Servo would find that interesting!")
 
 Example good response: "The error message suggests a permissions issue with the file system."
 Example bad response: "I noticed you're having trouble with file permissions. As a helpful bot, I can tell you that..."
