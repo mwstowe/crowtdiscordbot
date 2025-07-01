@@ -8,6 +8,7 @@ use std::sync::Arc;
 use tokio_rusqlite::Connection;
 use serenity::model::id::ChannelId;
 use serenity::http::Http;
+use regex::Regex;
 
 // Handle fact interjection with Message object
 pub async fn handle_fact_interjection(
@@ -73,6 +74,33 @@ pub async fn handle_spontaneous_fact_interjection(
     ).await
 }
 
+// Function to validate if a fact has a proper citation
+fn has_valid_citation(fact: &str) -> bool {
+    // Check for common citation patterns
+    let citation_patterns = [
+        // Source attribution at the end
+        Regex::new(r"(?i)\b(?:according to|source:?|from|cited (?:in|by)|as reported (?:in|by))\s+[A-Z][^\.\?!]+").unwrap(),
+        // Year in parentheses, typical of academic citations
+        Regex::new(r"\([12][0-9]{3}\)").unwrap(),
+        // URL or domain reference
+        Regex::new(r"(?i)(?:https?://)?(?:www\.)?[a-z0-9][-a-z0-9]*\.[a-z0-9][-a-z0-9]*\.[a-z]{2,}(?:/[^\s]*)?").unwrap(),
+        Regex::new(r"(?i)(?:https?://)?(?:www\.)?[a-z0-9][-a-z0-9]*\.[a-z]{2,}(?:/[^\s]*)?").unwrap(),
+        // Organization or publication names
+        Regex::new(r"(?i)\b(?:NASA|WHO|CDC|NIH|NOAA|EPA|BBC|CNN|National Geographic|Scientific American|Nature|Science|Journal of|University of|MIT|Harvard|Oxford|Cambridge|Stanford)\b").unwrap(),
+        // Research paper citation patterns
+        Regex::new(r"(?i)\b(?:et al\.|et al)\b").unwrap(),
+    ];
+    
+    // Check if any citation pattern matches
+    for pattern in &citation_patterns {
+        if pattern.is_match(fact) {
+            return true;
+        }
+    }
+    
+    false
+}
+
 // Common implementation for both regular and spontaneous fact interjections
 async fn handle_fact_interjection_common(
     http: &Http,
@@ -110,14 +138,15 @@ Guidelines:
 5. Make it interesting and educational
 6. If possible, relate it to the conversation topic, but don't force it
 7. If you can't find a relevant fact based on the conversation, share a general interesting fact about technology, science, history, or nature
-8. If you can't think of a relevant fact, respond with ONLY the word "pass" - nothing else
-9. If you include a reference to MST3K, it should be a direct quote that fits naturally in context (like "Watch out for snakes!"), not a forced reference (like "Even Tom Servo would find that interesting!")
+8. ALWAYS include a citation or source for your fact (e.g., "According to NASA...", "Source: National Geographic", etc.)
+9. If you can't provide a verifiable citation for your fact, respond with ONLY the word "pass" - nothing else
+10. If you include a reference to MST3K, it should be a direct quote that fits naturally in context (like "Watch out for snakes!"), not a forced reference (like "Even Tom Servo would find that interesting!")
 
-Example good response: "Fun fact: The average cloud weighs around 1.1 million pounds due to the weight of water droplets."
+Example good response: "Fun fact: The average cloud weighs around 1.1 million pounds due to the weight of water droplets. (Source: USGS)"
 
 Example bad response: "I noticed you were talking about weather. Here's an interesting fact: clouds are actually quite heavy! The average cloud weighs around 1.1 million pounds due to the weight of water droplets. Isn't that fascinating?"
 
-Be concise and factual."#)
+Be concise and factual, and always include a citation."#)
         .replace("{bot_name}", bot_name)
         .replace("{context}", &context_text);
     
@@ -136,6 +165,12 @@ Be concise and factual."#)
                response.contains("Guidelines:") ||
                response.contains("Example good response:") {
                 error!("Fact interjection error: API returned the prompt instead of a response");
+                return Ok(());
+            }
+            
+            // Verify that the fact has a valid citation
+            if !has_valid_citation(&response) {
+                info!("Fact interjection rejected: No valid citation found in: {}", response);
                 return Ok(());
             }
             
