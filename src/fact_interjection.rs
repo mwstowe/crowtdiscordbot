@@ -76,29 +76,151 @@ pub async fn handle_spontaneous_fact_interjection(
 
 // Function to validate if a fact has a proper citation
 fn has_valid_citation(fact: &str) -> bool {
-    // Check for common citation patterns
-    let citation_patterns = [
-        // Source attribution at the end
-        Regex::new(r"(?i)\b(?:according to|source:?|from|cited (?:in|by)|as reported (?:in|by))\s+[A-Z][^\.\?!]+").unwrap(),
-        // Year in parentheses, typical of academic citations
-        Regex::new(r"\([12][0-9]{3}\)").unwrap(),
-        // URL or domain reference
-        Regex::new(r"(?i)(?:https?://)?(?:www\.)?[a-z0-9][-a-z0-9]*\.[a-z0-9][-a-z0-9]*\.[a-z]{2,}(?:/[^\s]*)?").unwrap(),
-        Regex::new(r"(?i)(?:https?://)?(?:www\.)?[a-z0-9][-a-z0-9]*\.[a-z]{2,}(?:/[^\s]*)?").unwrap(),
-        // Organization or publication names
-        Regex::new(r"(?i)\b(?:NASA|WHO|CDC|NIH|NOAA|EPA|BBC|CNN|National Geographic|Scientific American|Nature|Science|Journal of|University of|MIT|Harvard|Oxford|Cambridge|Stanford)\b").unwrap(),
-        // Research paper citation patterns
-        Regex::new(r"(?i)\b(?:et al\.|et al)\b").unwrap(),
+    // List of known reputable sources
+    let reputable_sources = [
+        // Scientific organizations
+        "nasa", "who", "cdc", "nih", "noaa", "epa", "usgs", "fda", "nsf", "doe", "esa", "cern",
+        // Academic institutions
+        "university", "harvard", "stanford", "mit", "oxford", "cambridge", "yale", "princeton", "caltech", "berkeley",
+        // Scientific journals
+        "nature", "science", "cell", "lancet", "nejm", "pnas", "jama", "bmj", "plos", "journal of",
+        // News organizations
+        "bbc", "reuters", "associated press", "ap ", "npr", "pbs", "smithsonian", "national geographic",
+        // Technology publications
+        "wired", "ars technica", "ieee", "acm", "mit technology review",
+        // Museums and educational institutions
+        "museum", "institute", "foundation", "society", "association",
+        // Government agencies
+        "gov", "department of", "bureau of", "administration", "agency",
     ];
     
-    // Check if any citation pattern matches
+    // Check for citation patterns
+    let citation_patterns = [
+        // Source attribution with reputable source
+        Regex::new(r"(?i)\b(?:according to|source:?|from|cited (?:in|by)|as reported (?:in|by))\s+([^\.]+)").unwrap(),
+        // Year in parentheses with author, typical of academic citations
+        Regex::new(r"(?i)(?:[A-Z][a-z]+ (?:et al\.|and [A-Z][a-z]+))? \([12][0-9]{3}\)").unwrap(),
+        // URL reference to reputable domain
+        Regex::new(r"(?i)(?:https?://)?(?:www\.)?([a-z0-9][-a-z0-9]*\.[a-z]{2,})(?:/[^\s]*)?").unwrap(),
+        // Publication with date
+        Regex::new(r"(?i)(?:published|reported|released) (?:in|by) ([^,\.]+) in [12][0-9]{3}").unwrap(),
+        // Research study reference
+        Regex::new(r"(?i)(?:a|the) (?:study|research|survey|analysis) (?:by|from|conducted by) ([^\.]+)").unwrap(),
+    ];
+    
+    // Check if any citation pattern matches and contains a reputable source
     for pattern in &citation_patterns {
-        if pattern.is_match(fact) {
-            return true;
+        if let Some(captures) = pattern.captures(fact) {
+            if captures.len() > 1 {
+                if let Some(source_match) = captures.get(1) {
+                    let source_text = source_match.as_str().to_lowercase();
+                    // Check if the source contains any reputable source keywords
+                    for reputable in &reputable_sources {
+                        if source_text.contains(reputable) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Special case for direct mentions of reputable sources without formal citation structure
+    for source in &reputable_sources {
+        let source_pattern = format!(r"(?i)\b{}\b", source);
+        if let Ok(regex) = Regex::new(&source_pattern) {
+            if regex.is_match(fact) {
+                // Check if it's likely a citation and not just a mention
+                // Look for patterns that suggest it's being used as a source
+                let citation_indicators = [
+                    "found", "discovered", "reported", "stated", "says", "said", "published", 
+                    "research", "study", "survey", "analysis", "data", "statistics", "according",
+                    "suggests", "indicates", "shows", "reveals", "confirms", "estimates"
+                ];
+                
+                for indicator in &citation_indicators {
+                    let indicator_pattern = format!(r"(?i)\b{}\b", indicator);
+                    if let Ok(indicator_regex) = Regex::new(&indicator_pattern) {
+                        if indicator_regex.is_match(fact) {
+                            return true;
+                        }
+                    }
+                }
+            }
         }
     }
     
     false
+}
+
+// Function to extract the citation from a fact
+fn extract_citation(fact: &str) -> Option<String> {
+    // Common patterns for citation extraction
+    let citation_patterns = [
+        // Source attribution at the end
+        Regex::new(r"(?i)(?:according to|source:?|from|cited (?:in|by)|as reported (?:in|by))\s+([^\.\?!]+)").unwrap(),
+        // Parenthetical citation
+        Regex::new(r"\(([^)]+)\)").unwrap(),
+        // URL citation
+        Regex::new(r"(?i)(?:https?://)?(?:www\.)?[a-z0-9][-a-z0-9]*\.[a-z0-9][-a-z0-9]*\.[a-z]{2,}(?:/[^\s]*)?").unwrap(),
+        Regex::new(r"(?i)(?:https?://)?(?:www\.)?[a-z0-9][-a-z0-9]*\.[a-z]{2,}(?:/[^\s]*)?").unwrap(),
+    ];
+    
+    // Try to extract citation using patterns
+    for pattern in &citation_patterns {
+        if let Some(captures) = pattern.captures(fact) {
+            if captures.len() > 0 {
+                if let Some(citation_match) = captures.get(1).or_else(|| captures.get(0)) {
+                    return Some(citation_match.as_str().trim().to_string());
+                }
+            }
+        }
+    }
+    
+    None
+}
+
+// Function to validate a citation with a second API call
+async fn validate_citation_with_ai(
+    gemini_client: &GeminiClient,
+    fact: &str,
+    citation: &str,
+) -> bool {
+    // Create a prompt to validate the citation
+    let validation_prompt = format!(
+        r#"You are a fact-checking assistant. Please evaluate if the following citation appears to be legitimate and appropriate for the fact it supports.
+
+Fact with citation: "{}"
+
+Extracted citation: "{}"
+
+Please analyze:
+1. Is this a real, legitimate source (e.g., reputable publication, academic institution, government agency)?
+2. Is the citation specific enough to be credible (not just a vague reference)?
+3. Is the citation appropriate and relevant for the stated fact?
+
+Respond with ONLY "VALID" if the citation meets all criteria, or "INVALID" if it fails any criterion. Do not include any explanation."#,
+        fact, citation
+    );
+    
+    // Call Gemini API to validate the citation
+    match gemini_client.generate_response_with_context(&validation_prompt, "", &Vec::new(), None).await {
+        Ok(response) => {
+            let trimmed_response = response.trim().to_uppercase();
+            if trimmed_response == "VALID" {
+                info!("Citation validation: VALID - {}", citation);
+                true
+            } else {
+                info!("Citation validation: INVALID - {}", citation);
+                false
+            }
+        },
+        Err(e) => {
+            error!("Error validating citation: {:?}", e);
+            // Default to accepting the citation if validation fails
+            true
+        }
+    }
 }
 
 // Common implementation for both regular and spontaneous fact interjections
@@ -138,15 +260,16 @@ Guidelines:
 5. Make it interesting and educational
 6. If possible, relate it to the conversation topic, but don't force it
 7. If you can't find a relevant fact based on the conversation, share a general interesting fact about technology, science, history, or nature
-8. ALWAYS include a citation or source for your fact (e.g., "According to NASA...", "Source: National Geographic", etc.)
-9. If you can't provide a verifiable citation for your fact, respond with ONLY the word "pass" - nothing else
-10. If you include a reference to MST3K, it should be a direct quote that fits naturally in context (like "Watch out for snakes!"), not a forced reference (like "Even Tom Servo would find that interesting!")
+8. ALWAYS include a specific, verifiable citation or source for your fact (e.g., "According to NASA's 2023 report...", "Source: National Geographic (2022)", etc.)
+9. The citation MUST be from a reputable source (scientific organization, academic institution, respected publication)
+10. If you can't provide a verifiable citation from a reputable source for your fact, respond with ONLY the word "pass" - nothing else
+11. If you include a reference to MST3K, it should be a direct quote that fits naturally in context (like "Watch out for snakes!"), not a forced reference (like "Even Tom Servo would find that interesting!")
 
-Example good response: "Fun fact: The average cloud weighs around 1.1 million pounds due to the weight of water droplets. (Source: USGS)"
+Example good response: "Fun fact: The average cloud weighs around 1.1 million pounds due to the weight of water droplets. (Source: USGS Water Science School, 2019)"
 
 Example bad response: "I noticed you were talking about weather. Here's an interesting fact: clouds are actually quite heavy! The average cloud weighs around 1.1 million pounds due to the weight of water droplets. Isn't that fascinating?"
 
-Be concise and factual, and always include a citation."#)
+Be concise and factual, and always include a specific, verifiable citation from a reputable source."#)
         .replace("{bot_name}", bot_name)
         .replace("{context}", &context_text);
     
@@ -168,10 +291,19 @@ Be concise and factual, and always include a citation."#)
                 return Ok(());
             }
             
-            // Verify that the fact has a valid citation
+            // First check if the fact has a citation pattern
             if !has_valid_citation(&response) {
                 info!("Fact interjection rejected: No valid citation found in: {}", response);
                 return Ok(());
+            }
+            
+            // Extract the citation for validation
+            if let Some(citation) = extract_citation(&response) {
+                // Validate the citation with a second API call
+                if !validate_citation_with_ai(gemini_client, &response, &citation).await {
+                    info!("Fact interjection rejected: Citation validation failed for: {}", citation);
+                    return Ok(());
+                }
             }
             
             // Start typing indicator
