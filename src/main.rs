@@ -3477,14 +3477,18 @@ Be creative but realistic with your article title and URL."#)
                                                         } else {
                                                             // Validate that the URL actually exists
                                                             match news_interjection::validate_url_exists(url_str).await {
-                                                                Ok(true) => {
-                                                                    // URL exists, return the cleaned response
-                                                                    info!("URL validation successful: {} exists", url_str);
-                                                                    cleaned_response.trim().to_string()
+                                                                Ok((true, Some(final_url))) => {
+                                                                    // URL exists, return the cleaned response with the final URL
+                                                                    info!("URL validation successful: {} exists", final_url);
+                                                                    if url_str != final_url {
+                                                                        cleaned_response.replace(url_str, &final_url).trim().to_string()
+                                                                    } else {
+                                                                        cleaned_response.trim().to_string()
+                                                                    }
                                                                 },
-                                                                Ok(false) => {
-                                                                    // URL doesn't exist
-                                                                    info!("News interjection skipped: URL doesn't exist: {}", url_str);
+                                                                Ok(_) => {
+                                                                    // URL doesn't exist or isn't HTML
+                                                                    info!("News interjection skipped: URL doesn't exist or isn't HTML: {}", url_str);
                                                                     String::new()
                                                                 },
                                                                 Err(e) => {

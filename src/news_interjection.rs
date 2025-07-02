@@ -11,6 +11,41 @@ use regex::Regex;
 use url::Url;
 use reqwest;
 use std::time::Duration;
+use std::collections::HashSet;
+
+// List of trusted news domains
+fn get_trusted_domains() -> HashSet<&'static str> {
+    let domains = [
+        // Tech news
+        "techcrunch.com", "arstechnica.com", "wired.com", "theverge.com", "engadget.com",
+        "cnet.com", "zdnet.com", "venturebeat.com", "thenextweb.com", "gizmodo.com",
+        "mashable.com", "slashdot.org", "tomshardware.com", "anandtech.com", "macrumors.com",
+        "9to5mac.com", "9to5google.com", "androidpolice.com", "xda-developers.com",
+        
+        // Science news
+        "scientificamerican.com", "sciencedaily.com", "livescience.com", "popsci.com",
+        "newscientist.com", "sciencemag.org", "nature.com", "space.com", "phys.org",
+        
+        // General news
+        "reuters.com", "apnews.com", "bbc.com", "bbc.co.uk", "npr.org", "washingtonpost.com",
+        "nytimes.com", "theguardian.com", "economist.com", "bloomberg.com", "cnbc.com",
+        "wsj.com", "ft.com", "time.com", "theatlantic.com", "vox.com", "slate.com",
+        
+        // Weird news
+        "boingboing.net", "digg.com", "mentalfloss.com", "atlasobscura.com", "odditycentral.com",
+        "neatorama.com", "unusualplaces.org", "oddee.com", "weirdnews.com", "theawesomer.com",
+        
+        // Government and educational
+        "nasa.gov", "nih.gov", "cdc.gov", "noaa.gov", "epa.gov", "energy.gov", "nsf.gov",
+        "edu", "ac.uk", "mit.edu", "harvard.edu", "stanford.edu", "berkeley.edu", "caltech.edu",
+        
+        // Major platforms with news content
+        "medium.com", "substack.com", "github.blog", "stackoverflow.blog", "youtube.com",
+        "reddit.com", "wikipedia.org", "wikimedia.org"
+    ];
+    
+    domains.iter().copied().collect()
+}
 
 // Handle news interjection
 pub async fn handle_news_interjection(
@@ -56,23 +91,24 @@ pub async fn handle_news_interjection(
 {context}
 
 Guidelines:
-1. Create a fictional but plausible news article link about technology or weird news (NO sports)
+1. Share a link to a real, existing news article about technology or weird news (NO sports)
 2. Format as: "Article title: https://example.com/article-path"
 3. The URL must be specific and detailed (e.g., https://arstechnica.com/tech-policy/2025/06/new-ai-regulations-impact-open-source/)
 4. Never use generic URLs like https://arstechnica.com/ or https://techcrunch.com/
 5. Always include year, month, and a descriptive path in the URL
-6. Then add a brief comment (1-2 sentences) on why it's interesting or relevant to the conversation
-7. If possible, relate it to the conversation, but don't force it
-8. Don't use phrases like "Check out this article" or "You might find this interesting"
-9. NEVER include tags like "(via search)", "(via Google)", or any other source attribution
-10. If you can't think of a relevant article, respond with ONLY the word "pass" - nothing else
-11. If you include a reference to MST3K, it should be a direct quote that fits naturally in context (like "Watch out for snakes!"), not a forced reference (like "Even Tom Servo would find this interesting!")
+6. Only use reputable news sources like: techcrunch.com, arstechnica.com, wired.com, theverge.com, bbc.com, reuters.com, etc.
+7. Then add a brief comment (1-2 sentences) on why it's interesting or relevant to the conversation
+8. If possible, relate it to the conversation, but don't force it
+9. Don't use phrases like "Check out this article" or "You might find this interesting"
+10. NEVER include tags like "(via search)", "(via Google)", or any other source attribution
+11. If you can't think of a relevant article, respond with ONLY the word "pass" - nothing else
+12. If you include a reference to MST3K, it should be a direct quote that fits naturally in context (like "Watch out for snakes!"), not a forced reference (like "Even Tom Servo would find this interesting!")
 
 Example good response: "AI Creates Perfect Pizza Recipe Through Taste Simulation: https://techcrunch.com/2025/06/ai-taste-simulation-pizza This shows how AI sensory processing is advancing beyond visual and audio into taste simulation."
 
 Example bad response: "Check out this interesting article about AI and food: https://techcrunch.com/ai-food-article (via search) I thought you might find this interesting given our conversation about technology."
 
-Be creative but realistic with your article title and URL."#)
+Be creative but realistic with your article title and URL, and ensure you're using a reputable news source."#)
         .replace("{bot_name}", bot_name)
         .replace("{context}", &context_text);
     
@@ -108,11 +144,18 @@ Be creative but realistic with your article title and URL."#)
             if let Some(url_match) = url_regex.find(&cleaned_response) {
                 let url_str = url_match.as_str();
                 
-                // Validate that the URL actually exists
+                // Validate that the URL actually exists and follow redirects
                 match validate_url_exists(url_str).await {
-                    Ok(true) => {
+                    Ok((true, Some(final_url))) => {
                         // URL exists, proceed with sending the message
-                        info!("URL validation successful: {} exists", url_str);
+                        info!("URL validation successful: {} exists", final_url);
+                        
+                        // Replace the original URL with the final URL if they're different
+                        let final_response = if url_str != final_url {
+                            cleaned_response.replace(url_str, &final_url)
+                        } else {
+                            cleaned_response
+                        };
                         
                         // Start typing indicator now that we've decided to send a message
                         if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
@@ -120,19 +163,23 @@ Be creative but realistic with your article title and URL."#)
                         }
                         
                         // Apply realistic typing delay
-                        apply_realistic_delay(&cleaned_response, ctx, msg.channel_id).await;
+                        apply_realistic_delay(&final_response, ctx, msg.channel_id).await;
                         
                         // Send the response
-                        let response_text = cleaned_response.clone(); // Clone for logging
-                        if let Err(e) = msg.channel_id.say(&ctx.http, cleaned_response).await {
+                        let response_text = final_response.clone(); // Clone for logging
+                        if let Err(e) = msg.channel_id.say(&ctx.http, final_response).await {
                             error!("Error sending news interjection: {:?}", e);
                         } else {
                             info!("News interjection evaluation: SENT response - {}", response_text);
                         }
                     },
-                    Ok(false) => {
-                        // URL doesn't exist
-                        info!("News interjection skipped: URL doesn't exist: {}", url_str);
+                    Ok((true, None)) => {
+                        // URL exists but we couldn't get the final URL
+                        info!("News interjection skipped: URL exists but couldn't get final URL: {}", url_str);
+                    },
+                    Ok((false, _)) => {
+                        // URL doesn't exist or isn't HTML
+                        info!("News interjection skipped: URL doesn't exist or isn't HTML: {}", url_str);
                     },
                     Err(e) => {
                         // Error validating URL
@@ -182,6 +229,31 @@ fn clean_news_response(response: &str) -> String {
                 return String::new();
             }
             
+            // Check if the domain is in our trusted list
+            let host = url.host_str().unwrap_or("");
+            let trusted_domains = get_trusted_domains();
+            let domain_parts: Vec<&str> = host.split('.').collect();
+            
+            // Check if the domain or any parent domain is trusted
+            let mut is_trusted = false;
+            if domain_parts.len() >= 2 {
+                let base_domain = format!("{}.{}", domain_parts[domain_parts.len() - 2], domain_parts[domain_parts.len() - 1]);
+                is_trusted = trusted_domains.contains(base_domain.as_str());
+                
+                // Also check for subdomains of trusted domains
+                for trusted in trusted_domains.iter() {
+                    if host.ends_with(trusted) {
+                        is_trusted = true;
+                        break;
+                    }
+                }
+            }
+            
+            if !is_trusted {
+                info!("News interjection URL validation failed: Domain not in trusted list: {}", host);
+                return String::new();
+            }
+            
             // Remove any "(via search)" or similar tags using regex for more flexibility
             let via_regex = Regex::new(r"\s*\(via\s+[^)]+\)\s*").unwrap();
             let cleaned_response = via_regex.replace_all(response, "").to_string();
@@ -199,57 +271,53 @@ fn clean_news_response(response: &str) -> String {
     }
 }
 
-// Function to validate if a URL actually exists by making a HEAD request
-pub async fn validate_url_exists(url: &str) -> Result<bool> {
+// Function to validate if a URL actually exists, follow redirects, and check content type
+pub async fn validate_url_exists(url: &str) -> Result<(bool, Option<String>)> {
     info!("Validating URL exists: {}", url);
     
-    // Create a client with a short timeout
+    // Create a client with a short timeout that follows redirects
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(10))
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36")
         .build()?;
     
-    // Try a HEAD request first (faster)
-    match client.head(url).send().await {
+    // Try a GET request to follow redirects and check content type
+    match client.get(url).send().await {
         Ok(response) => {
             let status = response.status();
-            if status.is_success() || status.is_redirection() {
-                info!("URL validation successful (HEAD): {} - Status: {}", url, status);
-                return Ok(true);
-            } else if status.as_u16() == 405 {
-                // Some servers don't support HEAD, try GET
-                match client.get(url).send().await {
-                    Ok(get_response) => {
-                        let get_status = get_response.status();
-                        info!("URL validation with GET: {} - Status: {}", url, get_status);
-                        return Ok(get_status.is_success() || get_status.is_redirection());
-                    },
-                    Err(e) => {
-                        info!("URL validation failed (GET): {} - Error: {}", url, e);
-                        return Ok(false);
-                    }
-                }
+            let final_url = response.url().to_string();
+            
+            // Check if we were redirected
+            let was_redirected = url != final_url;
+            if was_redirected {
+                info!("URL was redirected: {} -> {}", url, final_url);
+            }
+            
+            // Check content type
+            let content_type = response.headers()
+                .get(reqwest::header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("");
+            
+            let is_html = content_type.contains("text/html") || 
+                          content_type.contains("application/xhtml+xml");
+            
+            if !is_html {
+                info!("URL validation failed: Content type is not HTML: {}", content_type);
+                return Ok((false, None));
+            }
+            
+            if status.is_success() {
+                info!("URL validation successful: {} - Status: {}", final_url, status);
+                return Ok((true, Some(final_url)));
             } else {
-                info!("URL validation failed (HEAD): {} - Status: {}", url, status);
-                return Ok(false);
+                info!("URL validation failed: {} - Status: {}", final_url, status);
+                return Ok((false, None));
             }
         },
         Err(e) => {
-            // If there's a timeout or connection error, the URL likely doesn't exist
-            info!("URL validation failed (HEAD): {} - Error: {}", url, e);
-            
-            // Try GET as a fallback
-            match client.get(url).send().await {
-                Ok(get_response) => {
-                    let get_status = get_response.status();
-                    info!("URL validation with GET: {} - Status: {}", url, get_status);
-                    return Ok(get_status.is_success() || get_status.is_redirection());
-                },
-                Err(e) => {
-                    info!("URL validation failed (GET): {} - Error: {}", url, e);
-                    return Ok(false);
-                }
-            }
+            info!("URL validation failed: {} - Error: {}", url, e);
+            return Ok((false, None));
         }
     }
 }
