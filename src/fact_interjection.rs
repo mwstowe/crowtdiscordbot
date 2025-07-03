@@ -9,6 +9,7 @@ use tokio_rusqlite::Connection;
 use serenity::model::id::ChannelId;
 use serenity::http::Http;
 use regex::Regex;
+use crate::news_interjection;
 
 // Handle fact interjection with Message object
 pub async fn handle_fact_interjection(
@@ -74,152 +75,55 @@ pub async fn handle_spontaneous_fact_interjection(
     ).await
 }
 
-// Function to validate if a fact has a proper citation
+// Function to validate if a fact has a proper citation with a URL
 fn has_valid_citation(fact: &str) -> bool {
-    // List of known reputable sources
-    let reputable_sources = [
-        // Scientific organizations
-        "nasa", "who", "cdc", "nih", "noaa", "epa", "usgs", "fda", "nsf", "doe", "esa", "cern",
-        // Academic institutions
-        "university", "harvard", "stanford", "mit", "oxford", "cambridge", "yale", "princeton", "caltech", "berkeley",
-        // Scientific journals
-        "nature", "science", "cell", "lancet", "nejm", "pnas", "jama", "bmj", "plos", "journal of",
-        // News organizations
-        "bbc", "reuters", "associated press", "ap ", "npr", "pbs", "smithsonian", "national geographic",
-        // Technology publications
-        "wired", "ars technica", "ieee", "acm", "mit technology review",
-        // Museums and educational institutions
-        "museum", "institute", "foundation", "society", "association",
-        // Government agencies
-        "gov", "department of", "bureau of", "administration", "agency",
-    ];
+    // URL regex pattern
+    let url_regex = Regex::new(r"https?://[^\s]+").unwrap();
     
-    // Check for citation patterns
-    let citation_patterns = [
-        // Source attribution with reputable source
-        Regex::new(r"(?i)\b(?:according to|source:?|from|cited (?:in|by)|as reported (?:in|by))\s+([^\.]+)").unwrap(),
-        // Year in parentheses with author, typical of academic citations
-        Regex::new(r"(?i)(?:[A-Z][a-z]+ (?:et al\.|and [A-Z][a-z]+))? \([12][0-9]{3}\)").unwrap(),
-        // URL reference to reputable domain
-        Regex::new(r"(?i)(?:https?://)?(?:www\.)?([a-z0-9][-a-z0-9]*\.[a-z]{2,})(?:/[^\s]*)?").unwrap(),
-        // Publication with date
-        Regex::new(r"(?i)(?:published|reported|released) (?:in|by) ([^,\.]+) in [12][0-9]{3}").unwrap(),
-        // Research study reference
-        Regex::new(r"(?i)(?:a|the) (?:study|research|survey|analysis) (?:by|from|conducted by) ([^\.]+)").unwrap(),
-    ];
-    
-    // Check if any citation pattern matches and contains a reputable source
-    for pattern in &citation_patterns {
-        if let Some(captures) = pattern.captures(fact) {
-            if captures.len() > 1 {
-                if let Some(source_match) = captures.get(1) {
-                    let source_text = source_match.as_str().to_lowercase();
-                    // Check if the source contains any reputable source keywords
-                    for reputable in &reputable_sources {
-                        if source_text.contains(reputable) {
-                            return true;
-                        }
-                    }
-                }
-            }
-        }
+    // Check if the fact contains a URL
+    if url_regex.is_match(fact) {
+        return true;
     }
     
-    // Special case for direct mentions of reputable sources without formal citation structure
-    for source in &reputable_sources {
-        let source_pattern = format!(r"(?i)\b{}\b", source);
-        if let Ok(regex) = Regex::new(&source_pattern) {
-            if regex.is_match(fact) {
-                // Check if it's likely a citation and not just a mention
-                // Look for patterns that suggest it's being used as a source
-                let citation_indicators = [
-                    "found", "discovered", "reported", "stated", "says", "said", "published", 
-                    "research", "study", "survey", "analysis", "data", "statistics", "according",
-                    "suggests", "indicates", "shows", "reveals", "confirms", "estimates"
-                ];
-                
-                for indicator in &citation_indicators {
-                    let indicator_pattern = format!(r"(?i)\b{}\b", indicator);
-                    if let Ok(indicator_regex) = Regex::new(&indicator_pattern) {
-                        if indicator_regex.is_match(fact) {
-                            return true;
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
+    // No URL found
     false
 }
 
-// Function to extract the citation from a fact
+// Function to extract the URL citation from a fact
 fn extract_citation(fact: &str) -> Option<String> {
-    // Common patterns for citation extraction
-    let citation_patterns = [
-        // Source attribution at the end
-        Regex::new(r"(?i)(?:according to|source:?|from|cited (?:in|by)|as reported (?:in|by))\s+([^\.\?!]+)").unwrap(),
-        // Parenthetical citation
-        Regex::new(r"\(([^)]+)\)").unwrap(),
-        // URL citation
-        Regex::new(r"(?i)(?:https?://)?(?:www\.)?[a-z0-9][-a-z0-9]*\.[a-z0-9][-a-z0-9]*\.[a-z]{2,}(?:/[^\s]*)?").unwrap(),
-        Regex::new(r"(?i)(?:https?://)?(?:www\.)?[a-z0-9][-a-z0-9]*\.[a-z]{2,}(?:/[^\s]*)?").unwrap(),
-    ];
+    // URL regex pattern
+    let url_regex = Regex::new(r"https?://[^\s]+").unwrap();
     
-    // Try to extract citation using patterns
-    for pattern in &citation_patterns {
-        if let Some(captures) = pattern.captures(fact) {
-            if captures.len() > 0 {
-                if let Some(citation_match) = captures.get(1).or_else(|| captures.get(0)) {
-                    return Some(citation_match.as_str().trim().to_string());
-                }
-            }
-        }
+    // Find the URL in the fact
+    if let Some(url_match) = url_regex.find(fact) {
+        return Some(url_match.as_str().trim().to_string());
     }
     
     None
 }
 
-// Function to validate a citation with a second API call
+// Function to validate a citation URL
 async fn validate_citation_with_ai(
-    gemini_client: &GeminiClient,
-    fact: &str,
+    _gemini_client: &GeminiClient,
+    _fact: &str,
     citation: &str,
 ) -> bool {
-    // Create a prompt to validate the citation
-    let validation_prompt = format!(
-        r#"You are a fact-checking assistant. Please evaluate if the following citation appears to be legitimate and appropriate for the fact it supports.
-
-Fact with citation: "{}"
-
-Extracted citation: "{}"
-
-Please analyze:
-1. Is this a real, legitimate source (e.g., reputable publication, academic institution, government agency)?
-2. Is the citation specific enough to be credible (not just a vague reference)?
-3. Is the citation appropriate and relevant for the stated fact?
-
-Respond with ONLY the single word "VALID" (no punctuation) if the citation meets all criteria, or "INVALID" if it fails any criterion. Do not include any explanation or additional text."#,
-        fact, citation
-    );
-    
-    // Call Gemini API to validate the citation
-    match gemini_client.generate_response_with_context(&validation_prompt, "", &Vec::new(), None).await {
-        Ok(response) => {
-            let trimmed_response = response.trim().to_uppercase();
-            // Remove any punctuation and check if it starts with VALID
-            let cleaned_response = trimmed_response.trim_end_matches(|c: char| !c.is_alphanumeric());
-            if cleaned_response == "VALID" || cleaned_response.starts_with("VALID ") {
-                info!("Citation validation: VALID - {}", citation);
-                true
-            } else {
-                info!("Citation validation: INVALID - {}", citation);
-                false
-            }
+    // Validate that the URL actually exists and is accessible
+    match news_interjection::validate_url_exists(citation).await {
+        Ok((true, _)) => {
+            // URL exists and is valid
+            info!("Citation URL validation successful: {}", citation);
+            true
+        },
+        Ok((false, _)) => {
+            // URL doesn't exist or isn't HTML
+            info!("Citation URL validation failed: URL doesn't exist or isn't HTML: {}", citation);
+            false
         },
         Err(e) => {
-            error!("Error validating citation: {:?}", e);
-            // Default to accepting the citation if validation fails
+            // Error validating URL
+            error!("Error validating citation URL {}: {:?}", citation, e);
+            // Default to accepting the citation if validation fails due to technical issues
             true
         }
     }
@@ -262,16 +166,15 @@ Guidelines:
 5. Make it interesting and educational
 6. If possible, relate it to the conversation topic, but don't force it
 7. If you can't find a relevant fact based on the conversation, share a general interesting fact about technology, science, history, or nature
-8. ALWAYS include a specific, verifiable citation or source for your fact (e.g., "According to NASA's 2023 report...", "Source: National Geographic (2022)", etc.)
-9. The citation MUST be from a reputable source (scientific organization, academic institution, respected publication)
-10. If you can't provide a verifiable citation from a reputable source for your fact, respond with ONLY the word "pass" - nothing else
-11. If you include a reference to MST3K, it should be a direct quote that fits naturally in context (like "Watch out for snakes!"), not a forced reference (like "Even Tom Servo would find that interesting!")
+8. ALWAYS include a citation with a valid URL to a reputable source (e.g., "Source: https://www.nasa.gov/feature/goddard/2016/carbon-dioxide-fertilization-greening-earth")
+9. If you can't provide a verifiable citation with a valid URL, respond with ONLY the word "pass" - nothing else
+10. If you include a reference to MST3K, it should be a direct quote that fits naturally in context (like "Watch out for snakes!"), not a forced reference (like "Even Tom Servo would find that interesting!")
 
-Example good response: "Fun fact: The average cloud weighs around 1.1 million pounds due to the weight of water droplets. (Source: USGS Water Science School, 2019)"
+Example good response: "Fun fact: The average cloud weighs around 1.1 million pounds due to the weight of water droplets. Source: https://www.usgs.gov/special-topics/water-science-school/science/water-cycle-clouds"
 
 Example bad response: "I noticed you were talking about weather. Here's an interesting fact: clouds are actually quite heavy! The average cloud weighs around 1.1 million pounds due to the weight of water droplets. Isn't that fascinating?"
 
-Be concise and factual, and always include a specific, verifiable citation from a reputable source."#)
+Be concise and factual, and always include a citation with a valid URL."#)
         .replace("{bot_name}", bot_name)
         .replace("{context}", &context_text);
     
