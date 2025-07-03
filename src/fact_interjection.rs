@@ -199,7 +199,7 @@ Please analyze:
 2. Is the citation specific enough to be credible (not just a vague reference)?
 3. Is the citation appropriate and relevant for the stated fact?
 
-Respond with ONLY "VALID" if the citation meets all criteria, or "INVALID" if it fails any criterion. Do not include any explanation."#,
+Respond with ONLY the single word "VALID" (no punctuation) if the citation meets all criteria, or "INVALID" if it fails any criterion. Do not include any explanation or additional text."#,
         fact, citation
     );
     
@@ -207,7 +207,9 @@ Respond with ONLY "VALID" if the citation meets all criteria, or "INVALID" if it
     match gemini_client.generate_response_with_context(&validation_prompt, "", &Vec::new(), None).await {
         Ok(response) => {
             let trimmed_response = response.trim().to_uppercase();
-            if trimmed_response == "VALID" {
+            // Remove any punctuation and check if it starts with VALID
+            let cleaned_response = trimmed_response.trim_end_matches(|c: char| !c.is_alphanumeric());
+            if cleaned_response == "VALID" || cleaned_response.starts_with("VALID ") {
                 info!("Citation validation: VALID - {}", citation);
                 true
             } else {
