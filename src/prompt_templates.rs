@@ -104,6 +104,7 @@ impl PromptTemplates {
     }
     
     /// Set a personality trait
+    #[allow(dead_code)]
     pub fn set_trait(&mut self, trait_name: &str, trait_value: &str) {
         self.personality_traits.insert(trait_name.to_string(), trait_value.to_string());
     }
@@ -114,6 +115,7 @@ impl PromptTemplates {
     }
     
     /// Set the default personality description
+    #[allow(dead_code)]
     pub fn set_default_personality(&mut self, personality: &str) {
         self.default_personality = personality.to_string();
     }

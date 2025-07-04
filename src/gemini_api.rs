@@ -63,6 +63,7 @@ impl GeminiClient {
     }
     
     // Get a mutable reference to the prompt templates
+    #[allow(dead_code)]
     pub fn prompt_templates_mut(&mut self) -> &mut PromptTemplates {
         &mut self.prompt_templates
     }
