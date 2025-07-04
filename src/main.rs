@@ -1788,7 +1788,7 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                         .replace("{context}", &context_text);
                     
                     // Call Gemini API with the custom prompt - use bot name as user name
-                    match gemini_client.generate_response_with_context(&prompt, &self.bot_name, &Vec::new(), None).await {
+                    match gemini_client.generate_response_with_context(&prompt, &self.bot_name, &context_messages, None).await {
                         Ok(response) => {
                             // Check if the response starts with "pass" (case-insensitive) - if so, don't send anything
                             if response.trim().to_lowercase().starts_with("pass") {
@@ -3451,7 +3451,7 @@ Be creative but realistic with your article title and URL."#)
                                         .replace("{context}", &context_text);
                                     
                                     // Call Gemini API with the news prompt
-                                    match gemini_client.generate_response_with_context(&news_prompt, "", &Vec::new(), None).await {
+                                    match gemini_client.generate_response_with_context(&news_prompt, "", &context_messages, None).await {
                                         Ok(response) => {
                                             // Check if the response is "pass" - if so, don't send anything
                                             if response.trim().to_lowercase() == "pass" {
