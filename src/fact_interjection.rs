@@ -157,7 +157,7 @@ async fn handle_fact_interjection_common(
     let fact_prompt = gemini_client.prompt_templates().format_fact_interjection(&context_text);
     
     // Call Gemini API with the fact prompt
-    match gemini_client.generate_response_with_context(&fact_prompt, "", &Vec::new(), None).await {
+    match gemini_client.generate_response_with_context(&fact_prompt, "", &context_messages, None).await {
         Ok(response) => {
             // Check if the response starts with "pass" (case-insensitive) - if so, don't send anything
             if response.trim().to_lowercase().starts_with("pass") {
