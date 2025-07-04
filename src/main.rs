@@ -3286,6 +3286,28 @@ Keep it brief and natural, as if you're just another participant in the conversa
                             1 => {
                                 // Memory interjection - get a random message from the database and process it
                                 if let Some(db) = &message_db_clone {
+                                    // Get recent messages for context
+                                    let context_messages = match db_utils::get_recent_messages(db.clone(), gemini_context_messages, Some(&channel_id.to_string())).await {
+                                        Ok(messages) => messages,
+                                        Err(e) => {
+                                            error!("Error retrieving recent messages for memory interjection: {:?}", e);
+                                            Vec::new()
+                                        }
+                                    };
+                                    
+                                    // Format context for the prompt
+                                    let context_text = if !context_messages.is_empty() {
+                                        // Reverse the messages to get chronological order (oldest first)
+                                        let mut chronological_messages = context_messages.clone();
+                                        chronological_messages.reverse();
+                                        
+                                        let formatted_messages: Vec<String> = chronological_messages.iter()
+                                            .map(|(_author, display_name, content)| format!("{}: {}", display_name, content))
+                                            .collect();
+                                        formatted_messages.join("\n")
+                                    } else {
+                                        "".to_string()
+                                    };
                                     // Query the database for a random message with minimum length of 20 characters
                                     let query_result = db.lock().await.call(|conn| {
                                         let query = "SELECT content, author, display_name FROM messages WHERE length(content) >= 20 ORDER BY RANDOM() LIMIT 1";
@@ -3314,17 +3336,21 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                                 if let Some(gemini) = &task_gemini_client {
                                                     let memory_prompt = format!(
                                                         "You are {}, a witty Discord bot. You've found this message in your memory: \"{}\". \
-                                                        Please contribute to the conversation by saying something related to this message. \
-                                                        1. Keep it short and natural (1-2 sentences) \
-                                                        2. Don't quote or reference the memory - just say what you want to say \
-                                                        3. Don't identify yourself or explain what you're doing \
-                                                        4. If you can't make it work naturally, respond with 'pass' \
-                                                        5. Correct any obvious typos but preserve the message's character \
+                                                        Please contribute to the conversation by saying something related to this memory.\n\n\
+                                                        Recent conversation context (use this for relevance only):\n{}\n\n\
+                                                        Guidelines:\n\
+                                                        1. Your comment should be primarily based on the MEMORY, not the recent context\n\
+                                                        2. Use the recent context only to make your comment relevant to the current conversation\n\
+                                                        3. Keep it short and natural (1-2 sentences)\n\
+                                                        4. Don't quote or reference the memory directly - just say what you want to say\n\
+                                                        5. Don't identify yourself or explain what you're doing\n\
+                                                        6. If you can't make it work naturally, respond with 'pass'\n\
+                                                        7. Correct any obvious typos but preserve the message's character\n\
                                                         Remember: Be natural and direct - no meta-commentary.",
-                                                        bot_name_clone, content
+                                                        bot_name_clone, content, context_text
                                                     );
                                                     
-                                                    match gemini.generate_content(&memory_prompt).await {
+                                                    match gemini.generate_response_with_context(&memory_prompt, "", &context_messages, None).await {
                                                         Ok(response) => {
                                                             if response.trim().to_lowercase() == "pass" {
                                                                 info!("Gemini API chose to pass on memory interjection");
