@@ -3389,9 +3389,73 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                 String::new()
                             },
                             3 => {
-                                // AI-like interjection - log but don't send anything
-                                info!("Spontaneous AI-like interjection requested but fallbacks are disabled");
-                                String::new()
+                                // AI-like interjection using Gemini API
+                                if let Some(gemini_client) = &task_gemini_client {
+                                    // Get recent messages for context
+                                    let context_messages = if let Some(db) = &message_db_clone {
+                                        match db_utils::get_recent_messages(db.clone(), gemini_context_messages, Some(&channel_id.to_string())).await {
+                                            Ok(messages) => messages,
+                                            Err(e) => {
+                                                error!("Error retrieving recent messages for AI interjection: {:?}", e);
+                                                Vec::new()
+                                            }
+                                        }
+                                    } else {
+                                        Vec::new()
+                                    };
+                                    
+                                    // Format context for the prompt
+                                    let context_text = if !context_messages.is_empty() {
+                                        // Reverse the messages to get chronological order (oldest first)
+                                        let mut chronological_messages = context_messages.clone();
+                                        chronological_messages.reverse();
+                                        
+                                        let formatted_messages: Vec<String> = chronological_messages.iter()
+                                            .map(|(_author, display_name, content)| format!("{}: {}", display_name, content))
+                                            .collect();
+                                        formatted_messages.join("\n")
+                                    } else {
+                                        "".to_string()
+                                    };
+                                    
+                                    // Create the AI interjection prompt
+                                    let ai_prompt = format!(
+                                        "You are {}, a witty Discord bot who lives on the Satellite of Love. \
+                                        Please contribute to the conversation with a brief, natural comment.\n\n\
+                                        Recent conversation context:\n{}\n\n\
+                                        Guidelines:\n\
+                                        1. Keep it short and natural (1-2 sentences)\n\
+                                        2. Be relevant to the conversation topic\n\
+                                        3. Be witty, friendly, and slightly sarcastic\n\
+                                        4. Don't identify yourself or explain what you're doing\n\
+                                        5. If you can't make a relevant comment, respond with ONLY the word \"pass\"\n\
+                                        6. You may include a direct MST3K reference if relevant (like \"Watch out for snakes!\")\n\
+                                        7. Don't use phrases like \"I noticed\" or \"I see you're talking about\"\n\
+                                        Remember: Be natural and direct - no meta-commentary.",
+                                        bot_name_clone, context_text
+                                    );
+                                    
+                                    // Call Gemini API with the AI prompt
+                                    match gemini_client.generate_response_with_context(&ai_prompt, "", &context_messages, None).await {
+                                        Ok(response) => {
+                                            // Check if the response is "pass" - if so, don't send anything
+                                            if response.trim().to_lowercase() == "pass" {
+                                                info!("AI interjection evaluation: decided to PASS - no response sent");
+                                                String::new() // Return empty string to skip the interjection
+                                            } else {
+                                                response
+                                            }
+                                        },
+                                        Err(e) => {
+                                            error!("Error generating AI interjection: {:?}", e);
+                                            String::new() // Return empty string to skip the interjection
+                                        }
+                                    }
+                                } else {
+                                    // If Gemini API is not configured
+                                    info!("AI Interjection not available (Gemini API not configured) - no response sent");
+                                    String::new()
+                                }
                             },
                             4 => {
                                 // Fact interjection using Gemini API
