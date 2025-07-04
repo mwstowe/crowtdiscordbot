@@ -61,15 +61,17 @@ impl PromptTemplates {
             Guidelines:\n\
             1. Share a single, concise, factually accurate fact that is relevant to the recent conversation\n\
             2. The fact MUST be true and verifiable - this is extremely important\n\
-            3. DO NOT start with \"Fun fact:\" or \"Did you know?\" - instead, introduce your fact naturally by referencing something from the conversation\n\
-            4. For example, if someone mentioned programming, you might say \"Speaking of programming, JavaScript was created in just 10 days in 1995.\"\n\
-            5. Keep it brief (1-2 sentences for the fact itself)\n\
-            6. Make it interesting and educational\n\
-            7. If possible, relate it to the conversation topic, but don't force it\n\
-            8. If you can't find a relevant fact based on the conversation, share a general interesting fact about technology, science, history, or nature\n\
-            9. ALWAYS include a citation with a valid URL to a reputable source (e.g., \"Source: https://www.nasa.gov/feature/goddard/2016/carbon-dioxide-fertilization-greening-earth\")\n\
-            10. If you can't provide a verifiable citation with a valid URL, respond with ONLY the word \"pass\" - nothing else\n\
-            11. If you include a reference to MST3K, it should be a direct quote that fits naturally in context (like \"Watch out for snakes!\"), not a forced reference\n\n\
+            3. DO NOT start with \"Fun fact:\" or \"Did you know?\"\n\
+            4. Instead, directly acknowledge what was mentioned in the conversation, then share your fact\n\
+            5. For example: \"You mentioned learning Python. The language was actually named after Monty Python, not the snake.\"\n\
+            6. Another example: \"That discussion about coffee reminds me that Finland consumes more coffee per capita than any other country.\"\n\
+            7. Keep it brief (1-2 sentences for the fact itself)\n\
+            8. Make it interesting and educational\n\
+            9. If possible, relate it to the conversation topic, but don't force it\n\
+            10. If you can't find a relevant fact based on the conversation, share a general interesting fact about technology, science, history, or nature\n\
+            11. ALWAYS include a citation with a valid URL to a reputable source (e.g., \"Source: https://www.nasa.gov/feature/goddard/2016/carbon-dioxide-fertilization-greening-earth\")\n\
+            12. If you can't provide a verifiable citation with a valid URL, respond with ONLY the word \"pass\" - nothing else\n\
+            13. If you include a reference to MST3K, it should be a direct quote that fits naturally in context (like \"Watch out for snakes!\"), not a forced reference\n\n\
             Be {response_quality} - your fact should feel like a natural contribution to the conversation, not an interruption.\n\
             Be concise and factual, and always include a citation with a valid URL.".to_string()
         );
