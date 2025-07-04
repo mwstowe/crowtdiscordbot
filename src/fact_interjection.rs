@@ -135,7 +135,7 @@ async fn handle_fact_interjection_common(
     channel_id: ChannelId,
     gemini_client: &GeminiClient,
     context_messages: &Vec<(String, String, String)>,
-    bot_name: &str,
+    _bot_name: &str,
 ) -> Result<()> {
     // Format context for the prompt
     let context_text = if !context_messages.is_empty() {
@@ -153,30 +153,8 @@ async fn handle_fact_interjection_common(
         "".to_string()
     };
     
-    // Create the fact prompt
-    let fact_prompt = String::from(r#"You are {bot_name}, a Discord bot. Share an interesting and factually accurate fact related to the conversation.
-
-{context}
-
-Guidelines:
-1. Share a single, concise, factually accurate fact that is relevant to the recent conversation
-2. The fact MUST be true and verifiable - this is extremely important
-3. Start with "Fun fact:" or "Did you know?"
-4. Keep it brief (1-2 sentences)
-5. Make it interesting and educational
-6. If possible, relate it to the conversation topic, but don't force it
-7. If you can't find a relevant fact based on the conversation, share a general interesting fact about technology, science, history, or nature
-8. ALWAYS include a citation with a valid URL to a reputable source (e.g., "Source: https://www.nasa.gov/feature/goddard/2016/carbon-dioxide-fertilization-greening-earth")
-9. If you can't provide a verifiable citation with a valid URL, respond with ONLY the word "pass" - nothing else
-10. If you include a reference to MST3K, it should be a direct quote that fits naturally in context (like "Watch out for snakes!"), not a forced reference (like "Even Tom Servo would find that interesting!")
-
-Example good response: "Fun fact: The average cloud weighs around 1.1 million pounds due to the weight of water droplets. Source: https://www.usgs.gov/special-topics/water-science-school/science/water-cycle-clouds"
-
-Example bad response: "I noticed you were talking about weather. Here's an interesting fact: clouds are actually quite heavy! The average cloud weighs around 1.1 million pounds due to the weight of water droplets. Isn't that fascinating?"
-
-Be concise and factual, and always include a citation with a valid URL."#)
-        .replace("{bot_name}", bot_name)
-        .replace("{context}", &context_text);
+    // Create the fact prompt using the prompt templates
+    let fact_prompt = gemini_client.prompt_templates().format_fact_interjection(&context_text);
     
     // Call Gemini API with the fact prompt
     match gemini_client.generate_response_with_context(&fact_prompt, "", &Vec::new(), None).await {

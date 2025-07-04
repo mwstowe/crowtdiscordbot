@@ -4,15 +4,16 @@ use serde_json;
 use std::time::Duration;
 use tracing::{error, info};
 use crate::rate_limiter::RateLimiter;
+use crate::prompt_templates::PromptTemplates;
 use base64::Engine;
+use std::collections::HashMap;
 
 #[derive(Clone)]
 pub struct GeminiClient {
     api_key: String,
     api_endpoint: String,
     image_endpoint: String,
-    prompt_wrapper: String,
-    bot_name: String,
+    prompt_templates: PromptTemplates,
     rate_limiter: RateLimiter,
     #[allow(dead_code)]
     context_messages: usize,
@@ -34,26 +35,36 @@ impl GeminiClient {
         let default_endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent".to_string();
         let image_endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-preview-image-generation:generateContent".to_string();
         
-        // Default prompt wrapper
-        let default_prompt_wrapper = "Respond to {user}'s message as {bot_name}. Be concise and helpful. Message: {message}\n\nRecent conversation context:\n{context}".to_string();
+        // Create prompt templates
+        let mut prompt_templates = PromptTemplates::new(bot_name.clone());
         
-        // Use provided values or defaults
-        let api_endpoint = api_endpoint.unwrap_or(default_endpoint);
-        let prompt_wrapper = prompt_wrapper.unwrap_or(default_prompt_wrapper);
+        // If a custom prompt wrapper is provided, set it as the general response template
+        if let Some(wrapper) = prompt_wrapper {
+            prompt_templates.set_template("general_response", &wrapper);
+        }
         
         // Create rate limiter
         let rate_limiter = RateLimiter::new(rate_limit_minute, rate_limit_day);
         
         Self {
             api_key,
-            api_endpoint,
+            api_endpoint: api_endpoint.unwrap_or(default_endpoint),
             image_endpoint,
-            prompt_wrapper,
-            bot_name,
+            prompt_templates,
             rate_limiter,
             context_messages,
             log_prompts,
         }
+    }
+    
+    // Get a reference to the prompt templates
+    pub fn prompt_templates(&self) -> &PromptTemplates {
+        &self.prompt_templates
+    }
+    
+    // Get a mutable reference to the prompt templates
+    pub fn prompt_templates_mut(&mut self) -> &mut PromptTemplates {
+        &mut self.prompt_templates
     }
     
     // Generate a response with conversation context
@@ -100,18 +111,15 @@ impl GeminiClient {
             "No context available.".to_string()
         };
         
-        // Format the prompt using the wrapper
+        // Format the prompt using the wrapper or custom template
         let formatted_prompt = if has_context_in_prompt {
-            // If the prompt already contains {context}, use it directly
-            prompt.replace("{bot_name}", &self.bot_name)
-                 .replace("{context}", &context)
+            // If the prompt already contains {context}, use it as a custom template
+            let mut values = HashMap::new();
+            values.insert("context".to_string(), context);
+            self.prompt_templates.format_custom(prompt, &values)
         } else {
-            // Otherwise use the standard wrapper
-            self.prompt_wrapper
-                .replace("{message}", prompt)
-                .replace("{bot_name}", &self.bot_name)
-                .replace("{user}", user_name)
-                .replace("{context}", &context)
+            // Otherwise use the standard general response template
+            self.prompt_templates.format_general_response(prompt, user_name, &context)
         };
             
         self.generate_content(&formatted_prompt).await

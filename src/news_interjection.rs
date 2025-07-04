@@ -53,7 +53,7 @@ pub async fn handle_news_interjection(
     msg: &Message,
     gemini_client: &GeminiClient,
     message_db: &Option<Arc<tokio::sync::Mutex<Connection>>>,
-    bot_name: &str,
+    _bot_name: &str,
     gemini_context_messages: usize,
 ) -> Result<()> {
     // Get recent messages for context
@@ -85,32 +85,8 @@ pub async fn handle_news_interjection(
         "".to_string()
     };
     
-    // Create the news prompt
-    let news_prompt = String::from(r#"You are {bot_name}, a Discord bot. Share an interesting technology or weird news article link with a brief comment about why it's interesting.
-
-{context}
-
-Guidelines:
-1. Share a link to a real, existing news article about technology or weird news (NO sports)
-2. Format as: "Article title: https://example.com/article-path"
-3. The URL must be specific and detailed (e.g., https://arstechnica.com/tech-policy/2025/06/new-ai-regulations-impact-open-source/)
-4. Never use generic URLs like https://arstechnica.com/ or https://techcrunch.com/
-5. Always include year, month, and a descriptive path in the URL
-6. Only use reputable news sources like: techcrunch.com, arstechnica.com, wired.com, theverge.com, bbc.com, reuters.com, etc.
-7. Then add a brief comment (1-2 sentences) on why it's interesting or relevant to the conversation
-8. If possible, relate it to the conversation, but don't force it
-9. Don't use phrases like "Check out this article" or "You might find this interesting"
-10. NEVER include tags like "(via search)", "(via Google)", or any other source attribution
-11. If you can't think of a relevant article, respond with ONLY the word "pass" - nothing else
-12. If you include a reference to MST3K, it should be a direct quote that fits naturally in context (like "Watch out for snakes!"), not a forced reference (like "Even Tom Servo would find this interesting!")
-
-Example good response: "AI Creates Perfect Pizza Recipe Through Taste Simulation: https://techcrunch.com/2025/06/ai-taste-simulation-pizza This shows how AI sensory processing is advancing beyond visual and audio into taste simulation."
-
-Example bad response: "Check out this interesting article about AI and food: https://techcrunch.com/ai-food-article (via search) I thought you might find this interesting given our conversation about technology."
-
-Be creative but realistic with your article title and URL, and ensure you're using a reputable news source."#)
-        .replace("{bot_name}", bot_name)
-        .replace("{context}", &context_text);
+    // Create the news prompt using the prompt templates
+    let news_prompt = gemini_client.prompt_templates().format_news_interjection(&context_text);
     
     // Call Gemini API with the news prompt
     match gemini_client.generate_response_with_context(&news_prompt, "", &Vec::new(), None).await {
