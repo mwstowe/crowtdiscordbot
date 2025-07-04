@@ -396,7 +396,9 @@ pub async fn get_recent_messages(
                     let display_name = row.get::<_, String>(2).unwrap_or_else(|_| "".to_string());
                     let content = row.get::<_, String>(3)?;
                     
-                    info!("Retrieved message: ID={}, Author={}, Content={}", msg_id, author, content);
+                    // Debug log to show both author and display_name
+                    info!("Retrieved message: ID={}, Author={}, DisplayName={}, Content={}", 
+                          msg_id, author, display_name, content);
                     
                     Ok((
                         msg_id,
@@ -462,7 +464,9 @@ pub async fn get_recent_messages(
                 let display_name = row.get::<_, String>(2).unwrap_or_else(|_| "".to_string());
                 let content = row.get::<_, String>(3)?;
                 
-                info!("Retrieved message: ID={}, Author={}, Content={}", msg_id, author, content);
+                // Debug log to show both author and display_name
+                info!("Retrieved message: ID={}, Author={}, DisplayName={}, Content={}", 
+                      msg_id, author, display_name, content);
                 
                 Ok((
                     msg_id,
