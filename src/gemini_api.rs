@@ -250,8 +250,16 @@ impl GeminiClient {
                     info!("Successfully generated content from Gemini API");
                 }
                 
+                // Strip surrounding quotes if present
+                let cleaned_text = if text.starts_with('"') && text.ends_with('"') && text.len() >= 2 {
+                    // Remove the first and last character (the quotes)
+                    &text[1..text.len()-1]
+                } else {
+                    text
+                };
+                
                 // Success! Return the text
-                return Ok(text.to_string());
+                return Ok(cleaned_text.to_string());
             } else {
                 // Check for prompt feedback
                 let prompt_feedback = if let Some(feedback) = response_json.get("promptFeedback") {
