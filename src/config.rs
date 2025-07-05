@@ -54,6 +54,7 @@ pub struct Config {
     pub gemini_interjection_prompt: Option<String>,
     pub gemini_context_messages: Option<String>,
     pub gemini_log_prompts: Option<String>,
+    pub gemini_personality_description: Option<String>,
     pub interjection_mst3k_probability: Option<String>,
     pub interjection_memory_probability: Option<String>,
     pub interjection_pondering_probability: Option<String>,

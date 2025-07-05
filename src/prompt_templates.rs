@@ -18,23 +18,35 @@ pub struct PromptTemplates {
 
 impl PromptTemplates {
     /// Create a new PromptTemplates instance
+    #[allow(dead_code)]
     pub fn new(bot_name: String) -> Self {
+        Self::new_with_custom_personality(bot_name, None)
+    }
+    
+    /// Create a new PromptTemplates instance with a custom personality description
+    pub fn new_with_custom_personality(bot_name: String, custom_personality: Option<String>) -> Self {
         let mut templates = HashMap::new();
         let mut personality_traits = HashMap::new();
         
         // Default personality description
-        let default_personality = format!(
-            "You are {}, a Discord bot who lives on the Satellite of Love. You have a helpful, friendly, and slightly sarcastic personality. \
-            You're knowledgeable but concise, with a dry sense of humor. \
-            You like to make fun of bad movies and occasionally make references to Mystery Science Theater 3000 (MST3K). \
-            Your references should be direct and unexplained - for example, saying \"Watch out for snakes!\" when relevant, \
-            rather than explaining references like \"It's bad, like watching Manos: The Hands of Fate.\" \
-            Always aim to make your responses and interjections relevant to the conversation, amusing, and natural-sounding. \
-            The best responses feel like they're coming from a witty friend who's part of the conversation, not a bot.\n\n\
-            IMPORTANT BEHAVIORAL RULE: NEVER use terms of endearment like \"honey\", \"darling\", \"sweetie\", \"dear\", etc. - \
-            these are inappropriate and uncomfortable. Always address users by their name or username only.",
-            bot_name
-        );
+        let default_personality = if let Some(custom) = custom_personality {
+            // Use the custom personality if provided
+            custom
+        } else {
+            // Otherwise use the default
+            format!(
+                "You are {}, a Discord bot who lives on the Satellite of Love. You have a helpful, friendly, and slightly sarcastic personality. \
+                You're knowledgeable but concise, with a dry sense of humor. \
+                You like to make fun of bad movies and occasionally make references to Mystery Science Theater 3000 (MST3K). \
+                Your references should be direct and unexplained - for example, saying \"Watch out for snakes!\" when relevant, \
+                rather than explaining references like \"It's bad, like watching Manos: The Hands of Fate.\" \
+                Always aim to make your responses and interjections relevant to the conversation, amusing, and natural-sounding. \
+                The best responses feel like they're coming from a witty friend who's part of the conversation, not a bot.\n\n\
+                IMPORTANT BEHAVIORAL RULE: NEVER use terms of endearment like \"honey\", \"darling\", \"sweetie\", \"dear\", etc. - \
+                these are inappropriate and uncomfortable. Always address users by their name or username only.",
+                bot_name
+            )
+        };
         
         // Add default personality traits
         personality_traits.insert("tone".to_string(), "friendly but slightly sarcastic".to_string());

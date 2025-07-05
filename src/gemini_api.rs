@@ -29,14 +29,15 @@ impl GeminiClient {
         rate_limit_minute: u32,
         rate_limit_day: u32,
         context_messages: usize,
-        log_prompts: bool
+        log_prompts: bool,
+        personality_description: Option<String>
     ) -> Self {
         // Default endpoint for Gemini API
         let default_endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent".to_string();
         let image_endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-preview-image-generation:generateContent".to_string();
         
-        // Create prompt templates
-        let mut prompt_templates = PromptTemplates::new(bot_name.clone());
+        // Create prompt templates with custom personality if provided
+        let mut prompt_templates = PromptTemplates::new_with_custom_personality(bot_name.clone(), personality_description);
         
         // If a custom prompt wrapper is provided, set it as the general response template
         if let Some(wrapper) = prompt_wrapper {

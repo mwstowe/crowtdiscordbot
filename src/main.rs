@@ -243,7 +243,8 @@ impl Bot {
         imagine_channels: Vec<String>,
         fill_silence_enabled: bool,
         fill_silence_start_hours: f64,
-        fill_silence_max_hours: f64
+        fill_silence_max_hours: f64,
+        gemini_personality_description: Option<String>
     ) -> Self {
         // Define the commands the bot will respond to
         let mut commands = HashMap::new();
@@ -290,7 +291,8 @@ impl Bot {
                     gemini_rate_limit_minute,
                     gemini_rate_limit_day,
                     gemini_context_messages,
-                    log_prompts
+                    log_prompts,
+                    gemini_personality_description
                 ))
             },
             None => {
@@ -2883,6 +2885,14 @@ Keep it brief and natural, as if you're just another participant in the conversa
     });
     info!("Using Gemini interjection prompt");
     
+    // Get custom personality description if available
+    let gemini_personality_description = config.gemini_personality_description.clone();
+    if gemini_personality_description.is_some() {
+        info!("Using custom personality description");
+    } else {
+        info!("Using default personality description");
+    }
+    
     // Get custom Gemini API endpoint if available
     let gemini_api_endpoint = config.gemini_api_endpoint.clone();
     if let Some(endpoint) = &gemini_api_endpoint {
@@ -3075,6 +3085,7 @@ Keep it brief and natural, as if you're just another participant in the conversa
     let gemini_api_key_for_bot = gemini_api_key.clone();
     let gemini_api_endpoint_for_bot = gemini_api_endpoint.clone();
     let gemini_prompt_wrapper_for_bot = gemini_prompt_wrapper.clone();
+    let gemini_personality_description_for_bot = gemini_personality_description.clone();
     
     // Create a new bot instance with the valid channel IDs
     let bot = Bot::new(
@@ -3107,7 +3118,8 @@ Keep it brief and natural, as if you're just another participant in the conversa
         imagine_channels,
         fill_silence_enabled,
         fill_silence_start_hours,
-        fill_silence_max_hours
+        fill_silence_max_hours,
+        gemini_personality_description_for_bot
     );
     
     // Check database connection
@@ -3246,7 +3258,8 @@ Keep it brief and natural, as if you're just another participant in the conversa
                 gemini_rate_limit_minute,
                 gemini_rate_limit_day,
                 gemini_context_messages,
-                gemini_log_prompts
+                gemini_log_prompts,
+                gemini_personality_description.clone()
             ))
         } else {
             None
