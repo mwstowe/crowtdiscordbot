@@ -1557,8 +1557,7 @@ impl Bot {
                                 2. Don't quote or reference the memory - just say what you want to say\n\
                                 3. Don't identify yourself or explain what you're doing\n\
                                 4. If you can't make it work naturally, respond with 'pass'\n\
-                                5. Correct any obvious typos but preserve the message's character\n\
-                                6. NEVER use terms of endearment like \"honey\", \"darling\", \"sweetie\", \"dear\", etc. - address users by their name or username only\n\n\
+                                5. Correct any obvious typos but preserve the message's character\n\n\
                                 Remember: Be natural and direct - no meta-commentary. \
                                 If you can't make it feel natural, just pass.",
                                 self.bot_name, content, context_text
@@ -3347,7 +3346,6 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                                         5. Don't identify yourself or explain what you're doing\n\
                                                         6. If you can't make it work naturally, respond with 'pass'\n\
                                                         7. Correct any obvious typos but preserve the message's character\n\
-                                                        8. NEVER use terms of endearment like \"honey\", \"darling\", \"sweetie\", \"dear\", etc. - address users by their name or username only\n\
                                                         Remember: Be natural and direct - no meta-commentary.",
                                                         bot_name_clone, content, context_text
                                                     );
@@ -3433,7 +3431,6 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                         5. If you can't make a relevant comment, respond with ONLY the word \"pass\"\n\
                                         6. You may include a direct MST3K reference if relevant (like \"Watch out for snakes!\")\n\
                                         7. Don't use phrases like \"I noticed\" or \"I see you're talking about\"\n\
-                                        8. NEVER use terms of endearment like \"honey\", \"darling\", \"sweetie\", \"dear\", etc. - address users by their name or username only\n\
                                         Remember: Be natural and direct - no meta-commentary.",
                                         bot_name_clone, context_text
                                     );
