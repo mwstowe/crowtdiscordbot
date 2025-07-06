@@ -10,6 +10,7 @@ use serenity::model::id::ChannelId;
 use serenity::http::Http;
 use regex::Regex;
 use crate::news_interjection;
+use crate::google_search::GoogleSearchClient;
 
 // Handle fact interjection with Message object
 pub async fn handle_fact_interjection(
@@ -102,27 +103,107 @@ fn extract_citation(fact: &str) -> Option<String> {
     None
 }
 
-// Function to validate a citation URL
-async fn validate_citation_with_ai(
+// Function to find a better URL using search when the original URL fails validation
+async fn find_better_url(fact: &str) -> Result<Option<String>> {
+    info!("Attempting to find a better URL for fact: {}", fact);
+    
+    // Create a search client
+    let search_client = GoogleSearchClient::new();
+    
+    // Extract the main fact without the citation
+    let main_fact = if let Some(citation_index) = fact.find("Source:") {
+        fact[..citation_index].trim()
+    } else {
+        fact.trim()
+    };
+    
+    // Perform a search using the fact text
+    match search_client.search(main_fact).await {
+        Ok(Some(result)) => {
+            info!("Found potential replacement URL: {} - {}", result.title, result.url);
+            
+            // Validate the new URL
+            match news_interjection::validate_url_exists(&result.url).await {
+                Ok((true, Some(final_url))) => {
+                    info!("Replacement URL validation successful: {}", final_url);
+                    Ok(Some(final_url))
+                },
+                _ => {
+                    info!("Replacement URL validation failed: {}", result.url);
+                    Ok(None)
+                }
+            }
+        },
+        Ok(None) => {
+            info!("No search results found for fact");
+            Ok(None)
+        },
+        Err(e) => {
+            error!("Error searching for better URL: {:?}", e);
+            Ok(None)
+        }
+    }
+}
+
+// Function to validate a citation URL with search fallback
+async fn validate_citation_with_fallback(
     _gemini_client: &GeminiClient,
-    _fact: &str,
+    fact: &str,
     citation: &str,
-) -> bool {
-    // Validate that the URL actually exists and is accessible
+) -> Result<(bool, Option<String>)> {
+    // First try the original URL
     match news_interjection::validate_url_exists(citation).await {
-        Ok((true, _)) => {
+        Ok((true, final_url)) => {
             // URL exists and is valid
             info!("Citation URL validation successful: {}", citation);
-            true
+            Ok((true, final_url))
         },
         Ok((false, _)) => {
-            // URL doesn't exist or isn't HTML
-            info!("Citation URL validation failed: URL doesn't exist or isn't HTML: {}", citation);
-            false
+            // URL doesn't exist or isn't HTML, try to find a better one
+            info!("Citation URL validation failed: {}. Attempting to find a better URL...", citation);
+            
+            match find_better_url(fact).await {
+                Ok(Some(better_url)) => {
+                    info!("Found better URL: {}", better_url);
+                    Ok((true, Some(better_url)))
+                },
+                _ => {
+                    info!("Could not find a better URL for fact");
+                    Ok((false, None))
+                }
+            }
         },
         Err(e) => {
             // Error validating URL
             error!("Error validating citation URL {}: {:?}", citation, e);
+            // Try to find a better URL as fallback
+            match find_better_url(fact).await {
+                Ok(Some(better_url)) => {
+                    info!("Found better URL after error: {}", better_url);
+                    Ok((true, Some(better_url)))
+                },
+                _ => {
+                    // Default to accepting the citation if validation fails due to technical issues
+                    // and we couldn't find a better URL
+                    info!("Technical error validating URL and could not find a better URL");
+                    Ok((true, None))
+                }
+            }
+        }
+    }
+}
+
+// Function to validate a citation URL
+async fn validate_citation_with_ai(
+    gemini_client: &GeminiClient,
+    fact: &str,
+    citation: &str,
+) -> bool {
+    // Validate the citation with fallback to search
+    match validate_citation_with_fallback(gemini_client, fact, citation).await {
+        Ok((is_valid, _)) => is_valid,
+        Err(e) => {
+            error!("Error in citation validation with fallback: {:?}", e);
             // Default to accepting the citation if validation fails due to technical issues
             true
         }
@@ -186,6 +267,35 @@ async fn handle_fact_interjection_common(
                 if !validate_citation_with_ai(gemini_client, &response, &citation).await {
                     info!("Fact interjection rejected: Citation validation failed for: {}", citation);
                     return Ok(());
+                }
+                
+                // If we found a better URL through validation, replace it in the response
+                match validate_citation_with_fallback(gemini_client, &response, &citation).await {
+                    Ok((true, Some(better_url))) if better_url != citation => {
+                        info!("Replacing citation URL in response: {} -> {}", citation, better_url);
+                        let response = response.replace(&citation, &better_url);
+                        
+                        // Start typing indicator
+                        if let Err(e) = channel_id.broadcast_typing(http).await {
+                            error!("Failed to send typing indicator for fact interjection: {:?}", e);
+                        }
+                        
+                        // Apply realistic typing delay based on response length
+                        let words = response.split_whitespace().count();
+                        let delay_secs = (words as f32 * 0.2).max(2.0).min(5.0) as u64;
+                        tokio::time::sleep(std::time::Duration::from_secs(delay_secs)).await;
+                        
+                        // Send the response with the updated URL
+                        let response_text = response.clone(); // Clone for logging
+                        if let Err(e) = channel_id.say(http, response).await {
+                            error!("Error sending fact interjection: {:?}", e);
+                        } else {
+                            info!("Fact interjection evaluation: SENT response with updated URL - {}", response_text);
+                        }
+                        
+                        return Ok(());
+                    },
+                    _ => {}
                 }
             }
             
