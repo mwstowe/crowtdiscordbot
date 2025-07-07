@@ -266,10 +266,28 @@ pub async fn get_recent_messages(
     limit: usize,
     channel_id: Option<&str>
 ) -> Result<Vec<(String, String, String)>, Box<dyn std::error::Error>> {
+    // Get messages with display names
+    let messages_with_display_names = get_recent_messages_with_pronouns(conn, limit, channel_id).await?;
+    
+    // Convert to the original format for backward compatibility
+    let messages = messages_with_display_names
+        .into_iter()
+        .map(|(author, display_name, _pronouns, content)| (author, display_name, content))
+        .collect();
+    
+    Ok(messages)
+}
+
+// New function that includes pronouns in the returned data
+pub async fn get_recent_messages_with_pronouns(
+    conn: Arc<Mutex<SqliteConnection>>,
+    limit: usize,
+    channel_id: Option<&str>
+) -> Result<Vec<(String, String, Option<String>, String)>, Box<dyn std::error::Error>> {
     let conn_guard = conn.lock().await;
     
     // Add debug logging
-    info!("Getting recent messages. Limit: {}, Channel ID: {:?}", limit, channel_id);
+    info!("Getting recent messages with pronouns. Limit: {}, Channel ID: {:?}", limit, channel_id);
     
     // Debug: Check which database file we're using
     let db_path = conn_guard.call(move |conn| {
@@ -500,7 +518,9 @@ pub async fn get_recent_messages(
     for (_msg_id, author, display_name, content) in raw_messages {
         if seen_content.insert(content.clone()) {
             // This is a new message content, add it to the result
-            deduplicated_messages.push((author, display_name, content));
+            // Extract pronouns from display name
+            let pronouns = crate::utils::extract_pronouns(&display_name);
+            deduplicated_messages.push((author, display_name, pronouns, content));
         }
     }
     

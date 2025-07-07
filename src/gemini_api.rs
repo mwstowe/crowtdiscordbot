@@ -75,6 +75,26 @@ impl GeminiClient {
         prompt: &str, 
         user_name: &str,
         context_messages: &Vec<(String, String, String)>,
+        user_pronouns: Option<&str>
+    ) -> Result<String> {
+        // Convert to the new format with pronouns
+        let context_with_pronouns: Vec<(String, String, Option<String>, String)> = context_messages
+            .iter()
+            .map(|(author, display_name, content)| {
+                let pronouns = crate::utils::extract_pronouns(display_name);
+                (author.clone(), display_name.clone(), pronouns, content.clone())
+            })
+            .collect();
+        
+        self.generate_response_with_context_and_pronouns(prompt, user_name, &context_with_pronouns, user_pronouns).await
+    }
+    
+    // New function that accepts context messages with pronouns
+    pub async fn generate_response_with_context_and_pronouns(
+        &self, 
+        prompt: &str, 
+        user_name: &str,
+        context_messages: &Vec<(String, String, Option<String>, String)>,
         _user_pronouns: Option<&str>
     ) -> Result<String> {
         // Check if the prompt already contains context (like in interjection prompts)
@@ -87,16 +107,22 @@ impl GeminiClient {
             let mut chronological_messages = context_messages.clone();
             chronological_messages.reverse();
             
-            // Format each message as "DisplayName: Message" using the display_name field
+            // Format each message as "DisplayName (pronouns): Message" using the display_name field
             // If display_name is empty, fall back to author name
             let formatted_messages = chronological_messages.iter()
-                .map(|(author, display_name, msg)| {
+                .map(|(author, display_name, pronouns, msg)| {
                     let name_to_use = if !display_name.is_empty() {
                         display_name
                     } else {
                         author
                     };
-                    format!("{}: {}", name_to_use, msg)
+                    
+                    // Include pronouns if available
+                    if let Some(pronouns) = pronouns {
+                        format!("{} ({}): {}", name_to_use, pronouns, msg)
+                    } else {
+                        format!("{}: {}", name_to_use, msg)
+                    }
                 })
                 .collect::<Vec<_>>()
                 .join("\n");
