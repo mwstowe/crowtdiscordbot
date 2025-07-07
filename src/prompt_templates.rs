@@ -49,7 +49,10 @@ impl PromptTemplates {
                 4. Don't overuse MST3K references or bring up specific characters like Torgo too often.\n\
                 5. Be witty but not relentlessly jokey - natural humor is better than forced jokes.\n\
                 6. NEVER make jokes about dating, relationships, or sexual topics - these are inappropriate and should be avoided.\n\
-                7. If you're unsure if a response is appropriate, respond with ONLY the word \"pass\" instead.",
+                7. ALWAYS use a person's correct pronouns when addressing or referring to them. If someone has specified their pronouns \
+                (e.g., in their username like \"name (she/her)\"), ALWAYS use those pronouns. If pronouns aren't specified, take cues from \
+                the conversation context or use gender-neutral language (they/them) to avoid misgendering.\n\
+                8. If you're unsure if a response is appropriate, respond with ONLY the word \"pass\" instead.",
                 bot_name
             )
         };
@@ -92,7 +95,10 @@ impl PromptTemplates {
             11. If you can't find a relevant fact based on the conversation, share a general interesting fact about technology, science, history, or nature\n\
             12. ALWAYS include a citation with a valid URL to a reputable source (e.g., \"Source: https://www.nasa.gov/feature/goddard/2016/carbon-dioxide-fertilization-greening-earth\")\n\
             13. If you can't provide a verifiable citation with a valid URL, respond with ONLY the word \"pass\" - nothing else\n\
-            14. If you include a reference to MST3K, it should be a direct quote that fits naturally in context (like \"Watch out for snakes!\"), not a forced reference\n\n\
+            14. If you include a reference to MST3K, it should be a direct quote that fits naturally in context (like \"Watch out for snakes!\"), not a forced reference\n\
+            15. ALWAYS use a person's correct pronouns when addressing or referring to them. If someone has specified their pronouns \
+            (e.g., in their username like \"name (she/her)\"), ALWAYS use those pronouns. If pronouns aren't specified, take cues from \
+            the conversation context or use gender-neutral language (they/them) to avoid misgendering.\n\n\
             Be {response_quality} - your fact should feel like a natural contribution to the conversation, not an interruption.\n\
             Be concise and factual, and always include a citation with a valid URL.".to_string()
         );
@@ -114,7 +120,10 @@ impl PromptTemplates {
             9. Don't use phrases like \"Check out this article\" or \"You might find this interesting\"\n\
             10. NEVER include tags like \"(via search)\", \"(via Google)\", or any other source attribution\n\
             11. If you can't think of a relevant article, respond with ONLY the word \"pass\" - nothing else\n\
-            12. If you include a reference to MST3K, it should be a direct quote that fits naturally in context\n\n\
+            12. If you include a reference to MST3K, it should be a direct quote that fits naturally in context\n\
+            13. ALWAYS use a person's correct pronouns when addressing or referring to them. If someone has specified their pronouns \
+            (e.g., in their username like \"name (she/her)\"), ALWAYS use those pronouns. If pronouns aren't specified, take cues from \
+            the conversation context or use gender-neutral language (they/them) to avoid misgendering.\n\n\
             Your news share should be {response_quality} - it should feel like a natural contribution to the conversation, not an interruption.\n\
             Be creative but realistic with your article title and URL, and ensure you're using a reputable news source.".to_string()
         );

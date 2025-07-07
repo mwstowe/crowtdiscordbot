@@ -1562,7 +1562,10 @@ impl Bot {
                                 5. Correct any obvious typos but preserve the message's character\n\
                                 6. NEVER reference the movie \"Manos: The Hands of Fate\"\n\
                                 7. NEVER make jokes about dating, relationships, or sexual topics\n\
-                                8. If you're unsure if a response is appropriate, respond with ONLY the word \"pass\"\n\n\
+                                8. ALWAYS use a person's correct pronouns when addressing or referring to them. If someone has specified their pronouns \
+                                (e.g., in their username like \"name (she/her)\"), ALWAYS use those pronouns. If pronouns aren't specified, take cues from \
+                                the conversation context or use gender-neutral language (they/them) to avoid misgendering.\n\
+                                9. If you're unsure if a response is appropriate, respond with ONLY the word \"pass\"\n\n\
                                 Remember: Be natural and direct - no meta-commentary. \
                                 If you can't make it feel natural, just pass.",
                                 self.bot_name, content, context_text
@@ -3364,7 +3367,10 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                                         7. Correct any obvious typos but preserve the message's character\n\
                                                         8. NEVER reference the movie \"Manos: The Hands of Fate\"\n\
                                                         9. NEVER make jokes about dating, relationships, or sexual topics\n\
-                                                        10. If you're unsure if a response is appropriate, respond with ONLY the word \"pass\"\n\
+                                                        10. ALWAYS use a person's correct pronouns when addressing or referring to them. If someone has specified their pronouns \
+                                                        (e.g., in their username like \"name (she/her)\"), ALWAYS use those pronouns. If pronouns aren't specified, take cues from \
+                                                        the conversation context or use gender-neutral language (they/them) to avoid misgendering.\n\
+                                                        11. If you're unsure if a response is appropriate, respond with ONLY the word \"pass\"\n\
                                                         Remember: Be natural and direct - no meta-commentary.",
                                                         bot_name_clone, content, context_text
                                                     );
@@ -3452,7 +3458,10 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                         7. Don't use phrases like \"I noticed\" or \"I see you're talking about\"\n\
                                         8. NEVER reference the movie \"Manos: The Hands of Fate\" - this reference is overused\n\
                                         9. NEVER make jokes about dating, relationships, or sexual topics\n\
-                                        10. If you're unsure if a response is appropriate, respond with ONLY the word \"pass\"\n\
+                                        10. ALWAYS use a person's correct pronouns when addressing or referring to them. If someone has specified their pronouns \
+                                        (e.g., in their username like \"name (she/her)\"), ALWAYS use those pronouns. If pronouns aren't specified, take cues from \
+                                        the conversation context or use gender-neutral language (they/them) to avoid misgendering.\n\
+                                        11. If you're unsure if a response is appropriate, respond with ONLY the word \"pass\"\n\
                                         Remember: Be natural and direct - no meta-commentary.",
                                         bot_name_clone, context_text
                                     );
