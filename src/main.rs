@@ -1566,7 +1566,9 @@ impl Bot {
                                 8. ALWAYS use a person's correct pronouns when addressing or referring to them. If someone has specified their pronouns \
                                 (e.g., in their username like \"name (she/her)\"), ALWAYS use those pronouns. If pronouns aren't specified, take cues from \
                                 the conversation context or use gender-neutral language (they/them) to avoid misgendering.\n\
-                                9. If you're unsure if a response is appropriate, respond with ONLY the word \"pass\"\n\n\
+                                9. NEVER use gendered terms like \"sir\", \"ma'am\", \"dude\", \"guy\", \"girl\", etc. unless you are 100% certain of the person's gender. \
+                                When in doubt, use gender-neutral language and address people by their username instead.\n\
+                                10. If you're unsure if a response is appropriate, respond with ONLY the word \"pass\"\n\n\
                                 Remember: Be natural and direct - no meta-commentary. \
                                 If you can't make it feel natural, just pass.",
                                 self.bot_name, content, context_text
@@ -3371,7 +3373,9 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                                         10. ALWAYS use a person's correct pronouns when addressing or referring to them. If someone has specified their pronouns \
                                                         (e.g., in their username like \"name (she/her)\"), ALWAYS use those pronouns. If pronouns aren't specified, take cues from \
                                                         the conversation context or use gender-neutral language (they/them) to avoid misgendering.\n\
-                                                        11. If you're unsure if a response is appropriate, respond with ONLY the word \"pass\"\n\
+                                                        11. NEVER use gendered terms like \"sir\", \"ma'am\", \"dude\", \"guy\", \"girl\", etc. unless you are 100% certain of the person's gender. \
+                                                        When in doubt, use gender-neutral language and address people by their username instead.\n\
+                                                        12. If you're unsure if a response is appropriate, respond with ONLY the word \"pass\"\n\
                                                         Remember: Be natural and direct - no meta-commentary.",
                                                         bot_name_clone, content, context_text
                                                     );
@@ -3462,7 +3466,9 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                         10. ALWAYS use a person's correct pronouns when addressing or referring to them. If someone has specified their pronouns \
                                         (e.g., in their username like \"name (she/her)\"), ALWAYS use those pronouns. If pronouns aren't specified, take cues from \
                                         the conversation context or use gender-neutral language (they/them) to avoid misgendering.\n\
-                                        11. If you're unsure if a response is appropriate, respond with ONLY the word \"pass\"\n\
+                                        11. NEVER use gendered terms like \"sir\", \"ma'am\", \"dude\", \"guy\", \"girl\", etc. unless you are 100% certain of the person's gender. \
+                                        When in doubt, use gender-neutral language and address people by their username instead.\n\
+                                        12. If you're unsure if a response is appropriate, respond with ONLY the word \"pass\"\n\
                                         Remember: Be natural and direct - no meta-commentary.",
                                         bot_name_clone, context_text
                                     );

@@ -46,7 +46,9 @@ IMPORTANT BEHAVIORAL RULES:
 7. ALWAYS use a person's correct pronouns when addressing or referring to them. If someone has specified their pronouns
    (e.g., in their username like "name (she/her)"), ALWAYS use those pronouns. If pronouns aren't specified, take cues from
    the conversation context or use gender-neutral language (they/them) to avoid misgendering.
-8. If you're unsure if a response is appropriate, respond with ONLY the word "pass" instead.
+8. NEVER use gendered terms like "sir", "ma'am", "dude", "guy", "girl", etc. unless you are 100% certain of the person's gender.
+   When in doubt, use gender-neutral language and address people by their username instead.
+9. If you're unsure if a response is appropriate, respond with ONLY the word "pass" instead.
 """
 GEMINI_RATE_LIMIT_MINUTE = "15"
 GEMINI_RATE_LIMIT_DAY = "1500"

@@ -52,7 +52,9 @@ impl PromptTemplates {
                 7. ALWAYS use a person's correct pronouns when addressing or referring to them. If someone has specified their pronouns \
                 (e.g., in their username like \"name (she/her)\"), ALWAYS use those pronouns. If pronouns aren't specified, take cues from \
                 the conversation context or use gender-neutral language (they/them) to avoid misgendering.\n\
-                8. If you're unsure if a response is appropriate, respond with ONLY the word \"pass\" instead.",
+                8. NEVER use gendered terms like \"sir\", \"ma'am\", \"dude\", \"guy\", \"girl\", etc. unless you are 100% certain of the person's gender. \
+                When in doubt, use gender-neutral language and address people by their username instead.\n\
+                9. If you're unsure if a response is appropriate, respond with ONLY the word \"pass\" instead.",
                 bot_name
             )
         };
@@ -98,7 +100,9 @@ impl PromptTemplates {
             14. If you include a reference to MST3K, it should be a direct quote that fits naturally in context (like \"Watch out for snakes!\"), not a forced reference\n\
             15. ALWAYS use a person's correct pronouns when addressing or referring to them. If someone has specified their pronouns \
             (e.g., in their username like \"name (she/her)\"), ALWAYS use those pronouns. If pronouns aren't specified, take cues from \
-            the conversation context or use gender-neutral language (they/them) to avoid misgendering.\n\n\
+            the conversation context or use gender-neutral language (they/them) to avoid misgendering.\n\
+            16. NEVER use gendered terms like \"sir\", \"ma'am\", \"dude\", \"guy\", \"girl\", etc. unless you are 100% certain of the person's gender. \
+            When in doubt, use gender-neutral language and address people by their username instead.\n\n\
             Be {response_quality} - your fact should feel like a natural contribution to the conversation, not an interruption.\n\
             Be concise and factual, and always include a citation with a valid URL.".to_string()
         );
@@ -123,7 +127,9 @@ impl PromptTemplates {
             12. If you include a reference to MST3K, it should be a direct quote that fits naturally in context\n\
             13. ALWAYS use a person's correct pronouns when addressing or referring to them. If someone has specified their pronouns \
             (e.g., in their username like \"name (she/her)\"), ALWAYS use those pronouns. If pronouns aren't specified, take cues from \
-            the conversation context or use gender-neutral language (they/them) to avoid misgendering.\n\n\
+            the conversation context or use gender-neutral language (they/them) to avoid misgendering.\n\
+            14. NEVER use gendered terms like \"sir\", \"ma'am\", \"dude\", \"guy\", \"girl\", etc. unless you are 100% certain of the person's gender. \
+            When in doubt, use gender-neutral language and address people by their username instead.\n\n\
             Your news share should be {response_quality} - it should feel like a natural contribution to the conversation, not an interruption.\n\
             Be creative but realistic with your article title and URL, and ensure you're using a reputable news source.".to_string()
         );
