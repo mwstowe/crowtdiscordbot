@@ -11,6 +11,10 @@ pub struct DatabaseManager {
 }
 
 impl DatabaseManager {
+    pub fn is_configured(&self) -> bool {
+        self.pool.is_some()
+    }
+
     pub fn new(host: Option<String>, db: Option<String>, user: Option<String>, password: Option<String>) -> Self {
         info!("Creating DatabaseManager with host={:?}, db={:?}, user={:?}, password={}",
               host, db, user, if password.is_some() { "provided" } else { "not provided" });
@@ -57,11 +61,6 @@ impl DatabaseManager {
         };
         
         Self { pool }
-    }
-    
-    // Add this method to check if the database is configured
-    pub fn is_configured(&self) -> bool {
-        self.pool.is_some()
     }
     
     // Add this method to test the connection

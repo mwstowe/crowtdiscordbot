@@ -13,7 +13,6 @@ use serenity::model::channel::MessageReference;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info};
 use tokio_rusqlite::Connection;
-use rand::seq::SliceRandom;
 use rand::Rng;
 
 // Import modules
@@ -80,7 +79,6 @@ use buzz::handle_buzz_command;
 use lastseen::handle_lastseen_command;
 use image_generation::handle_imagine_command;
 use regex_substitution::handle_regex_substitution;
-use mst3k_quotes::fallback_mst3k_quote;
 use celebrity_status::handle_aliveordead_command;
 use unknown_command::handle_unknown_command;
 
@@ -1325,6 +1323,7 @@ impl Bot {
         // Get the probability multiplier based on channel inactivity
         let silence_multiplier = self.fill_silence_manager.get_probability_multiplier(msg.channel_id, current_user_id).await;
         
+
         // MST3K Quote interjection
         let adjusted_mst3k_probability = self.interjection_mst3k_probability * silence_multiplier;
         if rand::thread_rng().gen_bool(adjusted_mst3k_probability) {
@@ -1339,162 +1338,34 @@ impl Bot {
             info!("Triggered MST3K quote interjection (base: {:.2}% chance, adjusted: {:.2}%, silence multiplier: {:.2}x, {})", 
                   probability_percent, adjusted_percent, silence_multiplier, odds);
             
-            // Try to get a quote from the database first
+            // Try to get a quote from the database
             if self.db_manager.is_configured() {
-                // Use a separate task to query the database
-                let db_manager = self.db_manager.clone();
-                
-                info!("Attempting to query database for MST3K quotes");
-                
-                let task_result = tokio::task::spawn(async move {
-                    // Query for MST3K quotes specifically
-                    let mut result = None;
-                    
-                    // Get a connection from the pool
-                    if let Some(pool) = db_manager.pool.as_ref() {
-                        info!("Got database pool for MST3K quotes");
-                        if let Ok(mut conn) = pool.get_conn() {
-                            info!("Successfully connected to database for MST3K quotes");
-                            use mysql::prelude::Queryable;
-                            
-                            // Build the show clause for MST3K
-                            let show_clause = "%MST3K%";  // Use the actual show name in the database
-                            
-                            // Count total matching quotes
-                            let count_query = "SELECT COUNT(*) FROM masterlist_quotes, masterlist_episodes, masterlist_shows \
-                                              WHERE masterlist_episodes.show_id = masterlist_shows.show_id \
-                                              AND masterlist_quotes.show_id = masterlist_shows.show_id \
-                                              AND masterlist_quotes.show_ep = masterlist_episodes.show_ep \
-                                              AND show_title LIKE ?";
-                            
-                            info!("Executing count query for MST3K quotes with show_clause: {}", show_clause);
-                            
-                            match conn.exec_first::<i64, _, _>(count_query, (show_clause,)) {
-                                Ok(Some(total_entries)) => {
-                                    info!("Found {} MST3K quotes in database", total_entries);
-                                    if total_entries > 0 {
-                                        // Get a random quote
-                                        let random_index = rand::thread_rng().gen_range(0..total_entries);
-                                        info!("Selected random index {} of {} for MST3K quotes", random_index, total_entries);
-                                        
-                                        let select_query = "SELECT quote FROM masterlist_quotes, masterlist_episodes, masterlist_shows \
-                                                           WHERE masterlist_episodes.show_id = masterlist_shows.show_id \
-                                                           AND masterlist_quotes.show_id = masterlist_shows.show_id \
-                                                           AND masterlist_quotes.show_ep = masterlist_episodes.show_ep \
-                                                           AND show_title LIKE ? \
-                                                           LIMIT ?, 1";
-                                        
-                                        info!("Executing select query for MST3K quote");
-                                        match conn.exec_first::<String, _, _>(select_query, (show_clause, random_index)) {
-                                            Ok(Some(quote_text)) => {
-                                                info!("Successfully retrieved MST3K quote: {}", quote_text);
-                                                // Clean up HTML entities
-                                                let clean_quote = html_escape::decode_html_entities(&quote_text);
-                                                
-                                                // Extract a character name and their quote if possible
-                                                if let Some(colon_pos) = clean_quote.find(':') {
-                                                    if colon_pos > 0 && colon_pos < clean_quote.len() - 1 {
-                                                        let character = clean_quote[0..colon_pos].trim();
-                                                        let character_quote = clean_quote[colon_pos+1..].trim();
-                                                        
-                                                        // Only use if we have both a character and a quote
-                                                        if !character.is_empty() && !character_quote.is_empty() {
-                                                            info!("Extracted character '{}' and quote '{}'", character, character_quote);
-                                                            result = Some((character.to_string(), character_quote.to_string()));
-                                                        } else {
-                                                            info!("Character or quote was empty after parsing");
-                                                        }
-                                                    } else {
-                                                        info!("Colon position invalid: {}", colon_pos);
-                                                    }
-                                                } else {
-                                                    info!("No colon found in quote: {}", clean_quote);
-                                                }
-                                                
-                                                // If we couldn't extract a character quote, use the whole quote
-                                                if result.is_none() {
-                                                    info!("Using whole quote as MST3K quote");
-                                                    result = Some(("MST3K".to_string(), clean_quote.to_string()));
-                                                }
-                                            },
-                                            Ok(None) => {
-                                                error!("No quote found at index {} despite count being {}", random_index, total_entries);
-                                            },
-                                            Err(e) => {
-                                                error!("Error executing select query for MST3K quote: {:?}", e);
-                                            }
-                                        }
-                                    } else {
-                                        info!("No MST3K quotes found in database");
-                                    }
-                                },
-                                Ok(None) => {
-                                    error!("Count query returned None for MST3K quotes");
-                                },
-                                Err(e) => {
-                                    error!("Error executing count query for MST3K quotes: {:?}", e);
-                                }
+                if let Some(pool) = &self.db_manager.pool {
+                    // Process an MST3K quote
+                    match mst3k_quotes::process_mst3k_quote(pool).await {
+                        Some(quote) => {
+                            // Send the quote
+                            if let Err(e) = msg.channel_id.say(&ctx.http, &quote).await {
+                                error!("Error sending MST3K quote: {:?}", e);
+                                // Silently fail - no fallback
+                            } else {
+                                info!("MST3K quote sent: {}", quote);
                             }
-                        } else {
-                            error!("Failed to get database connection for MST3K quotes");
+                        },
+                        None => {
+                            // Silently fail - no fallback
+                            error!("Failed to process MST3K quote");
                         }
-                    } else {
-                        error!("Database pool is None for MST3K quotes");
-                    }
-                    
-                    result
-                }).await;
-                
-                if let Ok(Some((character, quote))) = task_result {
-                    // Extract individual lines from the quote
-                    // Format: "<Speaker> Line <Speaker> Line"
-                    let re = regex::Regex::new(r"<([^>]+)>\s*([^<]+)").unwrap_or_else(|_| {
-                        error!("Failed to compile regex for MST3K quote parsing");
-                        regex::Regex::new(r".*").unwrap() // Fallback regex that matches everything
-                    });
-                    
-                    // Find all speaker-line pairs
-                    let mut lines = Vec::new();
-                    for cap in re.captures_iter(&quote) {
-                        if let (Some(_speaker), Some(line_match)) = (cap.get(1), cap.get(2)) {
-                            let line = line_match.as_str().trim();
-                            if !line.is_empty() {
-                                lines.push(line.to_string());
-                            }
-                        }
-                    }
-                    
-                    // If we found any lines, pick one randomly
-                    let formatted_quote = if !lines.is_empty() {
-                        lines.choose(&mut rand::thread_rng())
-                            .unwrap_or(&quote)
-                            .clone()
-                    } else {
-                        // If no lines were extracted, use the whole quote as fallback
-                        quote
-                    };
-                    
-                    // Send the quote
-                    let quote_for_log = formatted_quote.clone(); // Clone for logging
-                    if let Err(e) = msg.channel_id.say(&ctx.http, formatted_quote).await {
-                        error!("Error sending MST3K database quote: {:?}", e);
-                        
-                        // Fall back to hardcoded quotes if sending fails
-                        fallback_mst3k_quote(ctx, msg).await?;
-                    } else {
-                        info!("MST3K database quote sent: {} (from character: {})", quote_for_log, character);
-                        return Ok(());
                     }
                 } else {
-                    // Fall back to hardcoded quotes if database query fails
-                    fallback_mst3k_quote(ctx, msg).await?;
+                    // Silently fail - no fallback
+                    error!("Database pool is None for MST3K quotes");
                 }
             } else {
-                // Database not configured, use hardcoded quotes
-                fallback_mst3k_quote(ctx, msg).await?;
+                // Silently fail - no fallback
+                error!("Database not configured for MST3K quotes");
             }
         }
-        
         // Memory interjection
         let adjusted_memory_probability = self.interjection_memory_probability * silence_multiplier;
         if rand::thread_rng().gen_bool(adjusted_memory_probability) {
