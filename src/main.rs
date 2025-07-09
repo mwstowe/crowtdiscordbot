@@ -1171,7 +1171,7 @@ impl Bot {
             return Ok(());
         }
         
-        // Check for Google search (messages starting with "google")
+        // Check for DuckDuckGo search (messages starting with "search" or "google")
         if self.duckduckgo_search_enabled && msg.content.to_lowercase().starts_with("search ") && msg.content.len() > 7 {
             let query = &msg.content[7..];
             
@@ -2191,7 +2191,7 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
             return Ok(());
         }
         
-        // Check for Google search (messages starting with "google")
+        // Check for DuckDuckGo search (messages starting with "search" or "google")
         if self.duckduckgo_search_enabled && msg.content.to_lowercase().starts_with("search ") && msg.content.len() > 7 {
             let query = &msg.content[7..];
             
