@@ -12,6 +12,7 @@ use url::Url;
 use reqwest;
 use std::time::Duration;
 use std::collections::HashSet;
+use crate::url_validator;
 
 // List of trusted news domains
 fn get_trusted_domains() -> HashSet<&'static str> {
@@ -103,6 +104,21 @@ pub async fn handle_news_interjection(
                response.contains("Guidelines:") ||
                response.contains("Example good response:") {
                 error!("News interjection error: API returned the prompt instead of a response");
+                return Ok(());
+            }
+            
+            // Check for self-reference issues
+            if response.contains("I'm Crow") || 
+               response.contains("As Crow") || 
+               response.contains("handsome") && response.contains("modest") ||
+               response.contains("Satellite of Love") {
+                error!("News interjection error: Response contains self-reference: {}", response);
+                return Ok(());
+            }
+            
+            // Validate URL using our new validator
+            if !url_validator::validate_url(&response) {
+                error!("News interjection error: Invalid URL in response: {}", response);
                 return Ok(());
             }
             

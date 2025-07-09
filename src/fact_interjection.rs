@@ -11,6 +11,7 @@ use serenity::http::Http;
 use regex::Regex;
 use crate::news_interjection;
 use crate::google_search::GoogleSearchClient;
+use crate::url_validator;
 
 // Handle fact interjection with Message object
 pub async fn handle_fact_interjection(
@@ -252,6 +253,21 @@ async fn handle_fact_interjection_common(
                response.contains("Guidelines:") ||
                response.contains("Example good response:") {
                 error!("Fact interjection error: API returned the prompt instead of a response");
+                return Ok(());
+            }
+            
+            // Check for self-reference issues
+            if response.contains("I'm Crow") || 
+               response.contains("As Crow") || 
+               response.contains("handsome") && response.contains("modest") ||
+               response.contains("Satellite of Love") {
+                error!("Fact interjection error: Response contains self-reference: {}", response);
+                return Ok(());
+            }
+            
+            // Validate URL using our new validator
+            if !url_validator::validate_url(&response) {
+                error!("Fact interjection error: Invalid URL in response: {}", response);
                 return Ok(());
             }
             
