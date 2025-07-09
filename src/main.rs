@@ -21,7 +21,7 @@ mod db_utils;
 mod config;
 mod database;
 mod response_timing;
-mod google_search;
+mod duckduckgo_search;
 mod gemini_api;
 mod crime_fighting;
 mod rate_limiter;
@@ -67,7 +67,7 @@ mod celebrity_status;
 // Use our modules
 use config::{load_config, parse_config};
 use database::DatabaseManager;
-use google_search::GoogleSearchClient;
+use duckduckgo_search::DuckDuckGoSearchClient;
 use gemini_api::GeminiClient;
 use crime_fighting::CrimeFightingGenerator;
 use news_interjection::handle_news_interjection;
@@ -98,7 +98,7 @@ impl TypeMapKey for MessageHistoryKey {
 struct Bot {
     followed_channels: Vec<ChannelId>,
     db_manager: DatabaseManager,
-    google_client: Option<GoogleSearchClient>,
+    search_client: Option<DuckDuckGoSearchClient>,
     gemini_client: Option<GeminiClient>,
     frinkiac_client: FrinkiacClient,
     morbotron_client: MorbotronClient,
@@ -112,7 +112,7 @@ struct Bot {
     trump_insult_generator: trump_insult::TrumpInsultGenerator,
     band_genre_generator: bandname::BandGenreGenerator,
     gateway_bot_ids: Vec<u64>,
-    google_search_enabled: bool,
+    duckduckgo_search_enabled: bool,
     gemini_interjection_prompt: Option<String>,
     imagine_channels: Vec<String>,
     start_time: Instant,
@@ -231,7 +231,7 @@ impl Bot {
         message_db: Option<Arc<tokio::sync::Mutex<Connection>>>,
         message_history_limit: usize,
         gateway_bot_ids: Vec<u64>,
-        google_search_enabled: bool,
+        duckduckgo_search_enabled: bool,
         gemini_rate_limit_minute: u32,
         gemini_rate_limit_day: u32,
         gemini_context_messages: usize,
@@ -271,12 +271,12 @@ impl Bot {
         let db_manager = DatabaseManager::new(mysql_host.clone(), mysql_db.clone(), mysql_user.clone(), mysql_password.clone());
         info!("Database manager created, is configured: {}", db_manager.is_configured());
         
-        // Create Google search client if feature is enabled
-        let google_client = if google_search_enabled {
-            info!("Creating Google search client for web scraping");
-            Some(GoogleSearchClient::new())
+        // Create DuckDuckGo search client if feature is enabled
+        let search_client = if duckduckgo_search_enabled {
+            info!("Creating DuckDuckGo search client for web scraping");
+            Some(DuckDuckGoSearchClient::new())
         } else {
-            info!("Google search feature is disabled in configuration");
+            info!("DuckDuckGo search feature is disabled in configuration");
             None
         };
         
@@ -331,7 +331,7 @@ impl Bot {
         Self {
             followed_channels,
             db_manager,
-            google_client,
+            search_client,
             gemini_client,
             frinkiac_client,
             morbotron_client,
@@ -345,7 +345,7 @@ impl Bot {
             trump_insult_generator,
             band_genre_generator,
             gateway_bot_ids,
-            google_search_enabled,
+            duckduckgo_search_enabled,
             gemini_interjection_prompt,
             imagine_channels,
             start_time: Instant::now(),
@@ -455,7 +455,7 @@ impl Bot {
         
         // Add feature status
         info.push_str("\n**Features:**\n");
-        info.push_str(&format!("- Google search: {}\n", if self.google_search_enabled { "Enabled" } else { "Disabled" }));
+        info.push_str(&format!("- DuckDuckGo search: {}\n", if self.duckduckgo_search_enabled { "Enabled" } else { "Disabled" }));
         info.push_str(&format!("- AI responses: {}\n", if self.gemini_client.is_some() { "Enabled" } else { "Disabled" }));
         info.push_str(&format!("- Image generation: {}\n", if !self.imagine_channels.is_empty() { 
             format!("Enabled in {} channels", self.imagine_channels.len()) 
@@ -1172,16 +1172,16 @@ impl Bot {
         }
         
         // Check for Google search (messages starting with "google")
-        if self.google_search_enabled && msg.content.to_lowercase().starts_with("google ") && msg.content.len() > 7 {
+        if self.duckduckgo_search_enabled && msg.content.to_lowercase().starts_with("search ") && msg.content.len() > 7 {
             let query = &msg.content[7..];
             
-            if let Some(google_client) = &self.google_client {
+            if let Some(search_client) = &self.search_client {
                 if let Err(e) = msg.channel_id.say(&ctx.http, format!("Searching for: {}", query)).await {
                     error!("Error sending search confirmation: {:?}", e);
                 }
                 
                 // Perform the search
-                match google_client.search(query).await {
+                match search_client.search(query).await {
                     Ok(Some(result)) => {
                         // Clean up the title by removing extra whitespace
                         let title = result.title.trim().replace("\n", " ").replace("  ", " ");
@@ -2192,16 +2192,16 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
         }
         
         // Check for Google search (messages starting with "google")
-        if self.google_search_enabled && msg.content.to_lowercase().starts_with("google ") && msg.content.len() > 7 {
+        if self.duckduckgo_search_enabled && msg.content.to_lowercase().starts_with("search ") && msg.content.len() > 7 {
             let query = &msg.content[7..];
             
-            if let Some(google_client) = &self.google_client {
+            if let Some(search_client) = &self.search_client {
                 if let Err(e) = msg.channel_id.say(&ctx.http, format!("Searching for: {}", query)).await {
                     error!("Error sending search confirmation: {:?}", e);
                 }
                 
                 // Perform the search
-                match google_client.search(query).await {
+                match search_client.search(query).await {
                     Ok(Some(result)) => {
                         // Clean up the title by removing extra whitespace
                         let title = result.title.trim().replace("\n", " ").replace("  ", " ");
@@ -2772,7 +2772,7 @@ async fn main() -> Result<()> {
     let token = &config.discord_token;
     
     // Parse config values
-    let (bot_name, message_history_limit, db_trim_interval, gemini_rate_limit_minute, gemini_rate_limit_day, gateway_bot_ids, google_search_enabled, gemini_context_messages, interjection_mst3k_probability, interjection_memory_probability, interjection_pondering_probability, interjection_ai_probability, imagine_channels, interjection_news_probability, fill_silence_enabled, fill_silence_start_hours, fill_silence_max_hours) = 
+    let (bot_name, message_history_limit, db_trim_interval, gemini_rate_limit_minute, gemini_rate_limit_day, gateway_bot_ids, duckduckgo_search_enabled, gemini_context_messages, interjection_mst3k_probability, interjection_memory_probability, interjection_pondering_probability, interjection_ai_probability, imagine_channels, interjection_news_probability, fill_silence_enabled, fill_silence_start_hours, fill_silence_max_hours) = 
         parse_config(&config);
         
     info!("News interjection probability: {}%", interjection_news_probability * 100.0);
@@ -2919,7 +2919,7 @@ Keep it brief and natural, as if you're just another participant in the conversa
     info!("Database trim interval: {} seconds", db_trim_interval);
     info!("Gemini rate limits: {} per minute, {} per day", gemini_rate_limit_minute, gemini_rate_limit_day);
     info!("Gemini context messages: {}", gemini_context_messages);
-    info!("Google search enabled: {}", google_search_enabled);
+    info!("DuckDuckGo search enabled: {}", duckduckgo_search_enabled);
     
     // Log channel configuration
     if let Some(channel_id) = &config.followed_channel_id {
@@ -3115,7 +3115,7 @@ Keep it brief and natural, as if you're just another participant in the conversa
         message_db.clone(),
         message_history_limit,
         gateway_bot_ids.clone(),
-        google_search_enabled,
+        duckduckgo_search_enabled,
         gemini_rate_limit_minute,
         gemini_rate_limit_day,
         gemini_context_messages,
@@ -3239,7 +3239,7 @@ Keep it brief and natural, as if you're just another participant in the conversa
     if !gateway_bot_ids.is_empty() {
         info!("Will respond to gateway bots with IDs: {:?}", gateway_bot_ids);
     }
-    info!("Google search feature is {}", if google_search_enabled { "enabled" } else { "disabled" });
+    info!("DuckDuckGo search feature is {}", if duckduckgo_search_enabled { "enabled" } else { "disabled" });
     
     // Start the spontaneous interjection task if fill silence is enabled
     if fill_silence_enabled {

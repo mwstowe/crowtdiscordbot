@@ -10,7 +10,7 @@ use serenity::model::id::ChannelId;
 use serenity::http::Http;
 use regex::Regex;
 use crate::news_interjection;
-use crate::google_search::GoogleSearchClient;
+use crate::duckduckgo_search::DuckDuckGoSearchClient;
 use crate::url_validator;
 
 // Handle fact interjection with Message object
@@ -109,7 +109,7 @@ async fn find_better_url(fact: &str) -> Result<Option<String>> {
     info!("Attempting to find a better URL for fact: {}", fact);
     
     // Create a search client
-    let search_client = GoogleSearchClient::new();
+    let search_client = DuckDuckGoSearchClient::new();
     
     // Extract the main fact without the citation
     let main_fact = if let Some(citation_index) = fact.find("Source:") {

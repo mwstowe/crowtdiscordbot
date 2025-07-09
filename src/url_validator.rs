@@ -8,7 +8,7 @@ lazy_static! {
     ).unwrap();
     
     static ref SEARCH_ENGINE_REGEX: Regex = Regex::new(
-        r"https?://(?:www\.)?(?:google\.com/search|bing\.com/search|search\.yahoo\.com|duckduckgo\.com)"
+        r"https?://(?:www\.)?(?:google\.com/search|bing\.com/search|search\.yahoo\.com|duckduckgo\.com/\?q=)"
     ).unwrap();
     
     static ref VALID_NEWS_DOMAINS: Regex = Regex::new(
@@ -81,6 +81,7 @@ mod tests {
     #[test]
     fn test_search_engine_urls() {
         assert!(!validate_url("Check out this fact: https://www.google.com/search?q=carbon+dioxide+fertilization"));
+        assert!(!validate_url("Check out this fact: https://duckduckgo.com/?q=carbon+dioxide+fertilization"));
         assert!(!validate_url("Article title: New AI Breakthrough https://www.bing.com/search?q=new+ai+breakthrough"));
     }
     
@@ -92,5 +93,6 @@ mod tests {
     #[test]
     fn test_url_with_message_text() {
         assert!(!validate_url("Oh, I'm Crow. That's... mostly right, I guess? You forgot to mention I'm incredibly handsome. And modest. Very, very modest. https://www.google.com/search?hl=en&q=Oh%2C%20I%27m%20Crow.%20That%27s...%20mostly%20right%2C%20I%20guess%3F%20You%20forgot%20to%20mention%20I%27m%20incredibly%20handsome.%20And%20modest.%20Very%2C%20very%20modest."));
+        assert!(!validate_url("Oh, I'm Crow. That's... mostly right, I guess? You forgot to mention I'm incredibly handsome. And modest. Very, very modest. https://duckduckgo.com/?q=Oh%2C%20I%27m%20Crow.%20That%27s...%20mostly%20right%2C%20I%20guess%3F%20You%20forgot%20to%20mention%20I%27m%20incredibly%20handsome.%20And%20modest.%20Very%2C%20very%20modest."));
     }
 }

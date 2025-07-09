@@ -69,7 +69,7 @@ pub struct Config {
     pub interjection_channel_names: Option<String>,
     pub interjection_channel_ids: Option<String>,
     // thinking_message removed - only using typing indicator
-    pub google_search_enabled: Option<String>,
+    pub duckduckgo_search_enabled: Option<String>,
     pub db_host: Option<String>,
     pub db_name: Option<String>,
     pub db_user: Option<String>,
@@ -138,7 +138,7 @@ pub fn parse_config(config: &Config) -> (
     u32,                    // gemini_rate_limit_minute
     u32,                    // gemini_rate_limit_day
     Vec<u64>,               // gateway_bot_ids
-    bool,                   // google_search_enabled
+    bool,                   // duckduckgo_search_enabled
     usize,                  // gemini_context_messages
     f64,                    // interjection_mst3k_probability
     f64,                    // interjection_memory_probability
@@ -209,15 +209,15 @@ pub fn parse_config(config: &Config) -> (
         info!("No gateway bots configured, will ignore all bot messages");
     }
     
-    // Parse Google search enabled flag (default: true for backward compatibility)
-    let google_search_enabled = config.google_search_enabled
+    // Parse DuckDuckGo search enabled flag (default: true for backward compatibility)
+    let duckduckgo_search_enabled = config.duckduckgo_search_enabled
         .as_ref()
         .and_then(|enabled| {
             match enabled.to_lowercase().as_str() {
                 "false" | "0" | "no" | "disabled" | "off" => Some(false),
                 "true" | "1" | "yes" | "enabled" | "on" => Some(true),
                 _ => {
-                    info!("Invalid google_search_enabled value: {}, defaulting to enabled", enabled);
+                    info!("Invalid duckduckgo_search_enabled value: {}, defaulting to enabled", enabled);
                     Some(true)
                 }
             }
@@ -313,7 +313,7 @@ pub fn parse_config(config: &Config) -> (
         info!("Image generation allowed in all channels");
     }
     
-    info!("Google search feature is {}", if google_search_enabled { "enabled" } else { "disabled" });
+    info!("DuckDuckGo search feature is {}", if duckduckgo_search_enabled { "enabled" } else { "disabled" });
           
     (
         bot_name,
@@ -322,7 +322,7 @@ pub fn parse_config(config: &Config) -> (
         gemini_rate_limit_minute,
         gemini_rate_limit_day,
         gateway_bot_ids,
-        google_search_enabled,
+        duckduckgo_search_enabled,
         gemini_context_messages,
         interjection_mst3k_probability,
         interjection_memory_probability,
