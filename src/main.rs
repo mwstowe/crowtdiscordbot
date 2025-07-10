@@ -45,6 +45,7 @@ mod screenshot_search_common;
 mod prompt_templates;
 mod utils;
 mod url_validator;
+mod news_verification;
 
 // Helper function to check if a response looks like a prompt
 fn is_prompt_echo(response: &str) -> bool {

@@ -7,46 +7,9 @@ use crate::response_timing::apply_realistic_delay;
 use crate::gemini_api::GeminiClient;
 use std::sync::Arc;
 use tokio_rusqlite::Connection;
-use regex::Regex;
-use url::Url;
 use reqwest;
 use std::time::Duration;
-use std::collections::HashSet;
-use crate::url_validator;
-
-// List of trusted news domains
-fn get_trusted_domains() -> HashSet<&'static str> {
-    let domains = [
-        // Tech news
-        "techcrunch.com", "arstechnica.com", "wired.com", "theverge.com", "engadget.com",
-        "cnet.com", "zdnet.com", "venturebeat.com", "thenextweb.com", "gizmodo.com",
-        "mashable.com", "slashdot.org", "tomshardware.com", "anandtech.com", "macrumors.com",
-        "9to5mac.com", "9to5google.com", "androidpolice.com", "xda-developers.com",
-        
-        // Science news
-        "scientificamerican.com", "sciencedaily.com", "livescience.com", "popsci.com",
-        "newscientist.com", "sciencemag.org", "nature.com", "space.com", "phys.org",
-        
-        // General news
-        "reuters.com", "apnews.com", "bbc.com", "bbc.co.uk", "npr.org", "washingtonpost.com",
-        "nytimes.com", "theguardian.com", "economist.com", "bloomberg.com", "cnbc.com",
-        "wsj.com", "ft.com", "time.com", "theatlantic.com", "vox.com", "slate.com",
-        
-        // Weird news
-        "boingboing.net", "digg.com", "mentalfloss.com", "atlasobscura.com", "odditycentral.com",
-        "neatorama.com", "unusualplaces.org", "oddee.com", "weirdnews.com", "theawesomer.com",
-        
-        // Government and educational
-        "nasa.gov", "nih.gov", "cdc.gov", "noaa.gov", "epa.gov", "energy.gov", "nsf.gov",
-        "edu", "ac.uk", "mit.edu", "harvard.edu", "stanford.edu", "berkeley.edu", "caltech.edu",
-        
-        // Major platforms with news content
-        "medium.com", "substack.com", "github.blog", "stackoverflow.blog", "youtube.com",
-        "reddit.com", "wikipedia.org", "wikimedia.org"
-    ];
-    
-    domains.iter().copied().collect()
-}
+use crate::news_verification;
 
 // Handle news interjection
 pub async fn handle_news_interjection(
@@ -116,70 +79,79 @@ pub async fn handle_news_interjection(
                 return Ok(());
             }
             
-            // Validate URL using our new validator
-            if !url_validator::validate_url(&response) {
-                error!("News interjection error: Invalid URL in response: {}", response);
+            // Validate URL format using our new validator
+            if !news_verification::verify_url_format(&response) {
+                error!("News interjection error: Invalid URL format in response: {}", response);
                 return Ok(());
             }
             
-            // Validate and clean up the response
-            let cleaned_response = clean_news_response(&response);
-            
-            // If the cleaning process resulted in an empty response, don't send anything
-            if cleaned_response.is_empty() {
-                info!("News interjection skipped: URL validation failed");
-                return Ok(());
-            }
-            
-            // Extract the URL for validation
-            let url_regex = Regex::new(r"https?://[^\s]+").unwrap();
-            if let Some(url_match) = url_regex.find(&cleaned_response) {
-                let url_str = url_match.as_str();
+            // Extract article title, URL, and summary
+            if let Some((title, url)) = news_verification::extract_article_info(&response) {
+                // Get the summary (everything after the URL)
+                let url_pos = response.find(&url).unwrap_or(0);
+                let summary = if url_pos + url.len() < response.len() {
+                    response[(url_pos + url.len())..].trim().to_string()
+                } else {
+                    String::new()
+                };
                 
                 // Validate that the URL actually exists and follow redirects
-                match validate_url_exists(url_str).await {
+                match validate_url_exists(&url).await {
                     Ok((true, Some(final_url))) => {
-                        // URL exists, proceed with sending the message
-                        info!("URL validation successful: {} exists", final_url);
-                        
-                        // Replace the original URL with the final URL if they're different
-                        let final_response = if url_str != final_url {
-                            cleaned_response.replace(url_str, &final_url)
-                        } else {
-                            cleaned_response
-                        };
-                        
-                        // Start typing indicator now that we've decided to send a message
-                        if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
-                            error!("Failed to send typing indicator for news interjection: {:?}", e);
-                        }
-                        
-                        // Apply realistic typing delay
-                        apply_realistic_delay(&final_response, ctx, msg.channel_id).await;
-                        
-                        // Send the response
-                        let response_text = final_response.clone(); // Clone for logging
-                        if let Err(e) = msg.channel_id.say(&ctx.http, final_response).await {
-                            error!("Error sending news interjection: {:?}", e);
-                        } else {
-                            info!("News interjection evaluation: SENT response - {}", response_text);
+                        // URL exists, now verify that the title and summary match the content
+                        match news_verification::verify_news_article(gemini_client, &title, &final_url, &summary).await {
+                            Ok(true) => {
+                                // Title and summary match the URL content
+                                info!("News verification successful: Title and summary match URL content");
+                                
+                                // Replace the original URL with the final URL if they're different
+                                let final_response = if url != final_url {
+                                    response.replace(&url, &final_url)
+                                } else {
+                                    response
+                                };
+                                
+                                // Start typing indicator now that we've decided to send a message
+                                if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
+                                    error!("Failed to send typing indicator for news interjection: {:?}", e);
+                                }
+                                
+                                // Apply realistic typing delay
+                                apply_realistic_delay(&final_response, ctx, msg.channel_id).await;
+                                
+                                // Send the response
+                                let response_text = final_response.clone(); // Clone for logging
+                                if let Err(e) = msg.channel_id.say(&ctx.http, final_response).await {
+                                    error!("Error sending news interjection: {:?}", e);
+                                } else {
+                                    info!("News interjection evaluation: SENT response - {}", response_text);
+                                }
+                            },
+                            Ok(false) => {
+                                // Title and summary don't match the URL content
+                                info!("News interjection skipped: Title/summary mismatch with URL content");
+                            },
+                            Err(e) => {
+                                // Error verifying title and summary
+                                error!("Error verifying news article title/summary: {:?}", e);
+                            }
                         }
                     },
                     Ok((true, None)) => {
                         // URL exists but we couldn't get the final URL
-                        info!("News interjection skipped: URL exists but couldn't get final URL: {}", url_str);
+                        info!("News interjection skipped: URL exists but couldn't get final URL: {}", url);
                     },
                     Ok((false, _)) => {
                         // URL doesn't exist or isn't HTML
-                        info!("News interjection skipped: URL doesn't exist or isn't HTML: {}", url_str);
+                        info!("News interjection skipped: URL doesn't exist or isn't HTML: {}", url);
                     },
                     Err(e) => {
                         // Error validating URL
-                        error!("Error validating URL {}: {:?}", url_str, e);
+                        error!("Error validating URL {}: {:?}", url, e);
                     }
                 }
             } else {
-                info!("News interjection skipped: No URL found in cleaned response");
+                info!("News interjection skipped: Couldn't extract article title and URL");
             }
         },
         Err(e) => {
@@ -188,79 +160,6 @@ pub async fn handle_news_interjection(
     }
     
     Ok(())
-}
-
-// Function to validate and clean up news responses
-fn clean_news_response(response: &str) -> String {
-    // Extract the URL from the response
-    let url_regex = Regex::new(r"https?://[^\s]+").unwrap();
-    
-    if let Some(url_match) = url_regex.find(response) {
-        let url_str = url_match.as_str();
-        
-        // Try to parse the URL
-        if let Ok(url) = Url::parse(url_str) {
-            // Check if the URL has a proper path (not just "/")
-            let path = url.path();
-            if path.len() <= 1 {
-                // URL doesn't have a proper path
-                info!("News interjection URL validation failed: URL has no proper path: {}", url_str);
-                return String::new();
-            }
-            
-            // Check if the URL contains a year in the path (common for news articles)
-            let has_year = path.contains("/20");
-            let has_month = path.contains("/01/") || path.contains("/02/") || path.contains("/03/") ||
-                           path.contains("/04/") || path.contains("/05/") || path.contains("/06/") ||
-                           path.contains("/07/") || path.contains("/08/") || path.contains("/09/") ||
-                           path.contains("/10/") || path.contains("/11/") || path.contains("/12/");
-            
-            if !has_year && !has_month {
-                // URL doesn't look like a news article
-                info!("News interjection URL validation failed: URL doesn't look like a news article: {}", url_str);
-                return String::new();
-            }
-            
-            // Check if the domain is in our trusted list
-            let host = url.host_str().unwrap_or("");
-            let trusted_domains = get_trusted_domains();
-            let domain_parts: Vec<&str> = host.split('.').collect();
-            
-            // Check if the domain or any parent domain is trusted
-            let mut is_trusted = false;
-            if domain_parts.len() >= 2 {
-                let base_domain = format!("{}.{}", domain_parts[domain_parts.len() - 2], domain_parts[domain_parts.len() - 1]);
-                is_trusted = trusted_domains.contains(base_domain.as_str());
-                
-                // Also check for subdomains of trusted domains
-                for trusted in trusted_domains.iter() {
-                    if host.ends_with(trusted) {
-                        is_trusted = true;
-                        break;
-                    }
-                }
-            }
-            
-            if !is_trusted {
-                info!("News interjection URL validation failed: Domain not in trusted list: {}", host);
-                return String::new();
-            }
-            
-            // Remove any "(via search)" or similar tags using regex for more flexibility
-            let via_regex = Regex::new(r"\s*\(via\s+[^)]+\)\s*").unwrap();
-            let cleaned_response = via_regex.replace_all(response, "").to_string();
-            
-            return cleaned_response.trim().to_string();
-        } else {
-            // Invalid URL
-            info!("News interjection URL validation failed: Invalid URL: {}", url_str);
-            return String::new();
-        }
-    } else {
-        // No URL found
-        info!("News interjection URL validation failed: No URL found in response");
-        return String::new();
-    }
 }
 
 // Function to validate if a URL actually exists, follow redirects, and check content type
