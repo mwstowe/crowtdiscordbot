@@ -85,16 +85,16 @@ Don't explain your reasoning or include your rating in the response."
 
 # Random Interjection Probabilities (chance per message)
 # Each type has its own probability - set to 0 to disable
-INTERJECTION_MST3K_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
-INTERJECTION_MEMORY_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
-INTERJECTION_PONDERING_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
-INTERJECTION_AI_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
-INTERJECTION_FACT_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
-INTERJECTION_NEWS_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
+INTERJECTION_MST3K_PROBABILITY = "0.0025"  # Default: 0.25% chance (1 in 400)
+INTERJECTION_MEMORY_PROBABILITY = "0.0025"  # Default: 0.25% chance (1 in 400)
+INTERJECTION_PONDERING_PROBABILITY = "0.0025"  # Default: 0.25% chance (1 in 400)
+INTERJECTION_AI_PROBABILITY = "0.0025"  # Default: 0.25% chance (1 in 400)
+INTERJECTION_FACT_PROBABILITY = "0.0025"  # Default: 0.25% chance (1 in 400)
+INTERJECTION_NEWS_PROBABILITY = "0.0025"  # Default: 0.25% chance (1 in 400)
 
 # Fill Silence Feature Configuration
 FILL_SILENCE_ENABLED = "true"  # Set to "false" to disable the fill silence feature
-FILL_SILENCE_START_HOURS = "1"  # Start increasing probabilities after this many hours of silence
+FILL_SILENCE_START_HOURS = "1.5"  # Start increasing probabilities after this many hours of silence
 FILL_SILENCE_MAX_HOURS = "12"   # Reach 100% probability after this many hours of silence
 
 # Interjection Channel Configuration
