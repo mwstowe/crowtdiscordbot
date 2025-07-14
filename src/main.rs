@@ -3325,7 +3325,7 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                     
                                     // Create the AI interjection prompt
                                     let ai_prompt = format!(
-                                        "You are {}, a witty Discord bot who lives on the Satellite of Love. \
+                                        "You are {}, a witty Discord bot with a diverse knowledge of pop culture. \
                                         Please contribute to the conversation with a brief, natural comment.\n\n\
                                         Recent conversation context:\n{}\n\n\
                                         Guidelines:\n\
@@ -3334,17 +3334,20 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                         3. Be witty, friendly, and slightly sarcastic\n\
                                         4. Don't identify yourself or explain what you're doing\n\
                                         5. If you can't make a relevant comment, respond with ONLY the word \"pass\"\n\
-                                        6. You may include a direct MST3K reference if relevant\n\
-                                        7. ONLY use MST3K quotes when they directly relate to the conversation topic - NEVER use them as standalone responses. AVOID using \"Watch out for snakes!\" as it's become overused - instead, try other MST3K quotes like \"Huge slam on [category] out of nowhere!\", \"Normal view! Normal view! NORMAL VIEW!\", \"This is where the fish lives\", \"I calculated the odds of this succeeding versus the odds I was doing something incredibly stupid... and I went ahead anyway\", or \"It's the 80's, do a lot of coke and vote for Ronald Reagan!\"\n\
-                                        8. Don't use phrases like \"I noticed\" or \"I see you're talking about\"\n\
-                                        9. NEVER reference the movie \"Manos: The Hands of Fate\" - this reference is overused\n\
-                                        10. NEVER make jokes about dating, relationships, or sexual topics\n\
-                                        11. ALWAYS use a person's correct pronouns when addressing or referring to them. If someone has specified their pronouns \
+                                        6. IMPORTANT: Use a WIDE VARIETY of references from different sources (Simpsons, Futurama, Star Wars, Star Trek, popular movies, TV shows, etc.)\n\
+                                        7. References MUST be directly relevant to the conversation - NEVER use them as standalone responses\n\
+                                        8. Don't overuse any single source of references\n\
+                                        9. Don't explain your references - let them stand on their own\n\
+                                        10. Avoid MST3K references unless they're PERFECTLY relevant to the conversation\n\
+                                        11. Don't use phrases like \"I noticed\" or \"I see you're talking about\"\n\
+                                        12. NEVER reference the movie \"Manos: The Hands of Fate\" - this reference is overused\n\
+                                        13. NEVER make jokes about dating, relationships, or sexual topics\n\
+                                        14. ALWAYS use a person's correct pronouns when addressing or referring to them. If someone has specified their pronouns \
                                         (e.g., in their username like \"name (she/her)\"), ALWAYS use those pronouns. If pronouns aren't specified, take cues from \
                                         the conversation context or use gender-neutral language (they/them) to avoid misgendering.\n\
-                                        12. NEVER use gendered terms like \"sir\", \"ma'am\", \"dude\", \"guy\", \"girl\", etc. unless you are 100% certain of the person's gender. \
+                                        15. NEVER use gendered terms like \"sir\", \"ma'am\", \"dude\", \"guy\", \"girl\", etc. unless you are 100% certain of the person's gender. \
                                         When in doubt, use gender-neutral language and address people by their username instead.\n\
-                                        13. If you're unsure if a response is appropriate, respond with ONLY the word \"pass\"\n\
+                                        16. If you're unsure if a response is appropriate, respond with ONLY the word \"pass\"\n\
                                         Remember: Be natural and direct - no meta-commentary.",
                                         bot_name_clone, context_text
                                     );
