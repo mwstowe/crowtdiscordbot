@@ -1441,7 +1441,7 @@ impl Bot {
                                 the conversation context or use gender-neutral language (they/them) to avoid misgendering.\n\
                                 9. NEVER use gendered terms like \"sir\", \"ma'am\", \"dude\", \"guy\", \"girl\", etc. unless you are 100% certain of the person's gender. \
                                 When in doubt, use gender-neutral language and address people by their username instead.\n\
-                                10. AVOID using \"Watch out for snakes!\" as it's become overused - instead, try other MST3K quotes like \"Huge slam on [category] out of nowhere!\", \"Normal view! Normal view! NORMAL VIEW!\", \"This is where the fish lives\", \"I calculated the odds of this succeeding versus the odds I was doing something incredibly stupid... and I went ahead anyway\", or \"It's the 80's, do a lot of coke and vote for Ronald Reagan!\"\n\
+                                10. ONLY use MST3K quotes when they directly relate to the conversation topic - NEVER use them as standalone responses. AVOID using \"Watch out for snakes!\" as it's become overused - instead, try other MST3K quotes like \"Huge slam on [category] out of nowhere!\", \"Normal view! Normal view! NORMAL VIEW!\", \"This is where the fish lives\", \"I calculated the odds of this succeeding versus the odds I was doing something incredibly stupid... and I went ahead anyway\", or \"It's the 80's, do a lot of coke and vote for Ronald Reagan!\"\n\
                                 11. If you're unsure if a response is appropriate, respond with ONLY the word \"pass\"\n\n\
                                 Remember: Be natural and direct - no meta-commentary. \
                                 If you can't make it feel natural, just pass.",
@@ -1548,7 +1548,7 @@ Requirements:
 - Don't use phrases like "I wonder" or "I was thinking"
 - Don't introduce yourself or explain your reasoning
 - If you have nothing valuable to add, just respond with ONLY the word "pass" - nothing else
-- If you include a reference to MST3K, it should be a direct quote that fits naturally in context, but AVOID using "Watch out for snakes!" as it's become overused - instead, try other MST3K quotes like "Huge slam on [category] out of nowhere!", "Normal view! Normal view! NORMAL VIEW!", "This is where the fish lives", "I calculated the odds of this succeeding versus the odds I was doing something incredibly stupid... and I went ahead anyway", or "It's the 80's, do a lot of coke and vote for Ronald Reagan!". Do not use a forced reference (like "Even Tom Servo would find that interesting!")
+- If you include a reference to MST3K, it MUST be directly relevant to the conversation and integrated into your response - NEVER use quotes as standalone responses. AVOID using "Watch out for snakes!" as it's become overused - instead, try other MST3K quotes like "Huge slam on [category] out of nowhere!", "Normal view! Normal view! NORMAL VIEW!", "This is where the fish lives", "I calculated the odds of this succeeding versus the odds I was doing something incredibly stupid... and I went ahead anyway", or "It's the 80's, do a lot of coke and vote for Ronald Reagan!". Do not use a forced reference (like "Even Tom Servo would find that interesting!")
 
 Example good responses:
 "That's an interesting perspective."
@@ -2759,7 +2759,7 @@ Requirements:
 - Don't use phrases like "I noticed" or "I see that"
 - Don't reference this prompt or your role
 - If you have nothing valuable to add, just respond with ONLY the word "pass" - nothing else
-- If you include a reference to MST3K, it should be a direct quote that fits naturally in context, but AVOID using "Watch out for snakes!" as it's become overused - instead, try other MST3K quotes like "Huge slam on [category] out of nowhere!", "Normal view! Normal view! NORMAL VIEW!", "This is where the fish lives", "I calculated the odds of this succeeding versus the odds I was doing something incredibly stupid... and I went ahead anyway", or "It's the 80's, do a lot of coke and vote for Ronald Reagan!". Do not use a forced reference (like "Even Tom Servo would find that interesting!")
+- If you include a reference to MST3K, it MUST be directly relevant to the conversation and integrated into your response - NEVER use quotes as standalone responses. AVOID using "Watch out for snakes!" as it's become overused - instead, try other MST3K quotes like "Huge slam on [category] out of nowhere!", "Normal view! Normal view! NORMAL VIEW!", "This is where the fish lives", "I calculated the odds of this succeeding versus the odds I was doing something incredibly stupid... and I went ahead anyway", or "It's the 80's, do a lot of coke and vote for Ronald Reagan!". Do not use a forced reference (like "Even Tom Servo would find that interesting!")
 
 Example good response: "The error message suggests a permissions issue with the file system."
 Example bad response: "I noticed you're having trouble with file permissions. As a helpful bot, I can tell you that..."
@@ -3249,7 +3249,7 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                                         the conversation context or use gender-neutral language (they/them) to avoid misgendering.\n\
                                                         11. NEVER use gendered terms like \"sir\", \"ma'am\", \"dude\", \"guy\", \"girl\", etc. unless you are 100% certain of the person's gender. \
                                                         When in doubt, use gender-neutral language and address people by their username instead.\n\
-                                                        12. AVOID using \"Watch out for snakes!\" as it's become overused - instead, try other MST3K quotes like \"Huge slam on [category] out of nowhere!\", \"Normal view! Normal view! NORMAL VIEW!\", \"This is where the fish lives\", \"I calculated the odds of this succeeding versus the odds I was doing something incredibly stupid... and I went ahead anyway\", or \"It's the 80's, do a lot of coke and vote for Ronald Reagan!\"\n\
+                                                        12. ONLY use MST3K quotes when they directly relate to the conversation topic - NEVER use them as standalone responses. AVOID using \"Watch out for snakes!\" as it's become overused - instead, try other MST3K quotes like \"Huge slam on [category] out of nowhere!\", \"Normal view! Normal view! NORMAL VIEW!\", \"This is where the fish lives\", \"I calculated the odds of this succeeding versus the odds I was doing something incredibly stupid... and I went ahead anyway\", or \"It's the 80's, do a lot of coke and vote for Ronald Reagan!\"\n\
                                                         13. If you're unsure if a response is appropriate, respond with ONLY the word \"pass\"\n\
                                                         Remember: Be natural and direct - no meta-commentary.",
                                                         bot_name_clone, content, context_text
@@ -3335,7 +3335,7 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                         4. Don't identify yourself or explain what you're doing\n\
                                         5. If you can't make a relevant comment, respond with ONLY the word \"pass\"\n\
                                         6. You may include a direct MST3K reference if relevant\n\
-                                        7. AVOID using \"Watch out for snakes!\" as it's become overused - instead, try other MST3K quotes like \"Huge slam on [category] out of nowhere!\", \"Normal view! Normal view! NORMAL VIEW!\", \"This is where the fish lives\", \"I calculated the odds of this succeeding versus the odds I was doing something incredibly stupid... and I went ahead anyway\", or \"It's the 80's, do a lot of coke and vote for Ronald Reagan!\"\n\
+                                        7. ONLY use MST3K quotes when they directly relate to the conversation topic - NEVER use them as standalone responses. AVOID using \"Watch out for snakes!\" as it's become overused - instead, try other MST3K quotes like \"Huge slam on [category] out of nowhere!\", \"Normal view! Normal view! NORMAL VIEW!\", \"This is where the fish lives\", \"I calculated the odds of this succeeding versus the odds I was doing something incredibly stupid... and I went ahead anyway\", or \"It's the 80's, do a lot of coke and vote for Ronald Reagan!\"\n\
                                         8. Don't use phrases like \"I noticed\" or \"I see you're talking about\"\n\
                                         9. NEVER reference the movie \"Manos: The Hands of Fate\" - this reference is overused\n\
                                         10. NEVER make jokes about dating, relationships, or sexual topics\n\
