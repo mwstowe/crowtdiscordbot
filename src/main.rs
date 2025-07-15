@@ -1350,7 +1350,7 @@ impl Bot {
                                 error!("Error sending MST3K quote: {:?}", e);
                                 // Silently fail - no fallback
                             } else {
-                                info!("MST3K quote sent: {}", quote);
+                                info!("MST3K quote interjection sent: {}", quote);
                             }
                         },
                         None => {
@@ -1468,7 +1468,7 @@ impl Bot {
                                     if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
                                         error!("Error sending enhanced memory interjection: {:?}", e);
                                     } else {
-                                        info!("Enhanced memory interjection sent: {}", response);
+                                        info!("Memory interjection sent: {}", response);
                                     }
                                 },
                                 Err(e) => {
@@ -1704,7 +1704,7 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                             if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
                                 error!("Error sending AI interjection: {:?}", e);
                             } else {
-                                info!("AI interjection evaluation: SENT response - {}", response_text);
+                                info!("AI interjection sent: {}", response_text);
                             }
                         },
                         Err(e) => {
@@ -3536,7 +3536,7 @@ Be creative but realistic with your article title and URL."#)
                             if let Err(e) = channel_id.say(&http, message.clone()).await {
                                 error!("Failed to send spontaneous interjection: {:?}", e);
                             } else {
-                                info!("Sent spontaneous interjection: {}", message);
+                                info!("Sent spontaneous interjection (type: {}): {}", interjection_type, message);
                                 
                                 // Mark the bot as the last speaker in this channel
                                 fill_silence_manager.mark_bot_as_last_speaker(*channel_id).await;

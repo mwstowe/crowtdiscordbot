@@ -124,7 +124,7 @@ pub async fn handle_news_interjection(
                                 if let Err(e) = msg.channel_id.say(&ctx.http, final_response).await {
                                     error!("Error sending news interjection: {:?}", e);
                                 } else {
-                                    info!("News interjection evaluation: SENT response - {}", response_text);
+                                    info!("News interjection sent: {}", response_text);
                                 }
                             },
                             Ok(false) => {

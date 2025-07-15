@@ -146,50 +146,57 @@ async fn find_better_url(fact: &str) -> Result<Option<String>> {
     }
 }
 
-// Function to validate a citation URL with search fallback
-async fn validate_citation_with_fallback(
-    _gemini_client: &GeminiClient,
+// Function to validate that a fact and its citation actually match using Gemini API
+async fn validate_fact_matches_citation(
+    gemini_client: &GeminiClient,
     fact: &str,
     citation: &str,
-) -> Result<(bool, Option<String>)> {
-    // First try the original URL
-    match news_interjection::validate_url_exists(citation).await {
-        Ok((true, final_url)) => {
-            // URL exists and is valid
-            info!("Citation URL validation successful: {}", citation);
-            Ok((true, final_url))
-        },
-        Ok((false, _)) => {
-            // URL doesn't exist or isn't HTML, try to find a better one
-            info!("Citation URL validation failed: {}. Attempting to find a better URL...", citation);
+) -> Result<bool> {
+    info!("Validating that fact matches citation: {} - {}", fact, citation);
+    
+    // Extract the main fact without the citation
+    let main_fact = if let Some(citation_index) = fact.find("Source:") {
+        fact[..citation_index].trim()
+    } else {
+        fact.trim()
+    };
+    
+    // Create a prompt to check if the fact and citation match
+    let validation_prompt = format!(
+        "You are a fact-checking assistant. Your task is to determine if a given fact is supported by the provided URL citation.\n\n\
+        Fact: \"{}\"\n\
+        Citation URL: {}\n\n\
+        Please verify if this fact is likely to be found at or supported by the content at this URL.\n\
+        Consider the domain expertise of the website, the specificity of the fact, and whether the URL path suggests relevant content.\n\n\
+        Respond with ONLY ONE of these exact options:\n\
+        1. \"MATCH\" - if the fact is likely supported by the URL\n\
+        2. \"MISMATCH\" - if the fact is clearly not related to the URL or contradicts what would be found there\n\
+        3. \"UNCERTAIN\" - if you cannot determine with confidence\n\n\
+        Respond with ONLY one of these three words and nothing else.",
+        main_fact,
+        citation
+    );
+    
+    // Call Gemini API to validate
+    match gemini_client.generate_content(&validation_prompt).await {
+        Ok(response) => {
+            let response = response.trim().to_uppercase();
+            info!("Fact-citation validation result: {}", response);
             
-            match find_better_url(fact).await {
-                Ok(Some(better_url)) => {
-                    info!("Found better URL: {}", better_url);
-                    Ok((true, Some(better_url)))
-                },
-                _ => {
-                    info!("Could not find a better URL for fact");
-                    Ok((false, None))
-                }
+            if response == "MATCH" {
+                Ok(true)
+            } else if response == "MISMATCH" {
+                Ok(false)
+            } else {
+                // For UNCERTAIN or any other response, we'll be conservative and reject
+                info!("Uncertain fact-citation match, rejecting to be safe");
+                Ok(false)
             }
         },
         Err(e) => {
-            // Error validating URL
-            error!("Error validating citation URL {}: {:?}", citation, e);
-            // Try to find a better URL as fallback
-            match find_better_url(fact).await {
-                Ok(Some(better_url)) => {
-                    info!("Found better URL after error: {}", better_url);
-                    Ok((true, Some(better_url)))
-                },
-                _ => {
-                    // Default to accepting the citation if validation fails due to technical issues
-                    // and we couldn't find a better URL
-                    info!("Technical error validating URL and could not find a better URL");
-                    Ok((true, None))
-                }
-            }
+            error!("Error validating fact-citation match: {:?}", e);
+            // Default to rejecting if we can't validate
+            Ok(false)
         }
     }
 }
@@ -200,13 +207,35 @@ async fn validate_citation_with_ai(
     fact: &str,
     citation: &str,
 ) -> bool {
-    // Validate the citation with fallback to search
-    match validate_citation_with_fallback(gemini_client, fact, citation).await {
-        Ok((is_valid, _)) => is_valid,
+    // First check if the URL exists
+    match news_interjection::validate_url_exists(citation).await {
+        Ok((true, _)) => {
+            // URL exists, now check if the fact and citation match
+            match validate_fact_matches_citation(gemini_client, fact, citation).await {
+                Ok(matches) => {
+                    if matches {
+                        info!("Fact validation successful: fact matches citation content");
+                        true
+                    } else {
+                        info!("Fact validation failed: fact does NOT match citation content");
+                        false
+                    }
+                },
+                Err(e) => {
+                    error!("Error validating fact-citation match: {:?}", e);
+                    // Be conservative and reject if we can't validate
+                    false
+                }
+            }
+        },
+        Ok((false, _)) => {
+            info!("Citation URL validation failed: URL doesn't exist or isn't HTML");
+            false
+        },
         Err(e) => {
-            error!("Error in citation validation with fallback: {:?}", e);
-            // Default to accepting the citation if validation fails due to technical issues
-            true
+            error!("Error validating citation URL: {:?}", e);
+            // Be conservative and reject if we can't validate
+            false
         }
     }
 }
@@ -330,7 +359,7 @@ async fn handle_fact_interjection_common(
             if let Err(e) = channel_id.say(http, response).await {
                 error!("Error sending fact interjection: {:?}", e);
             } else {
-                info!("Fact interjection evaluation: SENT response - {}", response_text);
+                info!("Fact interjection sent: {}", response_text);
             }
         },
         Err(e) => {
@@ -339,4 +368,103 @@ async fn handle_fact_interjection_common(
     }
     
     Ok(())
+}
+// Function to validate a citation URL with search fallback
+async fn validate_citation_with_fallback(
+    gemini_client: &GeminiClient,
+    fact: &str,
+    citation: &str,
+) -> Result<(bool, Option<String>)> {
+    // First try the original URL
+    match news_interjection::validate_url_exists(citation).await {
+        Ok((true, final_url)) => {
+            // URL exists and is valid, but now we need to check if the fact matches the citation
+            info!("Citation URL exists: {}", citation);
+            
+            // Validate that the fact and citation actually match
+            match validate_fact_matches_citation(gemini_client, fact, citation).await {
+                Ok(true) => {
+                    info!("Fact matches citation content: {}", citation);
+                    Ok((true, final_url))
+                },
+                Ok(false) => {
+                    info!("Fact does NOT match citation content: {}. Attempting to find a better URL...", citation);
+                    // Try to find a better URL
+                    match find_better_url(fact).await {
+                        Ok(Some(better_url)) => {
+                            // Validate the new URL matches the fact
+                            match validate_fact_matches_citation(gemini_client, fact, &better_url).await {
+                                Ok(true) => {
+                                    info!("Found better matching URL: {}", better_url);
+                                    Ok((true, Some(better_url)))
+                                },
+                                _ => {
+                                    info!("Better URL also doesn't match fact content");
+                                    Ok((false, None))
+                                }
+                            }
+                        },
+                        _ => {
+                            info!("Could not find a better URL for fact");
+                            Ok((false, None))
+                        }
+                    }
+                },
+                Err(e) => {
+                    error!("Error validating fact-citation match: {:?}", e);
+                    // Be conservative and reject if we can't validate
+                    Ok((false, None))
+                }
+            }
+        },
+        Ok((false, _)) => {
+            // URL doesn't exist or isn't HTML, try to find a better one
+            info!("Citation URL validation failed: {}. Attempting to find a better URL...", citation);
+            
+            match find_better_url(fact).await {
+                Ok(Some(better_url)) => {
+                    // Validate the new URL matches the fact
+                    match validate_fact_matches_citation(gemini_client, fact, &better_url).await {
+                        Ok(true) => {
+                            info!("Found better matching URL: {}", better_url);
+                            Ok((true, Some(better_url)))
+                        },
+                        _ => {
+                            info!("Better URL doesn't match fact content");
+                            Ok((false, None))
+                        }
+                    }
+                },
+                _ => {
+                    info!("Could not find a better URL for fact");
+                    Ok((false, None))
+                }
+            }
+        },
+        Err(e) => {
+            // Error validating URL
+            error!("Error validating citation URL {}: {:?}", citation, e);
+            // Try to find a better URL as fallback
+            match find_better_url(fact).await {
+                Ok(Some(better_url)) => {
+                    // Validate the new URL matches the fact
+                    match validate_fact_matches_citation(gemini_client, fact, &better_url).await {
+                        Ok(true) => {
+                            info!("Found better matching URL after error: {}", better_url);
+                            Ok((true, Some(better_url)))
+                        },
+                        _ => {
+                            info!("Better URL doesn't match fact content");
+                            Ok((false, None))
+                        }
+                    }
+                },
+                _ => {
+                    // Be conservative and reject if we can't validate
+                    info!("Technical error validating URL and could not find a better URL");
+                    Ok((false, None))
+                }
+            }
+        }
+    }
 }
