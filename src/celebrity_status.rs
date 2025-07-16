@@ -940,6 +940,50 @@ fn extract_cause_of_death(text: &str) -> Option<String> {
         .map(|s| s.trim())
         .filter(|s| !s.is_empty())
         .collect();
+
+    // First check for explicit "Cause of death:" format
+    for sentence in &sentences {
+        if sentence.to_lowercase().contains("cause of death:") {
+            info!("Found explicit 'Cause of death:' statement");
+            let parts: Vec<&str> = sentence.split("Cause of death:").collect();
+            if parts.len() > 1 {
+                let cause = parts[1].trim();
+                // Validate that the cause makes sense (not just a name or nonsensical phrase)
+                if cause.len() > 0 && cause.len() < 50 {
+                    // Check against common invalid causes
+                    let invalid_causes = [
+                        "arrival", "departure", "birth", "name", "career", "life",
+                        "music", "work", "legacy", "influence", "style", "technique",
+                        "composition", "performance", "concert", "tour", "album",
+                        "recording", "release", "publication", "book", "novel",
+                        "story", "film", "movie", "show", "series", "episode",
+                        "season", "chapter", "part", "volume", "edition"
+                    ];
+                    
+                    let is_invalid = invalid_causes.iter().any(|&invalid| 
+                        cause.to_lowercase().contains(invalid));
+                    
+                    if is_invalid {
+                        info!("Skipping invalid cause of death: {}", cause);
+                        continue;
+                    }
+                    
+                    // Check if the cause contains common medical terms or valid causes
+                    let valid_cause_indicators = [
+                        "disease", "cancer", "failure", "attack", "infection", "cardiac", "arrest",
+                        "injury", "wound", "trauma", "suicide", "accident", "complications"];
+                    let is_likely_valid = valid_cause_indicators.iter().any(|&valid| cause.to_lowercase().contains(valid));
+                    
+                    if is_likely_valid {
+                        info!("Found valid cause of death: {}", cause);
+                        return Some(cause.to_string());
+                    } else {
+                        info!("Cause doesn't contain common medical terms, continuing search: {}", cause);
+                    }
+                }
+            }
+        }
+    }
     
     // Look for sentences that mention death and might contain cause information
     let death_sentences: Vec<&str> = sentences.iter()
