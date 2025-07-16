@@ -1658,7 +1658,15 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                         chronological_messages.reverse();
                         
                         let formatted_messages: Vec<String> = chronological_messages.iter()
-                            .map(|(_author, display_name, content)| format!("{}: {}", display_name, content))
+                            .map(|(author, display_name, content)| {
+                                // Make sure we're using the display name, not the username
+                                let name_to_use = if !display_name.is_empty() {
+                                    display_name
+                                } else {
+                                    author
+                                };
+                                format!("{}: {}", name_to_use, content)
+                            })
                             .collect();
                         formatted_messages.join("\n")
                     } else {
