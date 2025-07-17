@@ -3499,10 +3499,38 @@ Be creative but realistic with your article title and URL."#)
                                                                 Ok((true, Some(final_url))) => {
                                                                     // URL exists, return the cleaned response with the final URL
                                                                     info!("URL validation successful: {} exists", final_url);
-                                                                    if url_str != final_url {
-                                                                        cleaned_response.replace(url_str, &final_url).trim().to_string()
+                                                                    
+                                                                    // Extract title and summary for content verification
+                                                                    if let Some((title, _)) = news_verification::extract_article_info(&cleaned_response) {
+                                                                        // Get the summary (everything after the URL)
+                                                                        let url_pos = cleaned_response.find(url_str).unwrap_or(0);
+                                                                        let summary = if url_pos + url_str.len() < cleaned_response.len() {
+                                                                            cleaned_response[(url_pos + url_str.len())..].trim().to_string()
+                                                                        } else {
+                                                                            String::new()
+                                                                        };
+                                                                        
+                                                                        // Verify that the title and summary match the content at the URL
+                                                                        match news_verification::verify_news_article(gemini_client, &title, &final_url, &summary).await {
+                                                                            Ok(true) => {
+                                                                                // Title and summary match the URL content
+                                                                                info!("News verification successful: Title and summary match URL content");
+                                                                                if url_str != final_url {
+                                                                                    cleaned_response.replace(url_str, &final_url).trim().to_string()
+                                                                                } else {
+                                                                                    cleaned_response.trim().to_string()
+                                                                                }
+                                                                            },
+                                                                            _ => {
+                                                                                // Title and summary don't match the URL content or verification failed
+                                                                                info!("News interjection skipped: Title/summary mismatch with URL content");
+                                                                                String::new()
+                                                                            }
+                                                                        }
                                                                     } else {
-                                                                        cleaned_response.trim().to_string()
+                                                                        // Couldn't extract title and summary
+                                                                        info!("News interjection skipped: Couldn't extract article title and URL");
+                                                                        String::new()
                                                                     }
                                                                 },
                                                                 Ok(_) => {
