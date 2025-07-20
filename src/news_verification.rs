@@ -79,52 +79,120 @@ pub fn verify_url_format(url: &str) -> bool {
         return false;
     }
     
-    // Check if the URL is properly formatted
-    // Should be something like: https://domain.com/section/YYYY/MM/specific-article-title-with-multiple-words/
-    // or https://domain.com/section/specific-article-title-with-multiple-words/
-    
-    // Check if the URL has at least 4 path segments (domain/section/something/something)
-    let segments: Vec<&str> = url.split('/').collect();
-    if segments.len() < 6 {
+    // Parse URL segments
+    let segments: Vec<&str> = url.split('/').filter(|s| !s.is_empty()).collect();
+    if segments.len() < 4 {
         error!("URL verification failed: Not enough path segments in URL: {}", url);
         return false;
     }
     
+    // Skip protocol and domain (https:, domain.com)
+    let path_segments = &segments[2..];
+    
+    // Check for archive/category page patterns that should be excluded
+    let is_archive_page = is_archive_or_category_url(path_segments);
+    if is_archive_page {
+        error!("URL verification failed: URL appears to be an archive/category page: {}", url);
+        return false;
+    }
+    
     // Check if the URL ends with a specific article title (at least 3 words)
-    let last_segment = segments.last().unwrap_or(&"");
-    let words_in_last_segment = last_segment.split('-').count();
-    if words_in_last_segment < 3 && !last_segment.is_empty() {
-        error!("URL verification failed: Last segment doesn't contain enough words: {}", last_segment);
-        return false;
-    }
-    
-    // Check if the URL contains a year and month (YYYY/MM)
-    let has_year_month = segments.iter().enumerate().any(|(i, segment)| {
-        if i > 0 && i < segments.len() - 1 {
-            // Check if this segment is a 4-digit year
-            if segment.len() == 4 && segment.chars().all(|c| c.is_digit(10)) {
-                // Check if the next segment is a 2-digit month
-                let next = segments.get(i + 1).unwrap_or(&"");
-                return next.len() == 2 && next.chars().all(|c| c.is_digit(10));
-            }
+    let last_segment = path_segments.last().unwrap_or(&"");
+    if !last_segment.is_empty() {
+        let words_in_last_segment = last_segment.split('-').filter(|s| !s.is_empty()).count();
+        if words_in_last_segment < 3 {
+            error!("URL verification failed: Last segment doesn't contain enough words for an article title: {}", last_segment);
+            return false;
         }
-        false
-    });
-    
-    // If the URL doesn't have a year/month pattern, it should at least have a substantial path
-    if !has_year_month && segments.len() < 5 {
-        error!("URL verification failed: URL doesn't contain year/month and doesn't have enough path segments: {}", url);
-        return false;
+        
+        // Check if the last segment is just a date (like "2024-04-15")
+        if is_date_segment(last_segment) {
+            error!("URL verification failed: Last segment appears to be a date: {}", last_segment);
+            return false;
+        }
     }
     
-    // Check if the URL is a generic category or date-only URL
-    let last_non_empty_segment = segments.iter().rev().find(|s| !s.is_empty()).unwrap_or(&"");
-    if last_non_empty_segment.len() <= 2 && last_non_empty_segment.chars().all(|c| c.is_digit(10)) {
-        error!("URL verification failed: URL ends with a date segment: {}", url);
+    // Ensure the URL has enough depth to be a specific article
+    if path_segments.len() < 2 {
+        error!("URL verification failed: URL path too shallow for a specific article: {}", url);
         return false;
     }
     
     true
+}
+
+/// Check if the URL path segments indicate an archive or category page
+fn is_archive_or_category_url(path_segments: &[&str]) -> bool {
+    // Pattern 1: Ends with just year/month (e.g., /ai/2024/04/ or /ai/2024/04)
+    if path_segments.len() >= 3 {
+        let last_three = &path_segments[path_segments.len()-3..];
+        if last_three.len() == 3 {
+            // Check if it's category/year/month pattern
+            if is_year(last_three[1]) && is_month(last_three[2]) {
+                info!("Detected archive pattern: category/year/month");
+                return true;
+            }
+        }
+    }
+    
+    // Pattern 2: Ends with just year (e.g., /news/2024/ or /news/2024)
+    if path_segments.len() >= 2 {
+        let last_two = &path_segments[path_segments.len()-2..];
+        if last_two.len() == 2 && is_year(last_two[1]) {
+            info!("Detected archive pattern: category/year");
+            return true;
+        }
+    }
+    
+    // Pattern 3: Ends with just a category (e.g., /ai/ or /technology/)
+    if path_segments.len() == 1 {
+        let category_indicators = [
+            "ai", "tech", "technology", "science", "news", "politics", "business",
+            "sports", "entertainment", "health", "world", "opinion", "lifestyle",
+            "culture", "gaming", "security", "privacy", "mobile", "software",
+            "hardware", "internet", "social", "media", "startups", "gadgets"
+        ];
+        
+        let last_segment = path_segments[0].to_lowercase();
+        if category_indicators.contains(&last_segment.as_str()) {
+            info!("Detected category page: {}", last_segment);
+            return true;
+        }
+    }
+    
+    // Pattern 4: Contains common archive indicators
+    let archive_indicators = ["archive", "category", "tag", "page"];
+    for segment in path_segments {
+        if archive_indicators.contains(&segment.to_lowercase().as_str()) {
+            info!("Detected archive indicator in path: {}", segment);
+            return true;
+        }
+    }
+    
+    false
+}
+
+/// Check if a segment represents a 4-digit year
+fn is_year(segment: &str) -> bool {
+    segment.len() == 4 && segment.chars().all(|c| c.is_ascii_digit()) && 
+    segment.parse::<i32>().map_or(false, |year| year >= 1990 && year <= 2030)
+}
+
+/// Check if a segment represents a 2-digit month
+fn is_month(segment: &str) -> bool {
+    segment.len() == 2 && segment.chars().all(|c| c.is_ascii_digit()) &&
+    segment.parse::<i32>().map_or(false, |month| month >= 1 && month <= 12)
+}
+
+/// Check if a segment looks like a date (YYYY-MM-DD format)
+fn is_date_segment(segment: &str) -> bool {
+    let parts: Vec<&str> = segment.split('-').collect();
+    if parts.len() == 3 {
+        return is_year(parts[0]) && is_month(parts[1]) && 
+               parts[2].len() == 2 && parts[2].chars().all(|c| c.is_ascii_digit()) &&
+               parts[2].parse::<i32>().map_or(false, |day| day >= 1 && day <= 31);
+    }
+    false
 }
 
 /// Extract the article title and URL from a formatted news interjection

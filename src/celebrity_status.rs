@@ -159,6 +159,15 @@ fn is_fictional_character(text: &str, title: &str) -> bool {
 async fn find_actor_for_character(text: &str, character_name: &str, client: &Client) -> Result<Option<String>> {
     let text_lower = text.to_lowercase();
     
+    // Special handling for MST3K characters - they're puppets, not portrayed by actors in the traditional sense
+    let mst3k_characters = ["crow t. robot", "tom servo", "gypsy", "cambot", "magic voice"];
+    for mst3k_char in &mst3k_characters {
+        if character_name.to_lowercase().contains(mst3k_char) {
+            info!("MST3K character detected: {}, skipping actor search", character_name);
+            return Ok(None);
+        }
+    }
+    
     // Look for common patterns that mention actors
     let actor_patterns = [
         r"portrayed by ([^\.]+)",
@@ -177,10 +186,33 @@ async fn find_actor_for_character(text: &str, character_name: &str, client: &Cli
                 if let Some(actor_match) = captures.get(1) {
                     let actor_name = actor_match.as_str().trim();
                     
+                    // Skip if the "actor" name contains obvious non-actor indicators
+                    let non_actor_indicators = [
+                        "who died on", "born", "əs;", "september", "january", "february", 
+                        "march", "april", "may", "june", "july", "august", "october", 
+                        "november", "december", "1963", "1964", "1965", "1966", "1967",
+                        "1968", "1969", "1970", "1971", "1972", "1973", "1974", "1975",
+                        "director", "producer", "writer", "creator", "author", "alex proyas"
+                    ];
+                    
+                    let contains_non_actor = non_actor_indicators.iter()
+                        .any(|&indicator| actor_name.to_lowercase().contains(indicator));
+                    
+                    if contains_non_actor {
+                        info!("Skipping invalid actor name: {}", actor_name);
+                        continue;
+                    }
+                    
                     // Clean up the actor name (remove "in the film" etc.)
                     let actor_name = actor_name.split(" in ").next().unwrap_or(actor_name).trim();
                     let actor_name = actor_name.split(" on ").next().unwrap_or(actor_name).trim();
                     let actor_name = actor_name.split(" for ").next().unwrap_or(actor_name).trim();
+                    
+                    // Additional validation - actor name should be reasonable length and format
+                    if actor_name.len() < 3 || actor_name.len() > 50 || actor_name.contains("əs;") {
+                        info!("Skipping malformed actor name: {}", actor_name);
+                        continue;
+                    }
                     
                     info!("Found potential actor: {}", actor_name);
                     
