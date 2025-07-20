@@ -271,6 +271,7 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
                     let response = if i == 0 && is_bot_regex_response {
                         // For a bot regex response, we need to keep the original author's name
                         // and add one more "really" to indicate another substitution
+                        // The clean_display_name here should be the original author, not "Crow"
                         let really_part = "*really* ".repeat(really_count + 1);
                         format!("{} {}meant: {}", clean_display_name, really_part, new_content)
                     } else {
