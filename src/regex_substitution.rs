@@ -28,7 +28,7 @@ fn sanitize_regex_pattern(pattern: &str) -> String {
 }
 
 // Handle regex substitution for messages starting with !s/, .s/, !/, or ./
-pub async fn handle_regex_substitution(ctx: &Context, msg: &Message, bot_name: &str) -> Result<()> {
+pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<()> {
     // Log the guild ID for debugging
     if let Some(guild_id) = msg.guild_id {
         info!("Processing regex substitution in guild: {}", guild_id);
@@ -229,8 +229,8 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message, bot_name: &
                     } else if prev_msg.author.bot {
                         // Check if this is the bot's own message
                         if prev_msg.author.id == bot_id {
-                            // Use the configured bot name for the bot's own messages
-                            bot_name.to_string()
+                            // Use "I" for the bot's own messages to make it more natural
+                            "I".to_string()
                         } else if let Some(gateway_username) = crate::display_name::extract_gateway_username(prev_msg) {
                             // Check if this is a gateway bot message and extract the gateway username
                             gateway_username
