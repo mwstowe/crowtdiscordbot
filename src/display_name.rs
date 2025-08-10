@@ -2,10 +2,8 @@ use serenity::model::channel::Message;
 use serenity::model::id::{UserId, GuildId};
 use serenity::prelude::*;
 use regex::Regex;
-use tracing::{error, debug, info};
+use tracing::{error, debug};
 use lazy_static::lazy_static;
-use std::collections::HashMap;
-use std::sync::RwLock;
 
 // Regular expression for extracting gateway usernames from bot messages
 lazy_static! {
@@ -14,18 +12,12 @@ lazy_static! {
     
     // Match patterns like "<username>" in the author name
     static ref AUTHOR_USERNAME_REGEX: Regex = Regex::new(r"<([^>]+)>").unwrap();
-    
-    // Global cache for gateway usernames
-    static ref GATEWAY_USERNAME_CACHE: RwLock<HashMap<u64, String>> = RwLock::new(HashMap::new());
 }
 
 // Helper function to check if a message is from a gateway bot and extract the real username
 pub fn extract_gateway_username(msg: &Message) -> Option<String> {
-    // First check if we have a cached username for this user ID
-    if let Some(username) = get_cached_gateway_username(msg.author.id) {
-        debug!("Using cached gateway username for {}: {}", msg.author.id, username);
-        return Some(username);
-    }
+    // Don't use cached usernames for gateway bots since multiple users can share the same bot ID
+    // Always extract the username from the current message
     
     // Check if the message content starts with a gateway format like "[irc] <username>"
     if let Some(captures) = GATEWAY_USERNAME_REGEX.captures(&msg.content) {
@@ -82,8 +74,6 @@ pub async fn get_best_display_name(ctx: &Context, msg: &Message) -> String {
     // Only try to extract gateway username if this is a bot message
     if msg.author.bot {
         if let Some(gateway_username) = extract_gateway_username(msg) {
-            // Cache the username for future use
-            cache_gateway_username(msg.author.id, &gateway_username);
             debug!("Found gateway username: {}", gateway_username);
             return gateway_username;
         }
@@ -123,11 +113,6 @@ pub async fn get_best_display_name(ctx: &Context, msg: &Message) -> String {
 
 // Get the best display name for a user with explicit guild ID
 pub async fn get_best_display_name_with_guild(ctx: &Context, user_id: UserId, guild_id: GuildId) -> String {
-    // First check if we have a cached gateway username for this user ID
-    if let Some(username) = get_cached_gateway_username(user_id) {
-        debug!("Using cached gateway username for {}: {}", user_id, username);
-        return username;
-    }
     
     // Get member data which includes the nickname
     match guild_id.member(&ctx.http, user_id).await {
@@ -171,39 +156,11 @@ pub async fn get_best_display_name_with_guild(ctx: &Context, user_id: UserId, gu
                 Err(e) => {
                     error!("Failed to get user data for {}: {:?}", user_id, e);
                     
-                    // This might be a gateway bot user - check if we have a cached gateway username
-                    if let Some(gateway_username) = get_cached_gateway_username(user_id) {
-                        info!("Using cached gateway username for {}: {}", user_id, gateway_username);
-                        return gateway_username;
-                    }
-                    
                     // Instead of returning just the user ID, use a more user-friendly fallback
                     format!("User-{}", user_id.to_string().chars().take(4).collect::<String>())
                 }
             }
         }
-    }
-}
-
-// Function to cache gateway usernames
-pub fn cache_gateway_username(user_id: UserId, username: &str) {
-    // Store the username in the cache
-    if let Ok(mut cache) = GATEWAY_USERNAME_CACHE.write() {
-        cache.insert(user_id.get(), username.to_string());
-        info!("Cached gateway username for {}: {}", user_id, username);
-    } else {
-        error!("Failed to acquire write lock for gateway username cache");
-    }
-}
-
-// Function to get cached gateway username
-pub fn get_cached_gateway_username(user_id: UserId) -> Option<String> {
-    // Retrieve the username from the cache
-    if let Ok(cache) = GATEWAY_USERNAME_CACHE.read() {
-        cache.get(&user_id.get()).cloned()
-    } else {
-        error!("Failed to acquire read lock for gateway username cache");
-        None
     }
 }
 

@@ -2405,9 +2405,6 @@ impl EventHandler for Bot {
                 if self.gateway_bot_ids.contains(&bot_id.get()) {
                     // Try to extract the gateway username from the message content or author name
                     if let Some(gateway_username) = crate::display_name::extract_gateway_username(&msg) {
-                        // Cache the gateway username for future use
-                        crate::display_name::cache_gateway_username(msg.author.id, &gateway_username);
-                        
                         // Log the extraction for debugging
                         info!("📝 Extracted gateway username for bot {}: {}", bot_id, gateway_username);
                         
