@@ -238,7 +238,7 @@ pub fn parse_config(
                 })
                 .collect::<Vec<u64>>()
         })
-        .unwrap_or_else(Vec::new);
+        .unwrap_or_default();
 
     if !gateway_bot_ids.is_empty() {
         info!(
@@ -254,15 +254,15 @@ pub fn parse_config(
     let duckduckgo_search_enabled = config
         .duckduckgo_search_enabled
         .as_ref()
-        .and_then(|enabled| match enabled.to_lowercase().as_str() {
-            "false" | "0" | "no" | "disabled" | "off" => Some(false),
-            "true" | "1" | "yes" | "enabled" | "on" => Some(true),
+        .map(|enabled| match enabled.to_lowercase().as_str() {
+            "false" | "0" | "no" | "disabled" | "off" => false,
+            "true" | "1" | "yes" | "enabled" | "on" => true,
             _ => {
                 info!(
                     "Invalid duckduckgo_search_enabled value: {}, defaulting to enabled",
                     enabled
                 );
-                Some(true)
+                true
             }
         })
         .unwrap_or(true); // Default to enabled for backward compatibility
@@ -323,15 +323,15 @@ pub fn parse_config(
     let fill_silence_enabled = config
         .fill_silence_enabled
         .as_ref()
-        .and_then(|enabled| match enabled.to_lowercase().as_str() {
-            "false" | "0" | "no" | "disabled" | "off" => Some(false),
-            "true" | "1" | "yes" | "enabled" | "on" => Some(true),
+        .map(|enabled| match enabled.to_lowercase().as_str() {
+            "false" | "0" | "no" | "disabled" | "off" => false,
+            "true" | "1" | "yes" | "enabled" | "on" => true,
             _ => {
                 info!(
                     "Invalid fill_silence_enabled value: {}, defaulting to enabled",
                     enabled
                 );
-                Some(true)
+                true
             }
         })
         .unwrap_or(true); // Default to enabled
@@ -374,7 +374,7 @@ pub fn parse_config(
                 .filter(|channel| !channel.is_empty())
                 .collect::<Vec<String>>()
         })
-        .unwrap_or_else(Vec::new);
+        .unwrap_or_default();
 
     if !imagine_channels.is_empty() {
         info!(

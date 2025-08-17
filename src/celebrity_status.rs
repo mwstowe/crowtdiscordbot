@@ -907,7 +907,7 @@ async fn search_celebrity(name: &str) -> Result<Option<String>> {
         }
 
         response.push_str(&death_info);
-        return Ok(Some(response));
+        Ok(Some(response))
     } else {
         // Person is alive - try to calculate their age
 
@@ -986,7 +986,7 @@ async fn search_celebrity(name: &str) -> Result<Option<String>> {
                 + &subject_pronoun[1..],
             possessive_pronoun
         ));
-        return Ok(Some(response));
+        Ok(Some(response))
     }
 }
 

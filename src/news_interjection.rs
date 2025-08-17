@@ -246,15 +246,15 @@ pub async fn validate_url_exists(url: &str) -> Result<(bool, Option<String>)> {
                     "URL validation successful: {} - Status: {}",
                     final_url, status
                 );
-                return Ok((true, Some(final_url)));
+                Ok((true, Some(final_url)))
             } else {
                 info!("URL validation failed: {} - Status: {}", final_url, status);
-                return Ok((false, None));
+                Ok((false, None))
             }
         }
         Err(e) => {
             info!("URL validation failed: {} - Error: {}", url, e);
-            return Ok((false, None));
+            Ok((false, None))
         }
     }
 }
