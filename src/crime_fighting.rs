@@ -421,19 +421,7 @@ impl CrimeFightingGenerator {
         } else {
             // Template 3: Both people have full descriptors (original pattern)
             format!(
-                "{} is {} {} {} {}. {} is {} {} {} {}. They {} {}!",
-                speaker1,
-                desc1,
-                descriptor1,
-                occ1,
-                trait1,
-                speaker2,
-                desc2,
-                descriptor2,
-                occ2,
-                trait2,
-                verb,
-                noun
+                "{speaker1} is {desc1} {descriptor1} {occ1} {trait1}. {speaker2} is {desc2} {descriptor2} {occ2} {trait2}. They {verb} {noun}!"
             )
         };
 

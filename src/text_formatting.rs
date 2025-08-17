@@ -24,7 +24,8 @@ pub fn format_caption(caption: &str, proper_nouns: &[&str]) -> String {
 
         if is_new_speaker && !current_speaker_lines.is_empty() {
             // Join previous speaker's lines and add to formatted lines
-            formatted_lines.push(format!("\"{}\"", current_speaker_lines.join(" ")));
+            let joined_lines = current_speaker_lines.join(" ");
+            formatted_lines.push(format!("\"{joined_lines}\""));
             current_speaker_lines.clear();
         }
 
@@ -37,7 +38,8 @@ pub fn format_caption(caption: &str, proper_nouns: &[&str]) -> String {
 
     // Add the last speaker's lines
     if !current_speaker_lines.is_empty() {
-        formatted_lines.push(format!("\"{}\"", current_speaker_lines.join(" ")));
+        let joined_lines = current_speaker_lines.join(" ");
+        formatted_lines.push(format!("\"{joined_lines}\""));
     }
 
     // Join all formatted parts
@@ -57,7 +59,7 @@ pub fn format_text_with_proper_capitalization(text: &str, proper_nouns: &[&str])
 
     // Split the text into sentences
     let sentences: Vec<&str> = text
-        .split(|c| c == '.' || c == '!' || c == '?')
+        .split(['.', '!', '?'])
         .filter(|s| !s.trim().is_empty())
         .collect();
 

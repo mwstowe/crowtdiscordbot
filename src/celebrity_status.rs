@@ -33,8 +33,7 @@ pub async fn handle_aliveordead_command(
             msg.reply(
                 http,
                 format!(
-                    "Sorry, I couldn't find information about '{}'.",
-                    celebrity_name
+                    "Sorry, I couldn't find information about '{celebrity_name}'."
                 ),
             )
             .await?;
@@ -373,8 +372,7 @@ async fn find_actor_for_character(
                     // Get information about this actor
                     if let Ok(Some(actor_info)) = search_actor(actor_name, client).await {
                         return Ok(Some(format!(
-                            "The character is most famously portrayed by {}.",
-                            actor_info
+                            "The character is most famously portrayed by {actor_info}."
                         )));
                     }
                 }
@@ -383,7 +381,7 @@ async fn find_actor_for_character(
     }
 
     // If we couldn't find an actor in the text, try a direct search
-    let search_query = format!("{} actor", character_name);
+    let search_query = format!("{character_name} actor");
     info!("Trying direct search for actor: {}", search_query);
 
     // Search for the actor
@@ -413,8 +411,7 @@ async fn find_actor_for_character(
             // Get information about this actor
             if let Ok(Some(actor_info)) = search_actor(title, client).await {
                 return Ok(Some(format!(
-                    "The character is most famously portrayed by {}.",
-                    actor_info
+                    "The character is most famously portrayed by {actor_info}."
                 )));
             }
         }
@@ -494,7 +491,7 @@ async fn search_actor(name: &str, client: &Client) -> Result<Option<String>> {
         || raw_extract.contains(" died ")
         || Regex::new(r"\([^)]*\d{4}[^)]*\)")
             .ok()
-            .map_or(false, |re| re.is_match(raw_extract));
+            .is_some_and(|re| re.is_match(raw_extract));
 
     if !is_person {
         info!(
@@ -512,11 +509,11 @@ async fn search_actor(name: &str, client: &Client) -> Result<Option<String>> {
         || (contains_was && !contains_is && raw_extract.contains("(") && raw_extract.contains(")"));
 
     // Create a brief description of the actor
-    let mut actor_info = format!("**{}**", page_title);
+    let mut actor_info = format!("**{page_title}**");
 
     if is_dead {
         if let Some(date) = death_date {
-            actor_info.push_str(&format!(", who died on {}", date));
+            actor_info.push_str(&format!(", who died on {date}"));
         } else {
             actor_info.push_str(", who has passed away");
         }
@@ -617,13 +614,11 @@ async fn search_celebrity(name: &str) -> Result<Option<String>> {
         if let Some(actor_info) = find_actor_for_character(raw_extract, page_title, &client).await?
         {
             return Ok(Some(format!(
-                "**{}** is a fictional character. {}",
-                page_title, actor_info
+                "**{page_title}** is a fictional character. {actor_info}"
             )));
         } else {
             return Ok(Some(format!(
-                "**{}** is a fictional character, not a real person.",
-                page_title
+                "**{page_title}** is a fictional character, not a real person."
             )));
         }
     }
@@ -633,13 +628,12 @@ async fn search_celebrity(name: &str) -> Result<Option<String>> {
         || raw_extract.contains(" died ")
         || Regex::new(r"\([^)]*\d{4}[^)]*\)")
             .ok()
-            .map_or(false, |re| re.is_match(raw_extract));
+            .is_some_and(|re| re.is_match(raw_extract));
 
     if !is_person {
         info!("Page doesn't appear to be about a person: {}", page_title);
         return Ok(Some(format!(
-            "I found information about '{}', but it doesn't appear to be a person.",
-            page_title
+            "I found information about '{page_title}', but it doesn't appear to be a person."
         )));
     }
 
@@ -668,7 +662,7 @@ async fn search_celebrity(name: &str) -> Result<Option<String>> {
         .to_string();
 
     // Build the response
-    let mut response = format!("**{}**: {}", page_title, description);
+    let mut response = format!("**{page_title}**: {description}");
 
     // Determine if the person is dead and add appropriate information
     let contains_was = raw_extract.contains(" was ");
@@ -801,7 +795,7 @@ async fn search_celebrity(name: &str) -> Result<Option<String>> {
 
             // Add cause of death if available
             if let Some(ref cause) = cause_of_death {
-                death_info.push_str(&format!(" Cause of death: {}.", cause));
+                death_info.push_str(&format!(" Cause of death: {cause}."));
             }
 
             // Calculate age at death if birth date is available
@@ -825,7 +819,7 @@ async fn search_celebrity(name: &str) -> Result<Option<String>> {
 
                         // Re-add cause of death if available
                         if let Some(ref cause) = cause_of_death {
-                            death_info.push_str(&format!(" Cause of death: {}.", cause));
+                            death_info.push_str(&format!(" Cause of death: {cause}."));
                         }
                     }
                 }
@@ -853,7 +847,7 @@ async fn search_celebrity(name: &str) -> Result<Option<String>> {
 
             // Add cause of death if available
             if let Some(ref cause) = cause_of_death {
-                death_info.push_str(&format!(" Cause of death: {}.", cause));
+                death_info.push_str(&format!(" Cause of death: {cause}."));
             }
 
             // Calculate age at death if birth date is available
@@ -877,7 +871,7 @@ async fn search_celebrity(name: &str) -> Result<Option<String>> {
 
                         // Re-add cause of death if available
                         if let Some(ref cause) = cause_of_death {
-                            death_info.push_str(&format!(" Cause of death: {}.", cause));
+                            death_info.push_str(&format!(" Cause of death: {cause}."));
                         }
                     }
                 }
@@ -903,7 +897,7 @@ async fn search_celebrity(name: &str) -> Result<Option<String>> {
 
         // Add cause of death if available
         if let Some(cause) = cause_of_death {
-            death_info.push_str(&format!(" Cause of death: {}.", cause));
+            death_info.push_str(&format!(" Cause of death: {cause}."));
         }
 
         response.push_str(&death_info);
@@ -1049,11 +1043,7 @@ pub fn extract_dates_from_parentheses(text: &str) -> (Option<String>, Option<Str
                     let is_near_beginning = section_pos < 100;
 
                     // Get preceding text to check for band/career indicators
-                    let start_pos = if section_pos > 30 {
-                        section_pos - 30
-                    } else {
-                        0
-                    };
+                    let start_pos = section_pos.saturating_sub(30);
                     let preceding_text = &text[start_pos..section_pos];
                     let preceding_text_lower = preceding_text.to_lowercase();
 
@@ -1171,7 +1161,7 @@ pub fn extract_dates_from_parentheses(text: &str) -> (Option<String>, Option<Str
 
         // Create cleaned text without the parentheses
         // Remove any double spaces that might be created when removing parentheses
-        let mut cleaned_text = format!("{}{}", before, after);
+        let mut cleaned_text = format!("{before}{after}");
         cleaned_text = cleaned_text.replace("  ", " ");
 
         // Direct check for birth-death date format
@@ -1227,7 +1217,7 @@ pub fn extract_year_from_parentheses(text: &str, date_type: &str) -> Option<Stri
 
         // If there's a dash, the birth date is likely before it
         if text.contains('–') || text.contains('-') {
-            let parts: Vec<&str> = text.split(|c| c == '–' || c == '-').collect();
+            let parts: Vec<&str> = text.split(['–', '-']).collect();
             if !parts.is_empty() {
                 let potential_date = parts[0].trim();
                 // Check if it looks like a date (contains a year)
@@ -1247,7 +1237,7 @@ pub fn extract_year_from_parentheses(text: &str, date_type: &str) -> Option<Stri
 
         // If there's a dash, the death date is likely after it
         if text.contains('–') || text.contains('-') {
-            let parts: Vec<&str> = text.split(|c| c == '–' || c == '-').collect();
+            let parts: Vec<&str> = text.split(['–', '-']).collect();
             if parts.len() > 1 {
                 let potential_date = parts[1].trim();
                 // Check if it looks like a date (contains a year)
@@ -1260,8 +1250,7 @@ pub fn extract_year_from_parentheses(text: &str, date_type: &str) -> Option<Stri
         // Special case for future dates - if the year is greater than current year
         let current_year = chrono::Local::now().year();
         let future_year_re = Regex::new(&format!(
-            r"(\w+\s+\d{{1,2}},?\s+({}-\d{{4}}))",
-            current_year
+            r"(\w+\s+\d{{1,2}},?\s+({current_year}-\d{{4}}))"
         ))
         .unwrap();
         if let Some(captures) = future_year_re.captures(text) {
@@ -1281,11 +1270,11 @@ fn extract_date(text: &str, keyword: &str) -> Option<String> {
 
     // Common date patterns in Wikipedia
     let patterns = [
-        format!(r"{} on (\d+ [A-Za-z]+ \d{{4}})", keyword),
-        format!(r"{} in ([A-Za-z]+ \d{{4}})", keyword),
-        format!(r"{} (\d+ [A-Za-z]+ \d{{4}})", keyword),
-        format!(r"{} at .* on (\d+ [A-Za-z]+ \d{{4}})", keyword),
-        format!(r"{} .* on (\d+ [A-Za-z]+ \d{{4}})", keyword),
+        format!(r"{keyword} on (\d+ [A-Za-z]+ \d{{4}})"),
+        format!(r"{keyword} in ([A-Za-z]+ \d{{4}})"),
+        format!(r"{keyword} (\d+ [A-Za-z]+ \d{{4}})"),
+        format!(r"{keyword} at .* on (\d+ [A-Za-z]+ \d{{4}})"),
+        format!(r"{keyword} .* on (\d+ [A-Za-z]+ \d{{4}})"),
         // Add more patterns as needed
     ];
 
@@ -1302,10 +1291,7 @@ fn extract_date(text: &str, keyword: &str) -> Option<String> {
 
     // If we couldn't find a date with the specific patterns, try a more general approach
     // Look for dates near the keyword
-    let keyword_pos = match text.find(keyword) {
-        Some(pos) => pos,
-        None => return None,
-    };
+    let keyword_pos = text.find(keyword)?;
 
     // Look for a date pattern within 100 characters after the keyword
     let search_end = (keyword_pos + 100).min(text.len());
@@ -1362,7 +1348,7 @@ fn extract_cause_of_death(text: &str) -> Option<String> {
 
     // First, split the text into sentences for better context
     let sentences: Vec<&str> = text
-        .split(|c| c == '.' || c == '!' || c == '?')
+        .split(['.', '!', '?'])
         .map(|s| s.trim())
         .filter(|s| !s.is_empty())
         .collect();
@@ -1375,7 +1361,7 @@ fn extract_cause_of_death(text: &str) -> Option<String> {
             if parts.len() > 1 {
                 let cause = parts[1].trim();
                 // Validate that the cause makes sense (not just a name or nonsensical phrase)
-                if cause.len() > 0 && cause.len() < 50 {
+                if !cause.is_empty() && cause.len() < 50 {
                     // Check against common invalid causes
                     let invalid_causes = [
                         "arrival",
@@ -1599,7 +1585,7 @@ fn extract_cause_of_death(text: &str) -> Option<String> {
                 // Get the context around the cause
                 if let Some(pos) = sentence_lower.find(cause) {
                     // Get a window of text around the cause
-                    let start = if pos > 10 { pos - 10 } else { 0 };
+                    let start = pos.saturating_sub(10);
                     let end = (pos + cause.len() + 20).min(sentence.len());
                     let context = &sentence[start..end];
 

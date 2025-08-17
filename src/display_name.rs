@@ -183,10 +183,8 @@ pub async fn get_best_display_name_with_guild(
                     error!("Failed to get user data for {}: {:?}", user_id, e);
 
                     // Instead of returning just the user ID, use a more user-friendly fallback
-                    format!(
-                        "User-{}",
-                        user_id.to_string().chars().take(4).collect::<String>()
-                    )
+                    let user_id_short = user_id.to_string().chars().take(4).collect::<String>();
+                    format!("User-{user_id_short}")
                 }
             }
         }
@@ -228,5 +226,5 @@ pub fn extract_pronouns(name: &str) -> Option<String> {
 
 // Check if a string looks like a user ID (all digits)
 pub fn is_user_id(s: &str) -> bool {
-    s.chars().all(|c| c.is_digit(10))
+    s.chars().all(|c| c.is_ascii_digit())
 }

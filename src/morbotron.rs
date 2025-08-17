@@ -271,7 +271,7 @@ impl MorbotronClient {
 
         // If direct search fails and it's a multi-word query, try with quotes
         if query.contains(' ') {
-            let quoted_query = format!("\"{}\"", query);
+            let quoted_query = format!("\"{query}\"");
             let results = self.search_api(&quoted_query).await?;
             if !results.is_empty() {
                 // Store the query and results for next time
@@ -301,7 +301,7 @@ impl MorbotronClient {
         timestamp: u64,
     ) -> Result<Option<MorbotronResult>> {
         // Use the correct URL format: /api/caption?e=S01E02&t=242434
-        let caption_url = format!("{}?e={}&t={}", MORBOTRON_CAPTION_URL, episode, timestamp);
+        let caption_url = format!("{MORBOTRON_CAPTION_URL}?e={episode}&t={timestamp}");
         info!("Using caption URL: {}", caption_url);
 
         // Make the caption request
@@ -344,7 +344,7 @@ impl MorbotronClient {
             .join("\n");
 
         // Build the image URL
-        let image_url = format!("{}/{}/{}.jpg", MORBOTRON_IMAGE_URL, episode, timestamp);
+        let image_url = format!("{MORBOTRON_IMAGE_URL}/{episode}/{timestamp}.jpg");
 
         // Extract episode information
         let episode_title = caption_result.episode.title.clone();
@@ -367,7 +367,7 @@ impl MorbotronClient {
     async fn search_api(&self, query: &str) -> Result<Vec<MorbotronSearchResult>> {
         // URL encode the query
         let encoded_query = urlencoding::encode(query);
-        let search_url = format!("{}?q={}", MORBOTRON_BASE_URL, encoded_query);
+        let search_url = format!("{MORBOTRON_BASE_URL}?q={encoded_query}");
 
         info!("Sending request to Morbotron API: {}", search_url);
 
@@ -424,13 +424,13 @@ fn format_caption(caption: &str) -> String {
 
 // Format a Morbotron result for display
 fn format_morbotron_result(result: &MorbotronResult) -> String {
+    let season = result.season;
+    let episode_number = result.episode_number;
+    let episode_title = &result.episode_title;
+    let image_url = &result.image_url;
+    let caption = &result.caption;
     format!(
-        "**S{:02}E{:02} - {}**\n{}\n\n{}",
-        result.season,
-        result.episode_number,
-        result.episode_title,
-        result.image_url,
-        result.caption
+        "**S{season:02}E{episode_number:02} - {episode_title}**\n{image_url}\n\n{caption}"
     )
 }
 
@@ -591,8 +591,7 @@ pub async fn handle_morbotron_command(
             }
             Ok(None) => {
                 let error_msg = format!(
-                    "Couldn't find any Futurama screenshots matching \"{}\".",
-                    term
+                    "Couldn't find any Futurama screenshots matching \"{term}\"."
                 );
 
                 // Edit the searching message if we have one, otherwise send a new message

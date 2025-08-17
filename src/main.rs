@@ -435,13 +435,13 @@ impl Bot {
         let seconds = total_seconds % 60;
 
         if days > 0 {
-            format!("{}d {}h {}m {}s", days, hours, minutes, seconds)
+            format!("{days}d {hours}h {minutes}m {seconds}s")
         } else if hours > 0 {
-            format!("{}h {}m {}s", hours, minutes, seconds)
+            format!("{hours}h {minutes}m {seconds}s")
         } else if minutes > 0 {
-            format!("{}m {}s", minutes, seconds)
+            format!("{minutes}m {seconds}s")
         } else {
-            format!("{}s", seconds)
+            format!("{seconds}s")
         }
     }
 
@@ -472,7 +472,7 @@ impl Bot {
 
         // Get memory usage (approximate)
         let memory_usage = match std::process::Command::new("ps")
-            .args(&["-o", "rss=", "-p", &std::process::id().to_string()])
+            .args(["-o", "rss=", "-p", &std::process::id().to_string()])
             .output()
         {
             Ok(output) => {
@@ -496,10 +496,10 @@ impl Bot {
         // Build the info message
         let mut info = format!("**{} Bot Info**\n\n", self.bot_name);
 
-        info.push_str(&format!("**Uptime:** {}\n", uptime_str));
-        info.push_str(&format!("**Messages in database:** {}\n", message_count));
-        info.push_str(&format!("**Memory usage:** {}\n", memory_usage));
-        info.push_str(&format!("**Following {} channels**\n", channel_count));
+        info.push_str(&format!("**Uptime:** {uptime_str}\n"));
+        info.push_str(&format!("**Messages in database:** {message_count}\n"));
+        info.push_str(&format!("**Memory usage:** {memory_usage}\n"));
+        info.push_str(&format!("**Following {channel_count} channels**\n"));
 
         // Add feature status
         info.push_str("\n**Features:**\n");
@@ -567,7 +567,7 @@ impl Bot {
                             "Raw speakers list: {:?}",
                             recent_speakers
                                 .iter()
-                                .map(|(name, display)| format!("{}:{}", name, display))
+                                .map(|(name, display)| format!("{name}:{display}"))
                                 .collect::<Vec<String>>()
                         );
 
@@ -855,13 +855,13 @@ impl Bot {
                 let clean_display_name = display_name::clean_display_name(name_to_use);
 
                 msg.channel_id
-                    .say(http, format!("<{}> {}", clean_display_name, content))
+                    .say(http, format!("<{clean_display_name}> {content}"))
                     .await?;
             } else {
                 // No messages found
                 if let Some(user) = username {
                     msg.channel_id
-                        .say(http, format!("No messages found from user {}", user))
+                        .say(http, format!("No messages found from user {user}"))
                         .await?;
                 } else {
                     msg.channel_id
@@ -904,19 +904,19 @@ impl Bot {
 
         // Common address patterns - these are explicit ways to address the bot
         let address_patterns = [
-            format!("hey {}", bot_name),
-            format!("hi {}", bot_name),
-            format!("hello {}", bot_name),
-            format!("ok {}", bot_name),
-            format!("hey, {}", bot_name),
-            format!("hi, {}", bot_name),
-            format!("hello, {}", bot_name),
-            format!("ok, {}", bot_name),
-            format!("{}, ", bot_name), // When name is used with a comma
-            format!("@{}", bot_name),  // Informal mention
-            format!("excuse me, {}", bot_name),
-            format!("by the way, {}", bot_name),
-            format!("btw, {}", bot_name),
+            format!("hey {bot_name}"),
+            format!("hi {bot_name}"),
+            format!("hello {bot_name}"),
+            format!("ok {bot_name}"),
+            format!("hey, {bot_name}"),
+            format!("hi, {bot_name}"),
+            format!("hello, {bot_name}"),
+            format!("ok, {bot_name}"),
+            format!("{bot_name}, "), // When name is used with a comma
+            format!("@{bot_name}"),  // Informal mention
+            format!("excuse me, {bot_name}"),
+            format!("by the way, {bot_name}"),
+            format!("btw, {bot_name}"),
         ];
 
         for pattern in &address_patterns {
@@ -940,47 +940,47 @@ impl Bot {
                 // Check for negative patterns - these are phrases where the bot name appears
                 // but is not being directly addressed
                 let negative_patterns = [
-                    format!(r"than {}\b", bot_name),     // "other than Crow"
-                    format!(r"like {}\b", bot_name),     // "like Crow"
-                    format!(r"about {}\b", bot_name),    // "about Crow"
-                    format!(r"with {}\b", bot_name),     // "with Crow"
-                    format!(r"and {}\b", bot_name),      // "and Crow"
-                    format!(r"or {}\b", bot_name),       // "or Crow"
-                    format!(r"for {}\b", bot_name),      // "for Crow"
-                    format!(r"the {}\b", bot_name),      // "the Crow"
-                    format!(r"a {}\b", bot_name),        // "a Crow"
-                    format!(r"an {}\b", bot_name),       // "an Crow"
-                    format!(r"this {}\b", bot_name),     // "this Crow"
-                    format!(r"that {}\b", bot_name),     // "that Crow"
-                    format!(r"my {}\b", bot_name),       // "my Crow"
-                    format!(r"your {}\b", bot_name),     // "your Crow"
-                    format!(r"our {}\b", bot_name),      // "our Crow"
-                    format!(r"their {}\b", bot_name),    // "their Crow"
-                    format!(r"his {}\b", bot_name),      // "his Crow"
-                    format!(r"her {}\b", bot_name),      // "her Crow"
-                    format!(r"its {}\b", bot_name),      // "its Crow"
-                    format!(r"picked {}\b", bot_name),   // "picked Crow"
-                    format!(r"chose {}\b", bot_name),    // "chose Crow"
-                    format!(r"selected {}\b", bot_name), // "selected Crow"
-                    format!(r"named {}\b", bot_name),    // "named Crow"
-                    format!(r"called {}\b", bot_name),   // "called Crow"
-                    format!(r"{} is\b", bot_name),       // "Crow is"
-                    format!(r"{} was\b", bot_name),      // "Crow was"
-                    format!(r"{} has\b", bot_name),      // "Crow has"
-                    format!(r"{} isn't\b", bot_name),    // "Crow isn't"
-                    format!(r"{} doesn't\b", bot_name),  // "Crow doesn't"
-                    format!(r"{} didn't\b", bot_name),   // "Crow didn't"
-                    format!(r"{} won't\b", bot_name),    // "Crow won't"
-                    format!(r"{} can't\b", bot_name),    // "Crow can't"
+                    format!(r"than {bot_name}\b"),     // "other than Crow"
+                    format!(r"like {bot_name}\b"),     // "like Crow"
+                    format!(r"about {bot_name}\b"),    // "about Crow"
+                    format!(r"with {bot_name}\b"),     // "with Crow"
+                    format!(r"and {bot_name}\b"),      // "and Crow"
+                    format!(r"or {bot_name}\b"),       // "or Crow"
+                    format!(r"for {bot_name}\b"),      // "for Crow"
+                    format!(r"the {bot_name}\b"),      // "the Crow"
+                    format!(r"a {bot_name}\b"),        // "a Crow"
+                    format!(r"an {bot_name}\b"),       // "an Crow"
+                    format!(r"this {bot_name}\b"),     // "this Crow"
+                    format!(r"that {bot_name}\b"),     // "that Crow"
+                    format!(r"my {bot_name}\b"),       // "my Crow"
+                    format!(r"your {bot_name}\b"),     // "your Crow"
+                    format!(r"our {bot_name}\b"),      // "our Crow"
+                    format!(r"their {bot_name}\b"),    // "their Crow"
+                    format!(r"his {bot_name}\b"),      // "his Crow"
+                    format!(r"her {bot_name}\b"),      // "her Crow"
+                    format!(r"its {bot_name}\b"),      // "its Crow"
+                    format!(r"picked {bot_name}\b"),   // "picked Crow"
+                    format!(r"chose {bot_name}\b"),    // "chose Crow"
+                    format!(r"selected {bot_name}\b"), // "selected Crow"
+                    format!(r"named {bot_name}\b"),    // "named Crow"
+                    format!(r"called {bot_name}\b"),   // "called Crow"
+                    format!(r"{bot_name} is\b"),       // "Crow is"
+                    format!(r"{bot_name} was\b"),      // "Crow was"
+                    format!(r"{bot_name} has\b"),      // "Crow has"
+                    format!(r"{bot_name} isn't\b"),    // "Crow isn't"
+                    format!(r"{bot_name} doesn't\b"),  // "Crow doesn't"
+                    format!(r"{bot_name} didn't\b"),   // "Crow didn't"
+                    format!(r"{bot_name} won't\b"),    // "Crow won't"
+                    format!(r"{bot_name} can't\b"),    // "Crow can't"
                     // Additional negative patterns for rhyming and comparison cases
-                    format!(r"{} rhymes", bot_name), // "Crow rhymes"
-                    format!(r"rhymes with {}", bot_name), // "rhymes with Crow"
-                    format!(r"{} and", bot_name),    // "Crow and"
-                    format!(r"more of a {}", bot_name), // "more of a Crow"
-                    format!(r"less of a {}", bot_name), // "less of a Crow"
-                    format!(r"kind of {}", bot_name), // "kind of Crow"
-                    format!(r"sort of {}", bot_name), // "sort of Crow"
-                    format!(r"type of {}", bot_name), // "type of Crow"
+                    format!(r"{bot_name} rhymes"), // "Crow rhymes"
+                    format!(r"rhymes with {bot_name}"), // "rhymes with Crow"
+                    format!(r"{bot_name} and"),    // "Crow and"
+                    format!(r"more of a {bot_name}"), // "more of a Crow"
+                    format!(r"less of a {bot_name}"), // "less of a Crow"
+                    format!(r"kind of {bot_name}"), // "kind of Crow"
+                    format!(r"sort of {bot_name}"), // "sort of Crow"
+                    format!(r"type of {bot_name}"), // "type of Crow"
                 ];
 
                 for pattern in &negative_patterns {
@@ -994,23 +994,23 @@ impl Bot {
 
                 // Check for positive patterns - these are phrases that directly address the bot
                 let positive_patterns = [
-                    format!(r"{}\?", bot_name),         // "Crow?"
-                    format!(r"{}!", bot_name),          // "Crow!"
-                    format!(r"{},", bot_name),          // "Crow,"
-                    format!(r"{}:", bot_name),          // "Crow:"
-                    format!(r"{} can you", bot_name),   // "Crow can you"
-                    format!(r"{} could you", bot_name), // "Crow could you"
-                    format!(r"{} will you", bot_name),  // "Crow will you"
-                    format!(r"{} would you", bot_name), // "Crow would you"
-                    format!(r"{} please", bot_name),    // "Crow please"
-                    format!(r"ask {}", bot_name),       // "ask Crow"
-                    format!(r"tell {}", bot_name),      // "tell Crow"
-                    format!(r", {}", bot_name), // ", Crow" - for cases like "No you weren't, Crow"
-                    format!(r" {}\.", bot_name), // " Crow." - for cases ending with the bot's name
+                    format!(r"{bot_name}\?"),         // "Crow?"
+                    format!(r"{bot_name}!"),          // "Crow!"
+                    format!(r"{bot_name},"),          // "Crow,"
+                    format!(r"{bot_name}:"),          // "Crow:"
+                    format!(r"{bot_name} can you"),   // "Crow can you"
+                    format!(r"{bot_name} could you"), // "Crow could you"
+                    format!(r"{bot_name} will you"),  // "Crow will you"
+                    format!(r"{bot_name} would you"), // "Crow would you"
+                    format!(r"{bot_name} please"),    // "Crow please"
+                    format!(r"ask {bot_name}"),       // "ask Crow"
+                    format!(r"tell {bot_name}"),      // "tell Crow"
+                    format!(r", {bot_name}"), // ", Crow" - for cases like "No you weren't, Crow"
+                    format!(r" {bot_name}\."), // " Crow." - for cases ending with the bot's name
                 ];
 
                 for pattern in &positive_patterns {
-                    if let Ok(re) = regex::Regex::new(&format!(r"\b{}\b", pattern)) {
+                    if let Ok(re) = regex::Regex::new(&format!(r"\b{pattern}\b")) {
                         if re.is_match(&content_lower) {
                             info!("Bot addressed: matched positive pattern '{}'", pattern);
                             return true;
@@ -1098,21 +1098,17 @@ impl Bot {
                             {
                                 error!("Error handling imagine command: {:?}", e);
                             }
-                        } else {
-                            if let Err(e) = msg.reply(&ctx.http, "Sorry, image generation is not available (Gemini API not configured).").await {
-                                error!("Error sending API not configured message: {:?}", e);
-                            }
+                        } else if let Err(e) = msg.reply(&ctx.http, "Sorry, image generation is not available (Gemini API not configured).").await {
+                            error!("Error sending API not configured message: {:?}", e);
                         }
-                    } else {
-                        if let Err(e) = msg
-                            .reply(
-                                &ctx.http,
-                                "Please provide a description of what you want me to show you.",
-                            )
-                            .await
-                        {
-                            error!("Error sending usage message: {:?}", e);
-                        }
+                    } else if let Err(e) = msg
+                        .reply(
+                            &ctx.http,
+                            "Please provide a description of what you want me to show you.",
+                        )
+                        .await
+                    {
+                        error!("Error sending usage message: {:?}", e);
                     }
                 } else if command == "alive" {
                     // Check if a celebrity name was provided
@@ -1130,13 +1126,11 @@ impl Bot {
                                 error!("Error sending error message: {:?}", e);
                             }
                         }
-                    } else {
-                        if let Err(e) = msg
-                            .reply(&ctx.http, "Please provide a celebrity name.")
-                            .await
-                        {
-                            error!("Error sending usage message: {:?}", e);
-                        }
+                    } else if let Err(e) = msg
+                        .reply(&ctx.http, "Please provide a celebrity name.")
+                        .await
+                    {
+                        error!("Error sending usage message: {:?}", e);
                     }
                 } else if command == "help" {
                     // Help command - use the help message from our commands HashMap
@@ -1354,7 +1348,7 @@ impl Bot {
                 } else if let Some(gemini_client) = &self.gemini_client {
                     // Handle unknown command with Gemini API
                     if let Err(e) =
-                        handle_unknown_command(&ctx.http, &msg, &command, gemini_client, ctx).await
+                        handle_unknown_command(&ctx.http, msg, &command, gemini_client, ctx).await
                     {
                         error!("Error handling unknown command: {:?}", e);
                     }
@@ -1373,7 +1367,7 @@ impl Bot {
             if let Some(search_client) = &self.search_client {
                 if let Err(e) = msg
                     .channel_id
-                    .say(&ctx.http, format!("Searching for: {}", query))
+                    .say(&ctx.http, format!("Searching for: {query}"))
                     .await
                 {
                     error!("Error sending search confirmation: {:?}", e);
@@ -1411,14 +1405,12 @@ impl Bot {
                         }
                     }
                 }
-            } else {
-                if let Err(e) = msg
-                    .channel_id
-                    .say(&ctx.http, "Search is not configured.")
-                    .await
-                {
-                    error!("Error sending search error: {:?}", e);
-                }
+            } else if let Err(e) = msg
+                .channel_id
+                .say(&ctx.http, "Search is not configured.")
+                .await
+            {
+                error!("Error sending search error: {:?}", e);
             }
             return Ok(());
         }
@@ -1432,7 +1424,7 @@ impl Bot {
             // Check if the message contains "who fights crime" when the bot is addressed
             if content_lower.contains("who fights crime") {
                 info!("Bot addressed with 'who fights crime' question");
-                match self.generate_crime_fighting_duo(&ctx, &msg).await {
+                match self.generate_crime_fighting_duo(ctx, msg).await {
                     Ok(duo) => {
                         if let Err(e) = msg.channel_id.say(&ctx.http, duo).await {
                             error!("Error sending crime fighting duo: {:?}", e);
@@ -1517,7 +1509,7 @@ impl Bot {
                             // Create a message reference for replying
                             let message_reference = MessageReference::from(msg);
                             let create_message = CreateMessage::new()
-                                .content(format!("Sorry, I encountered an error: {}", e))
+                                .content(format!("Sorry, I encountered an error: {e}"))
                                 .reference_message(message_reference);
 
                             if let Err(e) =
@@ -1527,7 +1519,7 @@ impl Bot {
                                 // Fallback to regular message if reply fails
                                 if let Err(e) = msg
                                     .channel_id
-                                    .say(&ctx.http, format!("Sorry, I encountered an error: {}", e))
+                                    .say(&ctx.http, format!("Sorry, I encountered an error: {e}"))
                                     .await
                                 {
                                     error!("Error sending fallback error message: {:?}", e);
@@ -1783,7 +1775,7 @@ impl Bot {
                         }
 
                         // Format the message (simplified since we don't have author info)
-                        formatted_messages.push(format!("Message: {}", content));
+                        formatted_messages.push(format!("Message: {content}"));
                     }
 
                     formatted_messages.join("\n")
@@ -1853,8 +1845,7 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
 
                         // Calculate a realistic typing delay (0.2 seconds per word, min 1s, max 3s)
                         let word_count = response.split_whitespace().count();
-                        let typing_delay =
-                            std::cmp::min(std::cmp::max(word_count as u64 * 200, 1000), 3000);
+                        let typing_delay = (word_count as u64 * 200).clamp(1000, 3000);
                         tokio::time::sleep(Duration::from_millis(typing_delay)).await;
 
                         // Send the response
@@ -1935,7 +1926,7 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                                 } else {
                                     author
                                 };
-                                format!("{}: {}", name_to_use, content)
+                                format!("{name_to_use}: {content}")
                             })
                             .collect();
                         formatted_messages.join("\n")
@@ -2160,10 +2151,8 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                         if let Err(e) = msg.channel_id.say(&ctx.http, genre).await {
                             error!("Error sending band genre: {:?}", e);
                         }
-                    } else {
-                        if let Err(e) = msg.reply(&ctx.http, "Please provide a band name.").await {
-                            error!("Error sending usage message: {:?}", e);
-                        }
+                    } else if let Err(e) = msg.reply(&ctx.http, "Please provide a band name.").await {
+                        error!("Error sending usage message: {:?}", e);
                     }
                 } else if command == "imagine" && !self.imagine_channels.is_empty() {
                     // Extract the image prompt
@@ -2181,21 +2170,17 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                             {
                                 error!("Error handling imagine command: {:?}", e);
                             }
-                        } else {
-                            if let Err(e) = msg.reply(&ctx.http, "Sorry, image generation is not available (Gemini API not configured).").await {
-                                error!("Error sending API not configured message: {:?}", e);
-                            }
+                        } else if let Err(e) = msg.reply(&ctx.http, "Sorry, image generation is not available (Gemini API not configured).").await {
+                            error!("Error sending API not configured message: {:?}", e);
                         }
-                    } else {
-                        if let Err(e) = msg
-                            .reply(
-                                &ctx.http,
-                                "Please provide a description of what you want me to show you.",
-                            )
-                            .await
-                        {
-                            error!("Error sending usage message: {:?}", e);
-                        }
+                    } else if let Err(e) = msg
+                        .reply(
+                            &ctx.http,
+                            "Please provide a description of what you want me to show you.",
+                        )
+                        .await
+                    {
+                        error!("Error sending usage message: {:?}", e);
                     }
                 } else if command == "alive" {
                     // Check if a celebrity name was provided
@@ -2213,13 +2198,11 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                                 error!("Error sending error message: {:?}", e);
                             }
                         }
-                    } else {
-                        if let Err(e) = msg
-                            .reply(&ctx.http, "Please provide a celebrity name.")
-                            .await
-                        {
-                            error!("Error sending usage message: {:?}", e);
-                        }
+                    } else if let Err(e) = msg
+                        .reply(&ctx.http, "Please provide a celebrity name.")
+                        .await
+                    {
+                        error!("Error sending usage message: {:?}", e);
                     }
                 } else if command == "help" {
                     // Help command - use the help message from our commands HashMap
@@ -2243,7 +2226,7 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
 
                     // Generate a slogan response
                     if let Err(e) = self
-                        .handle_slogan_command(&ctx.http, &msg, search_term)
+                        .handle_slogan_command(&ctx.http, msg, search_term)
                         .await
                     {
                         error!("Error handling slogan command: {:?}", e);
@@ -2273,7 +2256,7 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                         };
 
                         if let Err(e) = self
-                            .handle_quote_dud_command(&ctx.http, &msg, username)
+                            .handle_quote_dud_command(&ctx.http, msg, username)
                             .await
                         {
                             error!("Error handling quote -dud command: {:?}", e);
@@ -2287,7 +2270,7 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                         }
                     } else {
                         // Regular quote command with possible -show flag
-                        if let Err(e) = self.handle_quote_command(&ctx.http, &msg, args).await {
+                        if let Err(e) = self.handle_quote_command(&ctx.http, msg, args).await {
                             error!("Error handling quote command: {:?}", e);
                             if let Err(e) = msg
                                 .channel_id
@@ -2299,7 +2282,7 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                         }
                     }
                 } else if command == "fightcrime" {
-                    match self.generate_crime_fighting_duo(&ctx, &msg).await {
+                    match self.generate_crime_fighting_duo(ctx, msg).await {
                         Ok(duo) => {
                             if let Err(e) = msg.channel_id.say(&ctx.http, duo).await {
                                 error!("Error sending crime fighting duo: {:?}", e);
@@ -2318,7 +2301,7 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                     }
                 } else if command == "buzz" {
                     // Handle the buzz command
-                    if let Err(e) = handle_buzz_command(&ctx.http, &msg).await {
+                    if let Err(e) = handle_buzz_command(&ctx.http, msg).await {
                         error!("Error handling buzz command: {:?}", e);
                         if let Err(e) = msg
                             .channel_id
@@ -2338,7 +2321,7 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
 
                     // Handle the lastseen command
                     if let Err(e) =
-                        handle_lastseen_command(&ctx.http, &msg, &name, &self.message_db).await
+                        handle_lastseen_command(&ctx.http, msg, &name, &self.message_db).await
                     {
                         error!("Error handling lastseen command: {:?}", e);
                         if let Err(e) = msg
@@ -2360,7 +2343,7 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                     // Handle the frinkiac command
                     if let Err(e) = handle_frinkiac_command(
                         &ctx.http,
-                        &msg,
+                        msg,
                         args,
                         &self.frinkiac_client,
                         self.gemini_client.as_ref(),
@@ -2387,7 +2370,7 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                     // Handle the morbotron command
                     if let Err(e) = handle_morbotron_command(
                         &ctx.http,
-                        &msg,
+                        msg,
                         search_term,
                         &self.morbotron_client,
                         self.gemini_client.as_ref(),
@@ -2414,7 +2397,7 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                     // Handle the masterofallscience command
                     if let Err(e) = handle_masterofallscience_command(
                         &ctx.http,
-                        &msg,
+                        msg,
                         search_term,
                         &self.masterofallscience_client,
                         self.gemini_client.as_ref(),
@@ -2449,7 +2432,7 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
             if let Some(search_client) = &self.search_client {
                 if let Err(e) = msg
                     .channel_id
-                    .say(&ctx.http, format!("Searching for: {}", query))
+                    .say(&ctx.http, format!("Searching for: {query}"))
                     .await
                 {
                     error!("Error sending search confirmation: {:?}", e);
@@ -2487,14 +2470,12 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                         }
                     }
                 }
-            } else {
-                if let Err(e) = msg
-                    .channel_id
-                    .say(&ctx.http, "Search is not configured.")
-                    .await
-                {
-                    error!("Error sending search error: {:?}", e);
-                }
+            } else if let Err(e) = msg
+                .channel_id
+                .say(&ctx.http, "Search is not configured.")
+                .await
+            {
+                error!("Error sending search error: {:?}", e);
             }
             return Ok(());
         }
@@ -2508,7 +2489,7 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
             // Check if the message contains "who fights crime" when the bot is addressed
             if content_lower.contains("who fights crime") {
                 info!("Bot addressed with 'who fights crime' question");
-                match self.generate_crime_fighting_duo(&ctx, &msg).await {
+                match self.generate_crime_fighting_duo(ctx, msg).await {
                     Ok(duo) => {
                         if let Err(e) = msg.channel_id.say(&ctx.http, duo).await {
                             error!("Error sending crime fighting duo: {:?}", e);
@@ -2613,7 +2594,7 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                             // Create a message reference for replying
                             let message_reference = MessageReference::from(msg);
                             let create_message = CreateMessage::new()
-                                .content(format!("Sorry, I encountered an error: {}", e))
+                                .content(format!("Sorry, I encountered an error: {e}"))
                                 .reference_message(message_reference);
 
                             if let Err(e) =
@@ -2623,7 +2604,7 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                                 // Fallback to regular message if reply fails
                                 if let Err(e) = msg
                                     .channel_id
-                                    .say(&ctx.http, format!("Sorry, I encountered an error: {}", e))
+                                    .say(&ctx.http, format!("Sorry, I encountered an error: {e}"))
                                     .await
                                 {
                                     error!("Error sending fallback error message: {:?}", e);
@@ -2639,7 +2620,7 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                     let pronouns_info = if let Some(pronouns) =
                         crate::display_name::extract_pronouns(&display_name)
                     {
-                        format!(" (I see you use {} pronouns)", pronouns)
+                        format!(" (I see you use {pronouns} pronouns)")
                     } else {
                         String::new()
                     };
@@ -2661,7 +2642,7 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
 
         // First check for exact phrase matches (case insensitive)
         if content_lower.contains("who fights crime") {
-            match self.generate_crime_fighting_duo(&ctx, &msg).await {
+            match self.generate_crime_fighting_duo(ctx, msg).await {
                 Ok(duo) => {
                     if let Err(e) = msg.channel_id.say(&ctx.http, duo).await {
                         error!("Error sending crime fighting duo: {:?}", e);
@@ -2719,7 +2700,7 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
             // Extract the message content without the mention
             let content = msg
                 .content
-                .replace(&format!("<@{}>", current_user_id), "")
+                .replace(&format!("<@{current_user_id}>"), "")
                 .trim()
                 .to_string();
 
@@ -2792,7 +2773,7 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                             // Create a message reference for replying
                             let message_reference = MessageReference::from(msg);
                             let create_message = CreateMessage::new()
-                                .content(format!("Sorry, I encountered an error: {}", e))
+                                .content(format!("Sorry, I encountered an error: {e}"))
                                 .reference_message(message_reference);
 
                             if let Err(e) =
@@ -2802,7 +2783,7 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                                 // Fallback to regular message if reply fails
                                 if let Err(e) = msg
                                     .channel_id
-                                    .say(&ctx.http, format!("Sorry, I encountered an error: {}", e))
+                                    .say(&ctx.http, format!("Sorry, I encountered an error: {e}"))
                                     .await
                                 {
                                     error!("Error sending fallback error message: {:?}", e);
@@ -3076,7 +3057,7 @@ impl EventHandler for Bot {
         let command_list = self
             .commands
             .keys()
-            .map(|k| format!("!{}", k))
+            .map(|k| format!("!{k}"))
             .collect::<Vec<_>>()
             .join(", ");
         debug!("Available commands: {}", command_list);
@@ -3856,7 +3837,7 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                             chronological_messages
                                                 .iter()
                                                 .map(|(_author, display_name, content)| {
-                                                    format!("{}: {}", display_name, content)
+                                                    format!("{display_name}: {content}")
                                                 })
                                                 .collect();
                                         formatted_messages.join("\n")
@@ -3890,9 +3871,9 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                                 // If we have a Gemini client, process the message
                                                 if let Some(gemini) = &task_gemini_client {
                                                     let memory_prompt = format!(
-                                                        "You are {}, a witty Discord bot. You've found this message in your memory: \"{}\". \
+                                                        "You are {bot_name_clone}, a witty Discord bot. You've found this message in your memory: \"{content}\". \
                                                         Please contribute to the conversation by saying something related to this memory.\n\n\
-                                                        Recent conversation context (use this for relevance only):\n{}\n\n\
+                                                        Recent conversation context (use this for relevance only):\n{context_text}\n\n\
                                                         Guidelines:\n\
                                                         1. Your comment should be primarily based on the MEMORY, not the recent context\n\
                                                         2. Use the recent context only to make your comment relevant to the current conversation\n\
@@ -3910,8 +3891,7 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                                         When in doubt, use gender-neutral language and address people by their username instead.\n\
                                                         12. ONLY use MST3K quotes when they directly relate to the conversation topic - NEVER use them as standalone responses. AVOID using \"Watch out for snakes!\" as it's become overused - instead, try other MST3K quotes like \"Huge slam on [category] out of nowhere!\", \"Normal view! Normal view! NORMAL VIEW!\", \"This is where the fish lives\", \"I calculated the odds of this succeeding versus the odds I was doing something incredibly stupid... and I went ahead anyway\", or \"It's the 80's, do a lot of coke and vote for Ronald Reagan!\"\n\
                                                         13. If you're unsure if a response is appropriate, respond with ONLY the word \"pass\"\n\
-                                                        Remember: Be natural and direct - no meta-commentary.",
-                                                        bot_name_clone, content, context_text
+                                                        Remember: Be natural and direct - no meta-commentary."
                                                     );
 
                                                     match gemini
@@ -3994,7 +3974,7 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                             chronological_messages
                                                 .iter()
                                                 .map(|(_author, display_name, content)| {
-                                                    format!("{}: {}", display_name, content)
+                                                    format!("{display_name}: {content}")
                                                 })
                                                 .collect();
                                         formatted_messages.join("\n")
@@ -4004,9 +3984,9 @@ Keep it brief and natural, as if you're just another participant in the conversa
 
                                     // Create the AI interjection prompt
                                     let ai_prompt = format!(
-                                        "You are {}, a witty Discord bot with a diverse knowledge of pop culture. \
+                                        "You are {bot_name_clone}, a witty Discord bot with a diverse knowledge of pop culture. \
                                         Please contribute to the conversation with a brief, natural comment.\n\n\
-                                        Recent conversation context:\n{}\n\n\
+                                        Recent conversation context:\n{context_text}\n\n\
                                         Guidelines:\n\
                                         1. Keep it short and natural (1-2 sentences)\n\
                                         2. Be relevant to the conversation topic\n\
@@ -4027,8 +4007,7 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                         15. NEVER use gendered terms like \"sir\", \"ma'am\", \"dude\", \"guy\", \"girl\", etc. unless you are 100% certain of the person's gender. \
                                         When in doubt, use gender-neutral language and address people by their username instead.\n\
                                         16. If you're unsure if a response is appropriate, respond with ONLY the word \"pass\"\n\
-                                        Remember: Be natural and direct - no meta-commentary.",
-                                        bot_name_clone, context_text
+                                        Remember: Be natural and direct - no meta-commentary."
                                     );
 
                                     // Call Gemini API with the AI prompt
@@ -4123,7 +4102,7 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                             chronological_messages
                                                 .iter()
                                                 .map(|(_author, display_name, content)| {
-                                                    format!("{}: {}", display_name, content)
+                                                    format!("{display_name}: {content}")
                                                 })
                                                 .collect();
                                         formatted_messages.join("\n")

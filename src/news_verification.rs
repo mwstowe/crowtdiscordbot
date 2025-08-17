@@ -12,9 +12,9 @@ pub async fn verify_news_article(
     // Create a prompt for Gemini to verify the article
     let prompt = format!(
         "You are a fact-checking assistant. Your task is to determine if the provided article title and summary match the content at the URL.\n\n\
-        Article Title: {}\n\
-        Article URL: {}\n\
-        Article Summary: {}\n\n\
+        Article Title: {article_title}\n\
+        Article URL: {article_url}\n\
+        Article Summary: {article_summary}\n\n\
         Based on the URL and your knowledge, determine if the title and summary are likely to match the actual content at the URL.\n\
         Consider the following:\n\
         1. Does the URL domain match a reputable news source?\n\
@@ -26,10 +26,7 @@ pub async fn verify_news_article(
         - \"MATCH\" - if the title and summary likely match the URL\n\
         - \"MISMATCH\" - if there's a clear mismatch between the title/summary and the URL\n\
         - \"UNCERTAIN\" - if you cannot determine with confidence\n\
-        Do not include any other text in your response.",
-        article_title,
-        article_url,
-        article_summary
+        Do not include any other text in your response."
     );
 
     // Send the prompt to Gemini
@@ -228,7 +225,7 @@ fn is_year(segment: &str) -> bool {
         && segment.chars().all(|c| c.is_ascii_digit())
         && segment
             .parse::<i32>()
-            .map_or(false, |year| year >= 1990 && year <= 2030)
+            .is_ok_and(|year| (1990..=2030).contains(&year))
 }
 
 /// Check if a segment represents a 2-digit month
@@ -237,7 +234,7 @@ fn is_month(segment: &str) -> bool {
         && segment.chars().all(|c| c.is_ascii_digit())
         && segment
             .parse::<i32>()
-            .map_or(false, |month| month >= 1 && month <= 12)
+            .is_ok_and(|month| (1..=12).contains(&month))
 }
 
 /// Check if a segment looks like a date (YYYY-MM-DD format)
@@ -250,7 +247,7 @@ fn is_date_segment(segment: &str) -> bool {
             && parts[2].chars().all(|c| c.is_ascii_digit())
             && parts[2]
                 .parse::<i32>()
-                .map_or(false, |day| day >= 1 && day <= 31);
+                .is_ok_and(|day| (1..=31).contains(&day));
     }
     false
 }

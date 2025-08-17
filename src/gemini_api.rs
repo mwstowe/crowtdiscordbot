@@ -174,9 +174,9 @@ impl GeminiClient {
 
                     // Include pronouns if available
                     if let Some(pronouns) = pronouns {
-                        format!("{} ({}): {}", name_to_use, pronouns, msg)
+                        format!("{name_to_use} ({pronouns}): {msg}")
                     } else {
-                        format!("{}: {}", name_to_use, msg)
+                        format!("{name_to_use}: {msg}")
                     }
                 })
                 .collect::<Vec<_>>()
@@ -364,10 +364,8 @@ impl GeminiClient {
                 // Check for prompt feedback
                 let prompt_feedback = if let Some(feedback) = response_json.get("promptFeedback") {
                     if let Some(block_reason) = feedback.get("blockReason") {
-                        format!(
-                            "Prompt blocked: {}",
-                            block_reason.as_str().unwrap_or("UNKNOWN")
-                        )
+                        let block_reason_str = block_reason.as_str().unwrap_or("UNKNOWN");
+                        format!("Prompt blocked: {block_reason_str}")
                     } else {
                         "Prompt feedback present but no block reason specified".to_string()
                     }
@@ -566,7 +564,7 @@ impl GeminiClient {
 
                 // Check for safety ratings with blocked=true
                 if let Some(safety_ratings) = candidate.get("safetyRatings") {
-                    if safety_ratings.as_array().map_or(false, |ratings| {
+                    if safety_ratings.as_array().is_some_and(|ratings| {
                         ratings.iter().any(|rating| {
                             rating
                                 .get("blocked")
@@ -679,7 +677,7 @@ impl GeminiClient {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio;
+    
 
     #[tokio::test]
     async fn test_image_quota_exhaustion() {

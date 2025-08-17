@@ -210,7 +210,7 @@ impl FrinkiacClient {
 
         // If direct search fails and it's a multi-word query, try with quotes
         if query.contains(' ') {
-            if let Some(result) = self.search_with_strategy(&format!("\"{}\"", query)).await? {
+            if let Some(result) = self.search_with_strategy(&format!("\"{query}\"")).await? {
                 info!("Found result with quoted search");
                 return Ok(Some(result));
             }
@@ -228,7 +228,7 @@ impl FrinkiacClient {
     async fn search_with_strategy(&self, query: &str) -> Result<Option<FrinkiacResult>> {
         // URL encode the query
         let encoded_query = urlencoding::encode(query);
-        let search_url = format!("{}?q={}", FRINKIAC_BASE_URL, encoded_query);
+        let search_url = format!("{FRINKIAC_BASE_URL}?q={encoded_query}");
 
         // Make the search request
         let search_response = self
@@ -282,7 +282,7 @@ impl FrinkiacClient {
         timestamp: u64,
     ) -> Result<Option<FrinkiacResult>> {
         // Get the caption for this frame
-        let caption_url = format!("{}?e={}&t={}", FRINKIAC_CAPTION_URL, episode, timestamp);
+        let caption_url = format!("{FRINKIAC_CAPTION_URL}?e={episode}&t={timestamp}");
 
         info!("Fetching caption from URL: {}", caption_url);
 
@@ -304,7 +304,7 @@ impl FrinkiacClient {
                 // Try with a different format - some episodes might be formatted differently
                 let alt_episode = if episode.contains("E") || episode.contains("S") {
                     // If it's already in SxxExx format, try with just the episode number
-                    let parts: Vec<&str> = episode.split(|c| c == 'E' || c == 'S').collect();
+                    let parts: Vec<&str> = episode.split(['E', 'S']).collect();
                     if parts.len() > 1 {
                         parts[parts.len() - 1].to_string()
                     } else {
@@ -312,11 +312,12 @@ impl FrinkiacClient {
                     }
                 } else {
                     // If it's not in SxxExx format, try with that format
-                    format!("S01E{:02}", episode.parse::<u32>().unwrap_or(1))
+                    let episode_num = episode.parse::<u32>().unwrap_or(1);
+                    format!("S01E{episode_num:02}")
                 };
 
                 let alt_caption_url =
-                    format!("{}?e={}&t={}", FRINKIAC_CAPTION_URL, alt_episode, timestamp);
+                    format!("{FRINKIAC_CAPTION_URL}?e={alt_episode}&t={timestamp}");
                 info!("Trying alternative caption URL: {}", alt_caption_url);
 
                 let alt_caption_response = self
@@ -372,10 +373,10 @@ impl FrinkiacClient {
                     .join(" ");
 
                 // Format the image URL
-                let image_url = format!("{}/{}/{}.jpg", FRINKIAC_IMAGE_URL, alt_episode, timestamp);
+                let image_url = format!("{FRINKIAC_IMAGE_URL}/{alt_episode}/{timestamp}.jpg");
 
                 // Format the meme URL (for sharing)
-                let meme_url = format!("{}/{}/{}.jpg", FRINKIAC_MEME_URL, alt_episode, timestamp);
+                let meme_url = format!("{FRINKIAC_MEME_URL}/{alt_episode}/{timestamp}.jpg");
 
                 return Ok(Some(FrinkiacResult {
                     _episode: alt_episode,
@@ -435,10 +436,10 @@ impl FrinkiacClient {
             .join(" ");
 
         // Format the image URL
-        let image_url = format!("{}/{}/{}.jpg", FRINKIAC_IMAGE_URL, episode, timestamp);
+        let image_url = format!("{FRINKIAC_IMAGE_URL}/{episode}/{timestamp}.jpg");
 
         // Format the meme URL (for sharing)
-        let meme_url = format!("{}/{}/{}.jpg", FRINKIAC_MEME_URL, episode, timestamp);
+        let meme_url = format!("{FRINKIAC_MEME_URL}/{episode}/{timestamp}.jpg");
 
         Ok(Some(FrinkiacResult {
             _episode: episode.to_string(),
@@ -460,13 +461,13 @@ fn format_caption(caption: &str) -> String {
 
 // Format a Frinkiac result for display
 pub fn format_frinkiac_result(result: &FrinkiacResult) -> String {
+    let image_url = &result.image_url;
+    let episode_title = &result.episode_title;
+    let season = result.season;
+    let episode_number = result.episode_number;
+    let caption = &result.caption;
     format!(
-        "{}\n{} (Season {}, Episode {})\n{}",
-        result.image_url,
-        result.episode_title,
-        result.season,
-        result.episode_number,
-        result.caption
+        "{image_url}\n{episode_title} (Season {season}, Episode {episode_number})\n{caption}"
     )
 }
 
@@ -680,7 +681,7 @@ pub async fn handle_frinkiac_command(
 
                 // If filtered out, return appropriate message
                 if filtered_out {
-                    let error_msg = format!("Couldn't find any Simpsons screenshots matching \"{}\" in the specified season/episode.", term);
+                    let error_msg = format!("Couldn't find any Simpsons screenshots matching \"{term}\" in the specified season/episode.");
 
                     // Edit the searching message if we have one, otherwise send a new message
                     if let Some(mut search_msg) = searching_msg {
@@ -734,8 +735,7 @@ pub async fn handle_frinkiac_command(
             }
             Ok(None) => {
                 let error_msg = format!(
-                    "Couldn't find any Simpsons screenshots matching \"{}\".",
-                    term
+                    "Couldn't find any Simpsons screenshots matching \"{term}\"."
                 );
 
                 // Edit the searching message if we have one, otherwise send a new message

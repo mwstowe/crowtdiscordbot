@@ -184,17 +184,15 @@ async fn validate_fact_matches_citation(
     // Create a prompt to check if the fact and citation match
     let validation_prompt = format!(
         "You are a fact-checking assistant. Your task is to determine if a given fact is supported by the provided URL citation.\n\n\
-        Fact: \"{}\"\n\
-        Citation URL: {}\n\n\
+        Fact: \"{main_fact}\"\n\
+        Citation URL: {citation}\n\n\
         Please verify if this fact is likely to be found at or supported by the content at this URL.\n\
         Consider the domain expertise of the website, the specificity of the fact, and whether the URL path suggests relevant content.\n\n\
         Respond with ONLY ONE of these exact options:\n\
         1. \"MATCH\" - if the fact is likely supported by the URL\n\
         2. \"MISMATCH\" - if the fact is clearly not related to the URL or contradicts what would be found there\n\
         3. \"UNCERTAIN\" - if you cannot determine with confidence\n\n\
-        Respond with ONLY one of these three words and nothing else.",
-        main_fact,
-        citation
+        Respond with ONLY one of these three words and nothing else."
     );
 
     // Call Gemini API to validate
@@ -276,7 +274,7 @@ async fn handle_fact_interjection_common(
 
         let formatted_messages: Vec<String> = chronological_messages
             .iter()
-            .map(|(_author, display_name, content)| format!("{}: {}", display_name, content))
+            .map(|(_author, display_name, content)| format!("{display_name}: {content}"))
             .collect();
         formatted_messages.join("\n")
     } else {

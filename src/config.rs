@@ -18,7 +18,7 @@ MESSAGE_HISTORY_LIMIT = "5000"
 "#;
 
         let processed = preprocess_config_content(input);
-        println!("Processed content: {}", processed);
+        println!("Processed content: {processed}");
 
         // Check that keys are converted to lowercase
         assert!(processed.contains("discord_token"));

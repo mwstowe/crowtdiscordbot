@@ -25,10 +25,8 @@ impl DuckDuckGoSearchClient {
             .build()?;
 
         // Build the URL with query parameters
-        let url = format!(
-            "https://duckduckgo.com/html/?q={}",
-            urlencoding::encode(query)
-        );
+        let encoded_query = urlencoding::encode(query);
+        let url = format!("https://duckduckgo.com/html/?q={encoded_query}");
 
         info!("Fetching search results from: {}", url);
 
@@ -178,7 +176,7 @@ impl DuckDuckGoSearchClient {
                         // Look for season/episode information in the URL or snippet
                         if actual_url.contains("S") && actual_url.contains("E") {
                             if let Some(season_ep) = extract_season_episode(&actual_url) {
-                                enhanced_snippet = format!("{} [{}]", enhanced_snippet, season_ep);
+                                enhanced_snippet = format!("{enhanced_snippet} [{season_ep}]");
                             }
                         }
 
@@ -211,7 +209,7 @@ fn extract_season_episode(url: &str) -> Option<String> {
     if let Some(caps) = re.captures(url) {
         let season = caps.get(1)?.as_str();
         let episode = caps.get(2)?.as_str();
-        return Some(format!("Season {} Episode {}", season, episode));
+        return Some(format!("Season {season} Episode {episode}"));
     }
     None
 }

@@ -124,11 +124,7 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
             });
 
             if let Some(captures) = re.captures(&first_msg.content) {
-                if let Some(name_match) = captures.get(1) {
-                    Some(name_match.as_str().to_string())
-                } else {
-                    None
-                }
+                captures.get(1).map(|name_match| name_match.as_str().to_string())
             } else {
                 None
             }
@@ -305,11 +301,10 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
                         // The clean_display_name here should be the original author, not "Crow"
                         let really_part = "*really* ".repeat(really_count + 1);
                         format!(
-                            "{} {}meant: {}",
-                            clean_display_name, really_part, new_content
+                            "{clean_display_name} {really_part}meant: {new_content}"
                         )
                     } else {
-                        format!("{} meant: {}", clean_display_name, new_content)
+                        format!("{clean_display_name} meant: {new_content}")
                     };
 
                     if let Err(e) = msg.channel_id.say(&ctx.http, response).await {

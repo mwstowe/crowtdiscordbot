@@ -255,7 +255,7 @@ impl TrumpInsultGenerator {
                 .map(|s| s.as_str())
                 .unwrap_or(default_noun);
 
-            format!("{} {}", adjective, noun)
+            format!("{adjective} {noun}")
         }
     }
 }

@@ -34,22 +34,22 @@ pub async fn handle_imagine_command(
     if !imagine_channels.is_empty() && !imagine_channels.contains(&channel_name) {
         // Create a message directing the user to the appropriate channels
         let channel_list = if imagine_channels.len() == 1 {
-            format!("the #{} channel", imagine_channels[0])
+            let channel_name = &imagine_channels[0];
+            format!("the #{channel_name} channel")
         } else {
             let channels = imagine_channels
                 .iter()
-                .map(|c| format!("#{}", c))
+                .map(|c| format!("#{c}"))
                 .collect::<Vec<_>>()
                 .join(", ");
-            format!("one of these channels: {}", channels)
+            format!("one of these channels: {channels}")
         };
 
         // Reply with a helpful message
         msg.reply(
             &ctx.http,
             format!(
-                "Image generation is only available in {}. Please try your command there.",
-                channel_list
+                "Image generation is only available in {channel_list}. Please try your command there."
             ),
         )
         .await?;
@@ -102,9 +102,9 @@ pub async fn handle_imagine_command(
 
                         // Format the message with both the prompt and the AI's description
                         let message_content = if description.is_empty() {
-                            format!("Here's what I imagine for: {}", prompt)
+                            format!("Here's what I imagine for: {prompt}")
                         } else {
-                            format!("Here's what I imagine for: {}\n\n{}", prompt, description)
+                            format!("Here's what I imagine for: {prompt}\n\n{description}")
                         };
 
                         // Send the image file with the description

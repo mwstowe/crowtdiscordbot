@@ -127,7 +127,7 @@ pub async fn initialize_database(
     ];
 
     for (name, sql) in indexes {
-        let sql = format!("CREATE INDEX IF NOT EXISTS {} ON {}", name, sql);
+        let sql = format!("CREATE INDEX IF NOT EXISTS {name} ON {sql}");
         conn.call(move |conn| {
             conn.execute(&sql, []).map(|_| ())?;
             Ok::<_, rusqlite::Error>(())
@@ -821,7 +821,7 @@ pub async fn clean_up_duplicates(
                 }
             }
 
-            Ok::<_, rusqlite::Error>(deleted as usize)
+            Ok::<_, rusqlite::Error>(deleted)
         } else {
             // No duplicates, just create the index
             conn.execute(

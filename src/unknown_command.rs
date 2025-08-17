@@ -26,7 +26,7 @@ pub async fn handle_unknown_command(
 
     // Check if there are parameters after the command
     let content = msg.content.trim();
-    let command_with_exclamation = format!("!{}", command_name);
+    let command_with_exclamation = format!("!{command_name}");
 
     // Find where the command ends and parameters begin
     let params = if content.len() > command_with_exclamation.len() {
@@ -38,33 +38,31 @@ pub async fn handle_unknown_command(
     // Create prompt for Gemini API based on whether there are parameters
     let prompt = if !params.is_empty() {
         format!(
-            "You are analyzing an unknown Discord bot command '!{}' with parameter '{}'. \
+            "You are analyzing an unknown Discord bot command '!{command_name}' with parameter '{params}'. \
             First, determine what category of parameter this is (e.g., [username], [time], [location], [item], etc.). \
             Then create a humorous description of what this command would do, followed by a funny reason why it was disabled. \
             Format your response EXACTLY as: \
-            '!{} [parameter_category]: [description of what the command would do with this type of parameter]\n\nDisabled because [funny reason]'. \
+            '!{command_name} [parameter_category]: [description of what the command would do with this type of parameter]\n\nDisabled because [funny reason]'. \
             Keep it concise (2-3 sentences max) and make it genuinely funny. \
             DO NOT include any introductory text, commentary, or explanations. \
             DO NOT include phrases like 'Here's my attempt' or 'I've got more'. \
             ONLY return the formatted command description. \
             Examples: \
             '!time [year]: Travel back in time to the specified year.\n\nDisabled because too many users were trying to meet dinosaurs' \
-            '!weather [location]: Check the current weather conditions at the specified location.\n\nDisabled after the bot kept reporting \"cloudy with a chance of server crashes\"'",
-            command_name, params, command_name
+            '!weather [location]: Check the current weather conditions at the specified location.\n\nDisabled after the bot kept reporting \"cloudy with a chance of server crashes\"'"
         )
     } else {
         format!(
-            "Create a humorous description of what a Discord bot command '!{}' would do, \
+            "Create a humorous description of what a Discord bot command '!{command_name}' would do, \
             followed by a funny reason why it was disabled. Format EXACTLY as: \
-            '!{}: [description of what the command would do]\n\nDisabled because [funny reason]'. \
+            '!{command_name}: [description of what the command would do]\n\nDisabled because [funny reason]'. \
             Keep it concise (2-3 sentences max) and make it genuinely funny. \
             DO NOT include any introductory text, commentary, or explanations. \
             DO NOT include phrases like 'Here's my attempt' or 'I've got more'. \
             ONLY return the formatted command description. \
             Examples: \
             '!time: Travel back in time to the specified period or a random period in history.\n\nDisabled because it keeps going back before it was implemented' \
-            '!auto: Select and purchase an automobile on behalf of the user.\n\nDisabled after some poor sod received a cybertruck'",
-            command_name, command_name
+            '!auto: Select and purchase an automobile on behalf of the user.\n\nDisabled after some poor sod received a cybertruck'"
         )
     };
 

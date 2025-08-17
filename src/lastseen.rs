@@ -20,7 +20,8 @@ impl LastSeenFinder {
         conn: Arc<Mutex<SqliteConnection>>,
         name: &str,
     ) -> Result<Option<(String, String, String, u64)>, anyhow::Error> {
-        let name_pattern = format!("%{}%", name.to_lowercase());
+        let name_lower = name.to_lowercase();
+        let name_pattern = format!("%{name_lower}%");
         let conn_guard = conn.lock().await;
 
         // Query the database for the most recent message from a user matching the name pattern
@@ -68,7 +69,8 @@ impl LastSeenFinder {
         }
 
         let duration = std::time::Duration::from_secs(now - timestamp);
-        format!("{}", format_duration(duration))
+        let formatted_duration = format_duration(duration);
+        format!("{formatted_duration}")
     }
 }
 
@@ -147,8 +149,7 @@ pub async fn handle_lastseen_command(
 
                 let time_ago = finder.format_time_ago(timestamp);
                 let response = format!(
-                    "{} was last seen {} ago, saying: \"{}\"",
-                    user_name, time_ago, content
+                    "{user_name} was last seen {time_ago} ago, saying: \"{content}\""
                 );
 
                 if let Err(e) = msg.channel_id.say(http, response).await {
@@ -158,7 +159,7 @@ pub async fn handle_lastseen_command(
             Ok(None) => {
                 if let Err(e) = msg
                     .channel_id
-                    .say(http, format!("I haven't seen anyone matching \"{}\"", name))
+                    .say(http, format!("I haven't seen anyone matching \"{name}\""))
                     .await
                 {
                     error!("Error sending no match message: {:?}", e);

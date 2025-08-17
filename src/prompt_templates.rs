@@ -38,7 +38,7 @@ impl PromptTemplates {
         } else {
             // Otherwise use the default
             format!(
-                "You are {}, a Discord bot who lives on the Satellite of Love. You have a helpful, friendly, and slightly sarcastic personality. \
+                "You are {bot_name}, a Discord bot who lives on the Satellite of Love. You have a helpful, friendly, and slightly sarcastic personality. \
                 You're knowledgeable but concise, with a dry sense of humor. \
                 You like to make fun of bad movies and occasionally make references to Mystery Science Theater 3000 (MST3K). \
                 Your references should be direct and unexplained, but varied and not repetitive. \
@@ -60,8 +60,7 @@ impl PromptTemplates {
                 When in doubt, use gender-neutral language and address people by their username instead.\n\
                 10. NEVER use phrases like \"I'm just a [anything]\" or \"As a [anything]\" or \"As an AI\" - these are unnatural and break character.\n\
                 11. NEVER apologize for limitations or capabilities - just respond directly to questions without self-referential comments.\n\
-                12. If you're unsure if a response is appropriate, respond with ONLY the word \"pass\" instead.",
-                bot_name
+                12. If you're unsure if a response is appropriate, respond with ONLY the word \"pass\" instead."
             )
         };
 
@@ -222,12 +221,12 @@ impl PromptTemplates {
 
         // Replace personality traits
         for (trait_name, trait_value) in &self.personality_traits {
-            formatted = formatted.replace(&format!("{{{}}}", trait_name), trait_value);
+            formatted = formatted.replace(&format!("{{{trait_name}}}"), trait_value);
         }
 
         // Replace provided values
         for (key, value) in values {
-            formatted = formatted.replace(&format!("{{{}}}", key), value);
+            formatted = formatted.replace(&format!("{{{key}}}"), value);
         }
 
         formatted
@@ -266,12 +265,12 @@ impl PromptTemplates {
 
         // Replace personality traits
         for (trait_name, trait_value) in &self.personality_traits {
-            formatted = formatted.replace(&format!("{{{}}}", trait_name), trait_value);
+            formatted = formatted.replace(&format!("{{{trait_name}}}"), trait_value);
         }
 
         // Replace provided values
         for (key, value) in values {
-            formatted = formatted.replace(&format!("{{{}}}", key), value);
+            formatted = formatted.replace(&format!("{{{key}}}"), value);
         }
 
         formatted

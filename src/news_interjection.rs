@@ -49,7 +49,7 @@ pub async fn handle_news_interjection(
 
         let formatted_messages: Vec<String> = chronological_messages
             .iter()
-            .map(|(_author, display_name, content)| format!("{}: {}", display_name, content))
+            .map(|(_author, display_name, content)| format!("{display_name}: {content}"))
             .collect();
         formatted_messages.join("\n")
     } else {

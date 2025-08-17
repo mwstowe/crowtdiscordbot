@@ -37,7 +37,7 @@ impl RateLimiter {
 
         // Clean up old day requests (older than 24 hours)
         let day_ago = now_utc - chrono::Duration::days(1);
-        while day_requests.front().map_or(false, |t| *t < day_ago) {
+        while day_requests.front().is_some_and(|t| *t < day_ago) {
             day_requests.pop_front();
         }
 
@@ -51,8 +51,8 @@ impl RateLimiter {
                 let minutes = wait_duration.num_minutes() % 60;
 
                 let error_msg = format!(
-                    "⛔ Daily rate limit reached ({} requests). Reset in {} hours {} minutes",
-                    self.day_limit, hours, minutes
+                    "⛔ Daily rate limit reached ({} requests). Reset in {hours} hours {minutes} minutes",
+                    self.day_limit
                 );
                 warn!("{}", error_msg);
                 return Err(anyhow!(error_msg));
@@ -66,7 +66,7 @@ impl RateLimiter {
         // Clean up old minute requests (older than 1 minute)
         while minute_requests
             .front()
-            .map_or(false, |t| now.duration_since(*t) > Duration::from_secs(60))
+            .is_some_and(|t| now.duration_since(*t) > Duration::from_secs(60))
         {
             minute_requests.pop_front();
         }
@@ -79,8 +79,8 @@ impl RateLimiter {
                 let wait_secs = wait_duration.as_secs();
 
                 let error_msg = format!(
-                    "⏳ Per-minute rate limit reached ({} requests). Try again in {} seconds",
-                    self.minute_limit, wait_secs
+                    "⏳ Per-minute rate limit reached ({} requests). Try again in {wait_secs} seconds",
+                    self.minute_limit
                 );
                 warn!("{}", error_msg);
                 return Err(anyhow!(error_msg));

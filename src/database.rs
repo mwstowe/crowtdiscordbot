@@ -150,7 +150,7 @@ impl DatabaseManager {
                 msg.channel_id
                     .say(
                         http,
-                        format!("Failed to connect to the {} database.", entry_type),
+                        format!("Failed to connect to the {entry_type} database."),
                     )
                     .await?;
                 return Ok(());
@@ -162,7 +162,8 @@ impl DatabaseManager {
             // Split the search terms and join with % for LIKE query
             let terms: Vec<&str> = terms.split_whitespace().collect();
             if !terms.is_empty() {
-                let search_pattern = format!("%{}%", terms.join("%"));
+                let joined_terms = terms.join("%");
+                let search_pattern = format!("%{joined_terms}%");
                 search_pattern
             } else {
                 "%".to_string()
@@ -176,7 +177,8 @@ impl DatabaseManager {
             // Split the show name and join with % for LIKE query
             let show_terms: Vec<&str> = show.split_whitespace().collect();
             if !show_terms.is_empty() {
-                let show_pattern = format!("%{}%", show_terms.join("%"));
+                let joined_show_terms = show_terms.join("%");
+                let show_pattern = format!("%{joined_show_terms}%");
                 show_pattern
             } else {
                 "%".to_string()
@@ -225,10 +227,10 @@ impl DatabaseManager {
                 if total_entries == 0 {
                     let mut message = "No quotes found".to_string();
                     if let Some(terms) = &search_term {
-                        message.push_str(&format!(" matching '{}'", terms));
+                        message.push_str(&format!(" matching '{terms}'"));
                     }
                     if let Some(show) = &show_name {
-                        message.push_str(&format!(" in show '{}'", show));
+                        message.push_str(&format!(" in show '{show}'"));
                     }
                     msg.channel_id.say(http, message).await?;
                     return Ok(());
@@ -260,17 +262,12 @@ impl DatabaseManager {
                         // Clean up HTML entities
                         let clean_quote = html_escape::decode_html_entities(&quote_text);
 
+                        let quote_num = random_index + 1;
                         msg.channel_id
                             .say(
                                 http,
                                 format!(
-                                    "(Quote {} of {}) {} -- {} {}: {}",
-                                    random_index + 1,
-                                    total_entries,
-                                    clean_quote,
-                                    show_title,
-                                    episode_num,
-                                    episode_title
+                                    "(Quote {quote_num} of {total_entries}) {clean_quote} -- {show_title} {episode_num}: {episode_title}"
                                 ),
                             )
                             .await?;
@@ -319,7 +316,7 @@ impl DatabaseManager {
                 if total_entries == 0 {
                     if let Some(terms) = &search_term {
                         msg.channel_id
-                            .say(http, format!("No slogans match '{}'", terms))
+                            .say(http, format!("No slogans match '{terms}'"))
                             .await?;
                     } else {
                         msg.channel_id.say(http, "No slogans found.").await?;
@@ -346,14 +343,12 @@ impl DatabaseManager {
                         // Clean up HTML entities
                         let clean_slogan = html_escape::decode_html_entities(&slogan_text);
 
+                        let slogan_num = random_index + 1;
                         msg.channel_id
                             .say(
                                 http,
                                 format!(
-                                    "(Slogan {} of {}) {}",
-                                    random_index + 1,
-                                    total_entries,
-                                    clean_slogan
+                                    "(Slogan {slogan_num} of {total_entries}) {clean_slogan}"
                                 ),
                             )
                             .await?;
