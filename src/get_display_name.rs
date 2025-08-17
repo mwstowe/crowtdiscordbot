@@ -3,8 +3,8 @@
                         // Get member data which includes the nickname
                         if let Ok(member) = guild_id.member(&ctx.http, msg.author.id).await {
                             // Use nickname if available, otherwise fall back to global name or username
-                            member.nick.unwrap_or_else(|| 
-                                msg.author.global_name.clone().unwrap_or_else(|| 
+                            member.nick.unwrap_or_else(||
+                                msg.author.global_name.clone().unwrap_or_else(||
                                     msg.author.name.clone()
                                 )
                             )

@@ -1079,10 +1079,8 @@ impl Bot {
                         if let Err(e) = msg.channel_id.say(&ctx.http, genre).await {
                             error!("Error sending band genre: {:?}", e);
                         }
-                    } else {
-                        if let Err(e) = msg.reply(&ctx.http, "Please provide a band name.").await {
-                            error!("Error sending usage message: {:?}", e);
-                        }
+                    } else if let Err(e) = msg.reply(&ctx.http, "Please provide a band name.").await {
+                        error!("Error sending usage message: {:?}", e);
                     }
                 } else if command == "imagine" && !self.imagine_channels.is_empty() {
                     // Extract the image prompt
@@ -1121,7 +1119,7 @@ impl Bot {
                     if parts.len() > 1 {
                         let celebrity_name = parts[1..].join(" ");
                         if let Err(e) =
-                            handle_aliveordead_command(&ctx.http, &msg, &celebrity_name).await
+                            handle_aliveordead_command(&ctx.http, msg, &celebrity_name).await
                         {
                             error!("Error handling alive command: {:?}", e);
                             if let Err(e) = msg
@@ -1162,7 +1160,7 @@ impl Bot {
 
                     // Generate a slogan response
                     if let Err(e) = self
-                        .handle_slogan_command(&ctx.http, &msg, search_term)
+                        .handle_slogan_command(&ctx.http, msg, search_term)
                         .await
                     {
                         error!("Error handling slogan command: {:?}", e);
@@ -1192,7 +1190,7 @@ impl Bot {
                         };
 
                         if let Err(e) = self
-                            .handle_quote_dud_command(&ctx.http, &msg, username)
+                            .handle_quote_dud_command(&ctx.http, msg, username)
                             .await
                         {
                             error!("Error handling quote -dud command: {:?}", e);
@@ -1206,7 +1204,7 @@ impl Bot {
                         }
                     } else {
                         // Regular quote command with possible -show flag
-                        if let Err(e) = self.handle_quote_command(&ctx.http, &msg, args).await {
+                        if let Err(e) = self.handle_quote_command(&ctx.http, msg, args).await {
                             error!("Error handling quote command: {:?}", e);
                             if let Err(e) = msg
                                 .channel_id
@@ -1218,7 +1216,7 @@ impl Bot {
                         }
                     }
                 } else if command == "fightcrime" {
-                    match self.generate_crime_fighting_duo(&ctx, &msg).await {
+                    match self.generate_crime_fighting_duo(ctx, msg).await {
                         Ok(duo) => {
                             if let Err(e) = msg.channel_id.say(&ctx.http, duo).await {
                                 error!("Error sending crime fighting duo: {:?}", e);
@@ -1237,7 +1235,7 @@ impl Bot {
                     }
                 } else if command == "buzz" {
                     // Handle the buzz command
-                    if let Err(e) = handle_buzz_command(&ctx.http, &msg).await {
+                    if let Err(e) = handle_buzz_command(&ctx.http, msg).await {
                         error!("Error handling buzz command: {:?}", e);
                         if let Err(e) = msg
                             .channel_id
@@ -1257,7 +1255,7 @@ impl Bot {
 
                     // Handle the lastseen command
                     if let Err(e) =
-                        handle_lastseen_command(&ctx.http, &msg, &name, &self.message_db).await
+                        handle_lastseen_command(&ctx.http, msg, &name, &self.message_db).await
                     {
                         error!("Error handling lastseen command: {:?}", e);
                         if let Err(e) = msg
@@ -1279,7 +1277,7 @@ impl Bot {
                     // Handle the frinkiac command
                     if let Err(e) = handle_frinkiac_command(
                         &ctx.http,
-                        &msg,
+                        msg,
                         args,
                         &self.frinkiac_client,
                         self.gemini_client.as_ref(),
@@ -1306,7 +1304,7 @@ impl Bot {
                     // Handle the morbotron command
                     if let Err(e) = handle_morbotron_command(
                         &ctx.http,
-                        &msg,
+                        msg,
                         search_term,
                         &self.morbotron_client,
                         self.gemini_client.as_ref(),
@@ -1333,7 +1331,7 @@ impl Bot {
                     // Handle the masterofallscience command
                     if let Err(e) = handle_masterofallscience_command(
                         &ctx.http,
-                        &msg,
+                        msg,
                         search_term,
                         &self.masterofallscience_client,
                         self.gemini_client.as_ref(),
@@ -2204,7 +2202,7 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                     if parts.len() > 1 {
                         let celebrity_name = parts[1..].join(" ");
                         if let Err(e) =
-                            handle_aliveordead_command(&ctx.http, &msg, &celebrity_name).await
+                            handle_aliveordead_command(&ctx.http, msg, &celebrity_name).await
                         {
                             error!("Error handling alive command: {:?}", e);
                             if let Err(e) = msg

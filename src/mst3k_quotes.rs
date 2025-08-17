@@ -1,25 +1,23 @@
-use tracing::{error, info};
 use mysql::prelude::Queryable;
 use rand::seq::SliceRandom;
 use regex::Regex;
+use tracing::{error, info};
 
 /// Process an MST3K quote from the database
-/// 
+///
 /// This function:
 /// 1. Retrieves a random MST3K quote from the database
 /// 2. Processes the quote to extract character dialogue
 /// 3. If multiple characters are speaking, selects one line randomly
 /// 4. Removes speaker attribution
 /// 5. Returns the formatted quote or None if any step fails
-pub async fn process_mst3k_quote(
-    pool: &mysql::Pool,
-) -> Option<String> {
+pub async fn process_mst3k_quote(pool: &mysql::Pool) -> Option<String> {
     // Query for a random MST3K quote
     match get_random_mst3k_quote(pool) {
         Some(quote) => {
             // Process the quote to extract dialogue
             format_mst3k_quote(&quote)
-        },
+        }
         None => {
             // Silently fail if no quote is found
             error!("No MST3K quote found in database");
@@ -40,24 +38,27 @@ fn get_random_mst3k_quote(pool: &mysql::Pool) -> Option<String> {
                        WHERE s.show_title LIKE '%Mystery Science Theater%' \
                        AND q.quote NOT LIKE '%Watch out for snakes%' \
                        ORDER BY RAND() LIMIT 1";
-            
+
             match conn.query_first::<String, _>(query) {
                 Ok(Some(quote)) => {
                     info!("Retrieved random MST3K quote: {}", quote);
                     Some(quote)
-                },
+                }
                 Ok(None) => {
                     error!("No MST3K quotes found in the database");
                     None
-                },
+                }
                 Err(e) => {
                     error!("Error querying for MST3K quote: {:?}", e);
                     None
                 }
             }
-        },
+        }
         Err(e) => {
-            error!("Error connecting to MySQL database for MST3K quote: {:?}", e);
+            error!(
+                "Error connecting to MySQL database for MST3K quote: {:?}",
+                e
+            );
             None
         }
     }
@@ -67,17 +68,17 @@ fn get_random_mst3k_quote(pool: &mysql::Pool) -> Option<String> {
 fn format_mst3k_quote(quote: &str) -> Option<String> {
     // Clean up HTML entities
     let clean_quote = html_escape::decode_html_entities(quote).to_string();
-    
+
     // Try to extract character name and quote (format: "Character: Quote")
     if let Some(formatted) = extract_character_quote(&clean_quote) {
         return Some(formatted);
     }
-    
+
     // Try to extract speaker-line pairs (format: "<Speaker> Line <Speaker> Line")
     if let Some(formatted) = extract_speaker_lines(&clean_quote) {
         return Some(formatted);
     }
-    
+
     // If we couldn't extract anything, use the whole quote as is
     if !clean_quote.is_empty() {
         Some(clean_quote)
@@ -90,8 +91,8 @@ fn format_mst3k_quote(quote: &str) -> Option<String> {
 fn extract_character_quote(quote: &str) -> Option<String> {
     if let Some(colon_pos) = quote.find(':') {
         if colon_pos > 0 && colon_pos < quote.len() - 1 {
-            let character_quote = quote[colon_pos+1..].trim();
-            
+            let character_quote = quote[colon_pos + 1..].trim();
+
             // Only use if we have a non-empty quote
             if !character_quote.is_empty() {
                 return Some(character_quote.to_string());
@@ -110,7 +111,7 @@ fn extract_speaker_lines(quote: &str) -> Option<String> {
             return None;
         }
     };
-    
+
     // Find all speaker-line pairs
     let mut lines = Vec::new();
     for cap in re.captures_iter(quote) {
@@ -121,7 +122,7 @@ fn extract_speaker_lines(quote: &str) -> Option<String> {
             }
         }
     }
-    
+
     // If we found any lines, pick one randomly
     if !lines.is_empty() {
         lines.choose(&mut rand::thread_rng()).cloned()

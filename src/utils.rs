@@ -1,5 +1,5 @@
-use regex::Regex;
 use lazy_static::lazy_static;
+use regex::Regex;
 
 lazy_static! {
     // Regex to match common pronoun patterns in usernames
@@ -25,21 +25,33 @@ mod tests {
     #[test]
     fn test_extract_pronouns() {
         // Test with parentheses
-        assert_eq!(extract_pronouns("Alice (she/her)"), Some("she/her".to_string()));
-        
+        assert_eq!(
+            extract_pronouns("Alice (she/her)"),
+            Some("she/her".to_string())
+        );
+
         // Test with brackets
         assert_eq!(extract_pronouns("Bob [he/him]"), Some("he/him".to_string()));
-        
+
         // Test with curly braces
-        assert_eq!(extract_pronouns("Charlie {they/them}"), Some("they/them".to_string()));
-        
+        assert_eq!(
+            extract_pronouns("Charlie {they/them}"),
+            Some("they/them".to_string())
+        );
+
         // Test with no pronouns
         assert_eq!(extract_pronouns("Dave"), None);
-        
+
         // Test with multiple pronouns
-        assert_eq!(extract_pronouns("Eve (she/her/hers)"), Some("she/her/hers".to_string()));
-        
+        assert_eq!(
+            extract_pronouns("Eve (she/her/hers)"),
+            Some("she/her/hers".to_string())
+        );
+
         // Test with text before and after
-        assert_eq!(extract_pronouns("Frank (he/him) Admin"), Some("he/him".to_string()));
+        assert_eq!(
+            extract_pronouns("Frank (he/him) Admin"),
+            Some("he/him".to_string())
+        );
     }
 }

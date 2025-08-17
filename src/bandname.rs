@@ -126,7 +126,7 @@ impl BandGenreGenerator {
 
             parts.join("-")
         };
-        
+
         format!("What kind of music does {} play? {}", band_name, genre)
     }
 }

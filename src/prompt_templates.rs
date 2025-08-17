@@ -5,13 +5,13 @@ use std::collections::HashMap;
 pub struct PromptTemplates {
     /// The name of the bot
     bot_name: String,
-    
+
     /// Personality traits as key-value pairs
     personality_traits: HashMap<String, String>,
-    
+
     /// Common prompt templates for different tasks
     templates: HashMap<String, String>,
-    
+
     /// Default personality description
     default_personality: String,
 }
@@ -22,12 +22,15 @@ impl PromptTemplates {
     pub fn new(bot_name: String) -> Self {
         Self::new_with_custom_personality(bot_name, None)
     }
-    
+
     /// Create a new PromptTemplates instance with a custom personality description
-    pub fn new_with_custom_personality(bot_name: String, custom_personality: Option<String>) -> Self {
+    pub fn new_with_custom_personality(
+        bot_name: String,
+        custom_personality: Option<String>,
+    ) -> Self {
         let mut templates = HashMap::new();
         let mut personality_traits = HashMap::new();
-        
+
         // Default personality description
         let default_personality = if let Some(custom) = custom_personality {
             // Use the custom personality if provided
@@ -61,16 +64,31 @@ impl PromptTemplates {
                 bot_name
             )
         };
-        
+
         // Add default personality traits
-        personality_traits.insert("tone".to_string(), "friendly but slightly sarcastic".to_string());
+        personality_traits.insert(
+            "tone".to_string(),
+            "friendly but slightly sarcastic".to_string(),
+        );
         personality_traits.insert("humor".to_string(), "dry and witty".to_string());
-        personality_traits.insert("knowledge".to_string(), "broad but not overly technical".to_string());
+        personality_traits.insert(
+            "knowledge".to_string(),
+            "broad but not overly technical".to_string(),
+        );
         personality_traits.insert("verbosity".to_string(), "concise".to_string());
-        personality_traits.insert("references".to_string(), "direct MST3K quotes without explanation".to_string());
-        personality_traits.insert("movie_attitude".to_string(), "enjoys making fun of bad movies".to_string());
-        personality_traits.insert("response_quality".to_string(), "relevant, amusing, and natural-sounding".to_string());
-        
+        personality_traits.insert(
+            "references".to_string(),
+            "direct MST3K quotes without explanation".to_string(),
+        );
+        personality_traits.insert(
+            "movie_attitude".to_string(),
+            "enjoys making fun of bad movies".to_string(),
+        );
+        personality_traits.insert(
+            "response_quality".to_string(),
+            "relevant, amusing, and natural-sounding".to_string(),
+        );
+
         // Add default templates
         templates.insert(
             "general_response".to_string(),
@@ -86,7 +104,7 @@ impl PromptTemplates {
             Message: {message}\n\n\
             Recent conversation context:\n{context}".to_string()
         );
-        
+
         templates.insert(
             "fact_interjection".to_string(),
             "You are {bot_name}, a Discord bot. {personality}\n\n\
@@ -121,7 +139,7 @@ impl PromptTemplates {
             Be {response_quality} - your fact should feel like a natural contribution to the conversation, not an interruption.\n\
             Be concise and factual, and always include a citation with a valid URL.".to_string()
         );
-        
+
         templates.insert(
             "news_interjection".to_string(),
             "You are {bot_name}, a Discord bot. {personality}\n\n\
@@ -158,7 +176,7 @@ impl PromptTemplates {
             Your news share should be {response_quality} - it should feel like a natural contribution to the conversation, not an interruption.\n\
             Be creative but realistic with your article title and URL, and ensure you're using a reputable news source with a COMPLETE and SPECIFIC article URL.".to_string()
         );
-        
+
         Self {
             bot_name,
             personality_traits,
@@ -166,87 +184,96 @@ impl PromptTemplates {
             default_personality,
         }
     }
-    
+
     /// Set a personality trait
     #[allow(dead_code)]
     pub fn set_trait(&mut self, trait_name: &str, trait_value: &str) {
-        self.personality_traits.insert(trait_name.to_string(), trait_value.to_string());
+        self.personality_traits
+            .insert(trait_name.to_string(), trait_value.to_string());
     }
-    
+
     /// Set a template
     pub fn set_template(&mut self, template_name: &str, template: &str) {
-        self.templates.insert(template_name.to_string(), template.to_string());
+        self.templates
+            .insert(template_name.to_string(), template.to_string());
     }
-    
+
     /// Set the default personality description
     #[allow(dead_code)]
     pub fn set_default_personality(&mut self, personality: &str) {
         self.default_personality = personality.to_string();
     }
-    
+
     /// Format a prompt using a template and provided values
     pub fn format_prompt(&self, template_name: &str, values: &HashMap<String, String>) -> String {
-        let template = self.templates.get(template_name)
+        let template = self
+            .templates
+            .get(template_name)
             .cloned()
-            .unwrap_or_else(|| format!("You are {}, a Discord bot. Respond to the following: {{message}}", self.bot_name));
-        
+            .unwrap_or_else(|| {
+                format!(
+                    "You are {}, a Discord bot. Respond to the following: {{message}}",
+                    self.bot_name
+                )
+            });
+
         let mut formatted = template.replace("{bot_name}", &self.bot_name);
         formatted = formatted.replace("{personality}", &self.default_personality);
-        
+
         // Replace personality traits
         for (trait_name, trait_value) in &self.personality_traits {
             formatted = formatted.replace(&format!("{{{}}}", trait_name), trait_value);
         }
-        
+
         // Replace provided values
         for (key, value) in values {
             formatted = formatted.replace(&format!("{{{}}}", key), value);
         }
-        
+
         formatted
     }
-    
+
     /// Format a general response prompt
     pub fn format_general_response(&self, message: &str, user_name: &str, context: &str) -> String {
         let mut values = HashMap::new();
         values.insert("message".to_string(), message.to_string());
         values.insert("user".to_string(), user_name.to_string());
         values.insert("context".to_string(), context.to_string());
-        
+
         self.format_prompt("general_response", &values)
     }
-    
+
     /// Format a fact interjection prompt
     pub fn format_fact_interjection(&self, context: &str) -> String {
         let mut values = HashMap::new();
         values.insert("context".to_string(), context.to_string());
-        
+
         self.format_prompt("fact_interjection", &values)
     }
-    
+
     /// Format a news interjection prompt
     pub fn format_news_interjection(&self, context: &str) -> String {
         let mut values = HashMap::new();
         values.insert("context".to_string(), context.to_string());
-        
+
         self.format_prompt("news_interjection", &values)
     }
-    
+
     /// Format a custom prompt with personality
     pub fn format_custom(&self, template: &str, values: &HashMap<String, String>) -> String {
         let mut formatted = template.replace("{bot_name}", &self.bot_name);
         formatted = formatted.replace("{personality}", &self.default_personality);
-        
+
         // Replace personality traits
         for (trait_name, trait_value) in &self.personality_traits {
             formatted = formatted.replace(&format!("{{{}}}", trait_name), trait_value);
         }
-        
+
         // Replace provided values
         for (key, value) in values {
             formatted = formatted.replace(&format!("{{{}}}", key), value);
         }
-        
+
         formatted
     }
 }

@@ -12,7 +12,7 @@ impl CrimeFightingGenerator {
     pub fn generate_duo(&self, speaker1: &str, speaker2: &str) -> Result<String> {
         // Generate random descriptions
         let mut rng = rand::thread_rng();
-        
+
         // Male descriptors (he1)
         let descriptions1 = [
             "a superhumanly strong",
@@ -56,7 +56,7 @@ impl CrimeFightingGenerator {
             "a sword-wielding",
             "a genetically engineered",
         ];
-        
+
         // Male descriptors (he2)
         let descriptors1 = [
             "white trash",
@@ -100,7 +100,7 @@ impl CrimeFightingGenerator {
             "soccer-playing",
             "day-dreaming",
         ];
-        
+
         // Male occupations (he3)
         let occupations1 = [
             "grifter",
@@ -144,7 +144,7 @@ impl CrimeFightingGenerator {
             "matador",
             "barbarian",
         ];
-        
+
         // Male traits (he4)
         let traits1 = [
             "with a robot buddy named Sparky",
@@ -168,7 +168,7 @@ impl CrimeFightingGenerator {
             "with a tragic backstory",
             "with a vendetta against crime",
         ];
-        
+
         // Female descriptors (she1)
         let descriptions2 = [
             "a radical",
@@ -213,7 +213,7 @@ impl CrimeFightingGenerator {
             "an artistic",
             "a steroid-ripped",
         ];
-        
+
         // Female descriptors (she2)
         let descriptors2 = [
             "tempestuous",
@@ -258,7 +258,7 @@ impl CrimeFightingGenerator {
             "streetsmart",
             "jittery",
         ];
-        
+
         // Female occupations (she3)
         let occupations2 = [
             "archaeologist",
@@ -303,7 +303,7 @@ impl CrimeFightingGenerator {
             "socialite",
             "serial killer",
         ];
-        
+
         // Female traits (she4)
         let traits2 = [
             "on her way to prison for a murder she didn't commit",
@@ -327,7 +327,7 @@ impl CrimeFightingGenerator {
             "with a passion for justice",
             "with unconventional methods",
         ];
-        
+
         // Verbs for "They [verb] [noun]!"
         let verbs = [
             "fight",
@@ -357,7 +357,7 @@ impl CrimeFightingGenerator {
             "grab",
             "love",
         ];
-        
+
         // Nouns for "They [verb] [noun]!"
         let nouns = [
             "crime",
@@ -391,10 +391,10 @@ impl CrimeFightingGenerator {
             "the establishment",
             "the system",
         ];
-        
+
         // Choose a random template format (like the original gbot)
         let frame = rng.gen_range(0..10);
-        
+
         // Select random elements from each array
         let desc1 = descriptions1.choose(&mut rng).unwrap();
         let desc2 = descriptions2.choose(&mut rng).unwrap();
@@ -406,34 +406,37 @@ impl CrimeFightingGenerator {
         let trait2 = traits2.choose(&mut rng).unwrap();
         let verb = verbs.choose(&mut rng).unwrap();
         let noun = nouns.choose(&mut rng).unwrap();
-        
+
         // Format the crime fighting duo description based on the template
         let duo_description = if frame < 3 {
             // Template 1: First person has more descriptors, second person has fewer
             format!(
-                "{} is {} {} {} {}. {} is {} {}. They {} {}!",
-                speaker1, desc1, descriptor1, occ1, trait1,
-                speaker2, desc2, occ2,
-                verb, noun
+                "{speaker1} is {desc1} {descriptor1} {occ1} {trait1}. {speaker2} is {desc2} {occ2}. They {verb} {noun}!",
             )
         } else if frame < 5 {
             // Template 2: First person has fewer descriptors, second person has more
             format!(
-                "{} is {} {}. {} is {} {} {} {}. They {} {}!",
-                speaker1, desc1, occ1,
-                speaker2, desc2, descriptor2, occ2, trait2,
-                verb, noun
+                "{speaker1} is {desc1} {occ1}. {speaker2} is {desc2} {descriptor2} {occ2} {trait2}. They {verb} {noun}!",
             )
         } else {
             // Template 3: Both people have full descriptors (original pattern)
             format!(
                 "{} is {} {} {} {}. {} is {} {} {} {}. They {} {}!",
-                speaker1, desc1, descriptor1, occ1, trait1,
-                speaker2, desc2, descriptor2, occ2, trait2,
-                verb, noun
+                speaker1,
+                desc1,
+                descriptor1,
+                occ1,
+                trait1,
+                speaker2,
+                desc2,
+                descriptor2,
+                occ2,
+                trait2,
+                verb,
+                noun
             )
         };
-        
+
         Ok(duo_description)
     }
 }

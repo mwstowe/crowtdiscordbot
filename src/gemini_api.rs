@@ -3,8 +3,6 @@ use crate::rate_limiter::RateLimiter;
 use anyhow::Result;
 use base64::Engine;
 use chrono::{DateTime, Utc};
-use reqwest;
-use serde_json;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
