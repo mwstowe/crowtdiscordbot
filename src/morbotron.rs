@@ -429,9 +429,7 @@ fn format_morbotron_result(result: &MorbotronResult) -> String {
     let episode_title = &result.episode_title;
     let image_url = &result.image_url;
     let caption = &result.caption;
-    format!(
-        "**S{season:02}E{episode_number:02} - {episode_title}**\n{image_url}\n\n{caption}"
-    )
+    format!("**S{season:02}E{episode_number:02} - {episode_title}**\n{image_url}\n\n{caption}")
 }
 
 // This function will be called from main.rs to handle the !morbotron command
@@ -590,9 +588,8 @@ pub async fn handle_morbotron_command(
                 }
             }
             Ok(None) => {
-                let error_msg = format!(
-                    "Couldn't find any Futurama screenshots matching \"{term}\"."
-                );
+                let error_msg =
+                    format!("Couldn't find any Futurama screenshots matching \"{term}\".");
 
                 // Edit the searching message if we have one, otherwise send a new message
                 if let Some(mut search_msg) = searching_msg {

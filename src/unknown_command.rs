@@ -18,8 +18,8 @@ pub async fn handle_unknown_command(
     }
 
     // Extract just the command part (without the !)
-    let command_name = if command.starts_with('!') {
-        &command[1..]
+    let command_name = if let Some(stripped) = command.strip_prefix('!') {
+        stripped
     } else {
         command
     };

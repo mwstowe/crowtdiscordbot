@@ -263,13 +263,13 @@ async fn handle_fact_interjection_common(
     http: &Http,
     channel_id: ChannelId,
     gemini_client: &GeminiClient,
-    context_messages: &Vec<(String, String, String)>,
+    context_messages: &[(String, String, String)],
     _bot_name: &str,
 ) -> Result<()> {
     // Format context for the prompt
     let context_text = if !context_messages.is_empty() {
         // Reverse the messages to get chronological order (oldest first)
-        let mut chronological_messages = context_messages.clone();
+        let mut chronological_messages = context_messages.to_owned();
         chronological_messages.reverse();
 
         let formatted_messages: Vec<String> = chronological_messages

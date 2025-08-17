@@ -15,8 +15,9 @@ const REGEX_SPECIAL_CHARS: &[char] = &[
 
 // Function to handle potential regex special characters in user input
 fn sanitize_regex_pattern(pattern: &str) -> String {
-    // Replace smart quotes with regular quotes
-    let pattern = pattern.replace("'", "'").replace("'", "'");
+    // Note: Smart quote replacement was removed as it was redundant
+    // If smart quote handling is needed in the future, implement with actual smart quote characters
+    let pattern = pattern.to_string();
 
     // We don't want to escape everything automatically because users might intentionally
     // use regex special characters. Just log the presence of special characters.
@@ -124,7 +125,9 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
             });
 
             if let Some(captures) = re.captures(&first_msg.content) {
-                captures.get(1).map(|name_match| name_match.as_str().to_string())
+                captures
+                    .get(1)
+                    .map(|name_match| name_match.as_str().to_string())
             } else {
                 None
             }
@@ -163,6 +166,18 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
     // Compile URL detection regex
     let url_regex = Regex::new(URL_PATTERN).expect("Invalid URL pattern regex");
 
+    // Compile regexes used inside the loop
+    let extract_content_regex =
+        Regex::new(r".*? (?:\*really\* )*meant: (.*)").unwrap_or_else(|_| {
+            error!("Failed to compile regex for extracting message content");
+            Regex::new(r".*").unwrap() // Fallback regex that matches everything
+        });
+
+    let extract_author_regex = Regex::new(r"^(.*?) (?:\*really\* )*meant: ").unwrap_or_else(|_| {
+        error!("Failed to compile regex for extracting author name");
+        Regex::new(r".*").unwrap() // Fallback regex that matches everything
+    });
+
     match regex_result {
         Ok(re) => {
             // Try each message in order from most recent to least recent
@@ -171,12 +186,7 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
                 let content_to_modify = if i == 0 && is_bot_regex_response {
                     // If this is a bot regex response, extract just the message content without the prefix
                     // Use regex to handle any number of "really" occurrences
-                    let re = Regex::new(r".*? (?:\*really\* )*meant: (.*)").unwrap_or_else(|_| {
-                        error!("Failed to compile regex for extracting message content");
-                        Regex::new(r".*").unwrap() // Fallback regex that matches everything
-                    });
-
-                    if let Some(captures) = re.captures(&prev_msg.content) {
+                    if let Some(captures) = extract_content_regex.captures(&prev_msg.content) {
                         if let Some(content_match) = captures.get(1) {
                             content_match.as_str().to_string()
                         } else {
@@ -219,14 +229,8 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
                             author_name.clone()
                         } else {
                             // Fallback to extracting from the message content
-                            let re = Regex::new(r"^(.*?) (?:\*really\* )*meant: ").unwrap_or_else(
-                                |_| {
-                                    error!("Failed to compile regex for extracting author name");
-                                    Regex::new(r".*").unwrap() // Fallback regex that matches everything
-                                },
-                            );
-
-                            if let Some(captures) = re.captures(&prev_msg.content) {
+                            if let Some(captures) = extract_author_regex.captures(&prev_msg.content)
+                            {
                                 if let Some(name_match) = captures.get(1) {
                                     name_match.as_str().to_string()
                                 } else {
@@ -300,9 +304,7 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
                         // and add one more "really" to indicate another substitution
                         // The clean_display_name here should be the original author, not "Crow"
                         let really_part = "*really* ".repeat(really_count + 1);
-                        format!(
-                            "{clean_display_name} {really_part}meant: {new_content}"
-                        )
+                        format!("{clean_display_name} {really_part}meant: {new_content}")
                     } else {
                         format!("{clean_display_name} meant: {new_content}")
                     };

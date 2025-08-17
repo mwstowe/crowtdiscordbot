@@ -32,9 +32,7 @@ pub async fn handle_aliveordead_command(
         Ok(None) => {
             msg.reply(
                 http,
-                format!(
-                    "Sorry, I couldn't find information about '{celebrity_name}'."
-                ),
+                format!("Sorry, I couldn't find information about '{celebrity_name}'."),
             )
             .await?;
         }
@@ -1016,6 +1014,7 @@ pub fn extract_dates_from_parentheses(text: &str) -> (Option<String>, Option<Str
     }
 
     // Look for a section that contains birth-death dates (has a year range with dash)
+    let year_regex = Regex::new(r"\d{4}").unwrap();
     for (_, _, section) in &parentheses_sections {
         // Remove the outer parentheses
         let content = &section[1..section.len() - 1];
@@ -1030,7 +1029,6 @@ pub fn extract_dates_from_parentheses(text: &str) -> (Option<String>, Option<Str
                 let death_part = parts[1].trim();
 
                 // Check if both parts look like dates (contain years)
-                let year_regex = Regex::new(r"\d{4}").unwrap();
                 if year_regex.is_match(birth_part) && year_regex.is_match(death_part) {
                     // Check if this is likely a birth-death range rather than a band membership or other date range
                     // Birth-death ranges typically:
@@ -1249,10 +1247,8 @@ pub fn extract_year_from_parentheses(text: &str, date_type: &str) -> Option<Stri
 
         // Special case for future dates - if the year is greater than current year
         let current_year = chrono::Local::now().year();
-        let future_year_re = Regex::new(&format!(
-            r"(\w+\s+\d{{1,2}},?\s+({current_year}-\d{{4}}))"
-        ))
-        .unwrap();
+        let future_year_re =
+            Regex::new(&format!(r"(\w+\s+\d{{1,2}},?\s+({current_year}-\d{{4}}))")).unwrap();
         if let Some(captures) = future_year_re.captures(text) {
             if let Some(date_match) = captures.get(1) {
                 let date = date_match.as_str().to_string();

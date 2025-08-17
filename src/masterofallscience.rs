@@ -408,9 +408,7 @@ impl MasterOfAllScienceClient {
         timestamp: u64,
     ) -> Result<Option<MasterOfAllScienceResult>> {
         // Use the correct URL format: /api/caption?e=S01E02&t=242434
-        let caption_url = format!(
-            "{MASTEROFALLSCIENCE_CAPTION_URL}?e={episode}&t={timestamp}"
-        );
+        let caption_url = format!("{MASTEROFALLSCIENCE_CAPTION_URL}?e={episode}&t={timestamp}");
         info!("Using caption URL: {}", caption_url);
 
         // Make the caption request
@@ -453,9 +451,7 @@ impl MasterOfAllScienceClient {
             .join("\n");
 
         // Build the image URL
-        let image_url = format!(
-            "{MASTEROFALLSCIENCE_IMAGE_URL}/{episode}/{timestamp}.jpg"
-        );
+        let image_url = format!("{MASTEROFALLSCIENCE_IMAGE_URL}/{episode}/{timestamp}.jpg");
 
         // Extract episode information
         let episode_title = caption_result.episode.title.clone();
@@ -546,9 +542,7 @@ pub fn format_masterofallscience_result(result: &MasterOfAllScienceResult) -> St
     let episode_title = &result.episode_title;
     let image_url = &result.image_url;
     let caption = &result.caption;
-    format!(
-        "**S{season:02}E{episode_number:02} - {episode_title}**\n{image_url}\n\n{caption}"
-    )
+    format!("**S{season:02}E{episode_number:02} - {episode_title}**\n{image_url}\n\n{caption}")
 }
 
 // This function will be called from main.rs to handle the !masterofallscience command
@@ -711,9 +705,8 @@ pub async fn handle_masterofallscience_command(
                 }
             }
             Ok(None) => {
-                let error_msg = format!(
-                    "Couldn't find any Rick and Morty screenshots matching \"{term}\"."
-                );
+                let error_msg =
+                    format!("Couldn't find any Rick and Morty screenshots matching \"{term}\".");
 
                 // Edit the searching message if we have one, otherwise send a new message
                 if let Some(mut search_msg) = searching_msg {

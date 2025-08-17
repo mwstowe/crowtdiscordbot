@@ -347,9 +347,7 @@ impl DatabaseManager {
                         msg.channel_id
                             .say(
                                 http,
-                                format!(
-                                    "(Slogan {slogan_num} of {total_entries}) {clean_slogan}"
-                                ),
+                                format!("(Slogan {slogan_num} of {total_entries}) {clean_slogan}"),
                             )
                             .await?;
                     }

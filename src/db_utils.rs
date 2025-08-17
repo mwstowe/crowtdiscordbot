@@ -61,15 +61,13 @@ pub async fn initialize_database(
                 let mut has_channel_id = false;
                 let mut has_author_id = false;
 
-                for column_result in columns {
-                    if let Ok(column_name) = column_result {
-                        if column_name == "message_id" {
-                            has_message_id = true;
-                        } else if column_name == "channel_id" {
-                            has_channel_id = true;
-                        } else if column_name == "author_id" {
-                            has_author_id = true;
-                        }
+                for column_name in columns.flatten() {
+                    if column_name == "message_id" {
+                        has_message_id = true;
+                    } else if column_name == "channel_id" {
+                        has_channel_id = true;
+                    } else if column_name == "author_id" {
+                        has_author_id = true;
                     }
                 }
 
@@ -334,12 +332,7 @@ pub async fn get_recent_messages_with_pronouns(
         .call(move |conn| {
             let mut stmt = conn.prepare("SELECT name FROM sqlite_master WHERE type='table'")?;
             let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
-            let mut result = Vec::new();
-            for row_result in rows {
-                if let Ok(name) = row_result {
-                    result.push(name);
-                }
-            }
+            let result: Vec<_> = rows.flatten().collect();
             Ok::<_, rusqlite::Error>(result)
         })
         .await?;
@@ -351,12 +344,7 @@ pub async fn get_recent_messages_with_pronouns(
         .call(move |conn| {
             let mut stmt = conn.prepare("SELECT DISTINCT channel_id FROM messages")?;
             let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
-            let mut result = Vec::new();
-            for row_result in rows {
-                if let Ok(id) = row_result {
-                    result.push(id);
-                }
-            }
+            let result: Vec<_> = rows.flatten().collect();
             Ok::<_, rusqlite::Error>(result)
         })
         .await?;
@@ -440,14 +428,10 @@ pub async fn get_recent_messages_with_pronouns(
                     if !channel_exists {
                         let mut stmt = conn.prepare("SELECT DISTINCT channel_id FROM messages")?;
                         let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
-                        let mut similar_channels = Vec::new();
-                        for row_result in rows {
-                            if let Ok(id) = row_result {
-                                if id.contains(&channel_str) || channel_str.contains(&id) {
-                                    similar_channels.push(id);
-                                }
-                            }
-                        }
+                        let similar_channels: Vec<_> = rows
+                            .flatten()
+                            .filter(|id| id.contains(&channel_str) || channel_str.contains(id))
+                            .collect();
 
                         if !similar_channels.is_empty() {
                             info!("Found similar channel IDs: {:?}", similar_channels);
@@ -477,12 +461,7 @@ pub async fn get_recent_messages_with_pronouns(
                         Ok((msg_id, author, display_name, content))
                     })?;
 
-                    let mut result = Vec::new();
-                    for row_result in rows {
-                        if let Ok(row) = row_result {
-                            result.push(row);
-                        }
-                    }
+                    let result: Vec<_> = rows.flatten().collect();
 
                     Ok::<_, rusqlite::Error>(result)
                 }
@@ -557,12 +536,7 @@ pub async fn get_recent_messages_with_pronouns(
                     Ok((msg_id, author, display_name, content))
                 })?;
 
-                let mut result = Vec::new();
-                for row_result in rows {
-                    if let Ok(row) = row_result {
-                        result.push(row);
-                    }
-                }
+                let result: Vec<_> = rows.flatten().collect();
 
                 Ok::<_, rusqlite::Error>(result)
             })
@@ -638,12 +612,7 @@ pub async fn load_message_history(
                 ))
             })?;
 
-            let mut result = Vec::new();
-            for row_result in rows {
-                if let Ok(row) = row_result {
-                    result.push(row);
-                }
-            }
+            let result: Vec<_> = rows.flatten().collect();
 
             Ok::<_, rusqlite::Error>(result)
         }).await?
@@ -668,12 +637,7 @@ pub async fn load_message_history(
                 ))
             })?;
 
-            let mut result = Vec::new();
-            for row_result in rows {
-                if let Ok(row) = row_result {
-                    result.push(row);
-                }
-            }
+            let result: Vec<_> = rows.flatten().collect();
 
             Ok::<_, rusqlite::Error>(result)
         }).await?

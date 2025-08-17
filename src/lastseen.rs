@@ -42,13 +42,7 @@ impl LastSeenFinder {
                     ))
                 })?;
 
-                let mut result = None;
-                for row_result in rows {
-                    if let Ok(row) = row_result {
-                        result = Some(row);
-                        break;
-                    }
-                }
+                let result = rows.flatten().next();
 
                 Ok::<_, rusqlite::Error>(result)
             })
@@ -148,9 +142,8 @@ pub async fn handle_lastseen_command(
                 };
 
                 let time_ago = finder.format_time_ago(timestamp);
-                let response = format!(
-                    "{user_name} was last seen {time_ago} ago, saying: \"{content}\""
-                );
+                let response =
+                    format!("{user_name} was last seen {time_ago} ago, saying: \"{content}\"");
 
                 if let Err(e) = msg.channel_id.say(http, response).await {
                     error!("Error sending lastseen response: {:?}", e);

@@ -24,48 +24,55 @@ pub struct GeminiClient {
     image_quota_exhausted_until: Arc<Mutex<Option<DateTime<Utc>>>>,
 }
 
+/// Configuration for creating a GeminiClient
+#[derive(Debug, Clone)]
+pub struct GeminiConfig {
+    pub api_key: String,
+    pub api_endpoint: Option<String>,
+    pub prompt_wrapper: Option<String>,
+    pub bot_name: String,
+    pub rate_limit_minute: u32,
+    pub rate_limit_day: u32,
+    pub image_rate_limit_minute: u32,
+    pub image_rate_limit_day: u32,
+    pub context_messages: usize,
+    pub log_prompts: bool,
+    pub personality_description: Option<String>,
+}
+
 impl GeminiClient {
-    pub fn new(
-        api_key: String,
-        api_endpoint: Option<String>,
-        prompt_wrapper: Option<String>,
-        bot_name: String,
-        rate_limit_minute: u32,
-        rate_limit_day: u32,
-        image_rate_limit_minute: u32,
-        image_rate_limit_day: u32,
-        context_messages: usize,
-        log_prompts: bool,
-        personality_description: Option<String>,
-    ) -> Self {
+    pub fn new(config: GeminiConfig) -> Self {
         // Default endpoint for Gemini API
         let default_endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent".to_string();
         let image_endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-preview-image-generation:generateContent".to_string();
 
         // Create prompt templates with custom personality if provided
-        let mut prompt_templates =
-            PromptTemplates::new_with_custom_personality(bot_name.clone(), personality_description);
+        let mut prompt_templates = PromptTemplates::new_with_custom_personality(
+            config.bot_name.clone(),
+            config.personality_description,
+        );
 
         // If a custom prompt wrapper is provided, set it as the general response template
-        if let Some(wrapper) = prompt_wrapper {
+        if let Some(wrapper) = config.prompt_wrapper {
             prompt_templates.set_template("general_response", &wrapper);
         }
 
         // Create rate limiter for text generation
-        let rate_limiter = RateLimiter::new(rate_limit_minute, rate_limit_day);
+        let rate_limiter = RateLimiter::new(config.rate_limit_minute, config.rate_limit_day);
 
         // Create separate rate limiter for image generation
-        let image_rate_limiter = RateLimiter::new(image_rate_limit_minute, image_rate_limit_day);
+        let image_rate_limiter =
+            RateLimiter::new(config.image_rate_limit_minute, config.image_rate_limit_day);
 
         Self {
-            api_key,
-            api_endpoint: api_endpoint.unwrap_or(default_endpoint),
+            api_key: config.api_key,
+            api_endpoint: config.api_endpoint.unwrap_or(default_endpoint),
             image_endpoint,
             prompt_templates,
             rate_limiter,
             image_rate_limiter,
-            context_messages,
-            log_prompts,
+            context_messages: config.context_messages,
+            log_prompts: config.log_prompts,
             image_quota_exhausted_until: Arc::new(Mutex::new(None)),
         }
     }
@@ -117,7 +124,7 @@ impl GeminiClient {
         &self,
         prompt: &str,
         user_name: &str,
-        context_messages: &Vec<(String, String, String)>,
+        context_messages: &[(String, String, String)],
         user_pronouns: Option<&str>,
     ) -> Result<String> {
         // Convert to the new format with pronouns
@@ -148,7 +155,7 @@ impl GeminiClient {
         &self,
         prompt: &str,
         user_name: &str,
-        context_messages: &Vec<(String, String, Option<String>, String)>,
+        context_messages: &[(String, String, Option<String>, String)],
         _user_pronouns: Option<&str>,
     ) -> Result<String> {
         // Check if the prompt already contains context (like in interjection prompts)
@@ -158,7 +165,7 @@ impl GeminiClient {
         let context = if !context_messages.is_empty() {
             // Get the messages in chronological order (oldest first)
             // The database query returns newest first, so we need to reverse
-            let mut chronological_messages = context_messages.clone();
+            let mut chronological_messages = context_messages.to_owned();
             chronological_messages.reverse();
 
             // Format each message as "DisplayName (pronouns): Message" using the display_name field
@@ -677,24 +684,23 @@ impl GeminiClient {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
 
     #[tokio::test]
     async fn test_image_quota_exhaustion() {
         // Create a test GeminiClient
-        let client = GeminiClient::new(
-            "test_key".to_string(),
-            None,
-            None,
-            "TestBot".to_string(),
-            15,
-            1500,
-            5,
-            100,
-            5,
-            false,
-            None,
-        );
+        let client = GeminiClient::new(GeminiConfig {
+            api_key: "test_key".to_string(),
+            api_endpoint: None,
+            prompt_wrapper: None,
+            bot_name: "TestBot".to_string(),
+            rate_limit_minute: 15,
+            rate_limit_day: 1500,
+            image_rate_limit_minute: 5,
+            image_rate_limit_day: 100,
+            context_messages: 5,
+            log_prompts: false,
+            personality_description: None,
+        });
 
         // Initially, quota should not be exhausted
         assert!(!client.is_image_quota_exhausted().await);
@@ -716,19 +722,19 @@ mod tests {
     #[tokio::test]
     async fn test_image_quota_reset_logic() {
         // Create a test GeminiClient
-        let client = GeminiClient::new(
-            "test_key".to_string(),
-            None,
-            None,
-            "TestBot".to_string(),
-            15,
-            1500,
-            5,
-            100,
-            5,
-            false,
-            None,
-        );
+        let client = GeminiClient::new(GeminiConfig {
+            api_key: "test_key".to_string(),
+            api_endpoint: None,
+            prompt_wrapper: None,
+            bot_name: "TestBot".to_string(),
+            rate_limit_minute: 15,
+            rate_limit_day: 1500,
+            image_rate_limit_minute: 5,
+            image_rate_limit_day: 100,
+            context_messages: 5,
+            log_prompts: false,
+            personality_description: None,
+        });
 
         // Mark quota as exhausted
         client.mark_image_quota_exhausted().await;
@@ -749,19 +755,19 @@ mod tests {
     #[tokio::test]
     async fn test_separate_rate_limiters() {
         // Create a test GeminiClient with different rate limits for text and image
-        let client = GeminiClient::new(
-            "test_key".to_string(),
-            None,
-            None,
-            "TestBot".to_string(),
-            10,   // text: 10 per minute
-            1000, // text: 1000 per day
-            2,    // image: 2 per minute
-            50,   // image: 50 per day
-            5,
-            false,
-            None,
-        );
+        let client = GeminiClient::new(GeminiConfig {
+            api_key: "test_key".to_string(),
+            api_endpoint: None,
+            prompt_wrapper: None,
+            bot_name: "TestBot".to_string(),
+            rate_limit_minute: 10,      // text: 10 per minute
+            rate_limit_day: 1000,       // text: 1000 per day
+            image_rate_limit_minute: 2, // image: 2 per minute
+            image_rate_limit_day: 50,   // image: 50 per day
+            context_messages: 5,
+            log_prompts: false,
+            personality_description: None,
+        });
 
         // Verify that the rate limiters are separate by checking their internal state
         // We can't directly test the rate limiting without making actual API calls,

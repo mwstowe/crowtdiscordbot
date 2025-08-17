@@ -135,29 +135,31 @@ pub fn preprocess_config_content(content: &str) -> String {
     processed
 }
 
-pub fn parse_config(
-    config: &Config,
-) -> (
-    String,      // bot_name
-    usize,       // message_history_limit
-    u64,         // db_trim_interval
-    u32,         // gemini_rate_limit_minute
-    u32,         // gemini_rate_limit_day
-    u32,         // gemini_image_rate_limit_minute
-    u32,         // gemini_image_rate_limit_day
-    Vec<u64>,    // gateway_bot_ids
-    bool,        // duckduckgo_search_enabled
-    usize,       // gemini_context_messages
-    f64,         // interjection_mst3k_probability
-    f64,         // interjection_memory_probability
-    f64,         // interjection_pondering_probability
-    f64,         // interjection_ai_probability
-    Vec<String>, // imagine_channels
-    f64,         // interjection_news_probability
-    bool,        // fill_silence_enabled
-    f64,         // fill_silence_start_hours
-    f64,         // fill_silence_max_hours
-) {
+/// Parsed configuration values with proper types
+#[derive(Debug, Clone)]
+pub struct ParsedConfig {
+    pub bot_name: String,
+    pub message_history_limit: usize,
+    pub db_trim_interval: u64,
+    pub gemini_rate_limit_minute: u32,
+    pub gemini_rate_limit_day: u32,
+    pub gemini_image_rate_limit_minute: u32,
+    pub gemini_image_rate_limit_day: u32,
+    pub gateway_bot_ids: Vec<u64>,
+    pub duckduckgo_search_enabled: bool,
+    pub gemini_context_messages: usize,
+    pub interjection_mst3k_probability: f64,
+    pub interjection_memory_probability: f64,
+    pub interjection_pondering_probability: f64,
+    pub interjection_ai_probability: f64,
+    pub imagine_channels: Vec<String>,
+    pub interjection_news_probability: f64,
+    pub fill_silence_enabled: bool,
+    pub fill_silence_start_hours: f64,
+    pub fill_silence_max_hours: f64,
+}
+
+pub fn parse_config(config: &Config) -> ParsedConfig {
     // Get the bot name
     let bot_name = config
         .bot_name
@@ -394,7 +396,7 @@ pub fn parse_config(
         }
     );
 
-    (
+    ParsedConfig {
         bot_name,
         message_history_limit,
         db_trim_interval,
@@ -414,5 +416,5 @@ pub fn parse_config(
         fill_silence_enabled,
         fill_silence_start_hours,
         fill_silence_max_hours,
-    )
+    }
 }

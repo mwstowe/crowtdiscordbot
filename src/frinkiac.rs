@@ -466,9 +466,7 @@ pub fn format_frinkiac_result(result: &FrinkiacResult) -> String {
     let season = result.season;
     let episode_number = result.episode_number;
     let caption = &result.caption;
-    format!(
-        "{image_url}\n{episode_title} (Season {season}, Episode {episode_number})\n{caption}"
-    )
+    format!("{image_url}\n{episode_title} (Season {season}, Episode {episode_number})\n{caption}")
 }
 
 // Parse arguments for the frinkiac command
@@ -734,9 +732,8 @@ pub async fn handle_frinkiac_command(
                 }
             }
             Ok(None) => {
-                let error_msg = format!(
-                    "Couldn't find any Simpsons screenshots matching \"{term}\"."
-                );
+                let error_msg =
+                    format!("Couldn't find any Simpsons screenshots matching \"{term}\".");
 
                 // Edit the searching message if we have one, otherwise send a new message
                 if let Some(mut search_msg) = searching_msg {

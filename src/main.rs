@@ -67,13 +67,13 @@ mod unknown_command;
 // Use our modules
 use buzz::handle_buzz_command;
 use celebrity_status::handle_aliveordead_command;
-use config::{load_config, parse_config};
+use config::{load_config, parse_config, ParsedConfig};
 use crime_fighting::CrimeFightingGenerator;
 use database::DatabaseManager;
 use display_name::{clean_display_name, get_best_display_name};
 use duckduckgo_search::DuckDuckGoSearchClient;
 use frinkiac::{handle_frinkiac_command, FrinkiacClient};
-use gemini_api::GeminiClient;
+use gemini_api::{GeminiClient, GeminiConfig};
 use image_generation::handle_imagine_command;
 use lastseen::handle_lastseen_command;
 use masterofallscience::{handle_masterofallscience_command, MasterOfAllScienceClient};
@@ -130,6 +130,24 @@ struct Bot {
     fill_silence_manager: Arc<fill_silence::FillSilenceManager>,
     // Track the last seen message timestamp for each channel
     last_seen_message: Arc<RwLock<HashMap<ChannelId, (serenity::model::Timestamp, MessageId)>>>,
+}
+
+/// Configuration for creating a Bot instance
+#[derive(Debug, Clone)]
+pub struct BotConfig {
+    pub followed_channels: Vec<ChannelId>,
+    pub mysql_host: Option<String>,
+    pub mysql_db: Option<String>,
+    pub mysql_user: Option<String>,
+    pub mysql_password: Option<String>,
+    pub gemini_api_key: Option<String>,
+    pub gemini_api_endpoint: Option<String>,
+    pub gemini_prompt_wrapper: Option<String>,
+    pub gemini_interjection_prompt: Option<String>,
+    pub message_db: Option<Arc<tokio::sync::Mutex<Connection>>>,
+    pub log_prompts: bool,
+    pub interjection_fact_probability: f64,
+    pub gemini_personality_description: Option<String>,
 }
 
 impl Bot {
@@ -241,47 +259,13 @@ impl Bot {
         }
     }
 
-    fn new(
-        followed_channels: Vec<ChannelId>,
-        mysql_host: Option<String>,
-        mysql_db: Option<String>,
-        mysql_user: Option<String>,
-        mysql_password: Option<String>,
-        _google_api_key: Option<String>, // Unused but kept for compatibility
-        _google_search_engine_id: Option<String>, // Unused but kept for compatibility
-        gemini_api_key: Option<String>,
-        gemini_api_endpoint: Option<String>,
-        gemini_prompt_wrapper: Option<String>,
-        gemini_interjection_prompt: Option<String>,
-        bot_name: String,
-        message_db: Option<Arc<tokio::sync::Mutex<Connection>>>,
-        message_history_limit: usize,
-        gateway_bot_ids: Vec<u64>,
-        duckduckgo_search_enabled: bool,
-        gemini_rate_limit_minute: u32,
-        gemini_rate_limit_day: u32,
-        gemini_image_rate_limit_minute: u32,
-        gemini_image_rate_limit_day: u32,
-        gemini_context_messages: usize,
-        interjection_mst3k_probability: f64,
-        interjection_memory_probability: f64,
-        interjection_pondering_probability: f64,
-        interjection_ai_probability: f64,
-        interjection_fact_probability: f64,
-        interjection_news_probability: f64,
-        log_prompts: bool,
-        imagine_channels: Vec<String>,
-        fill_silence_enabled: bool,
-        fill_silence_start_hours: f64,
-        fill_silence_max_hours: f64,
-        gemini_personality_description: Option<String>,
-    ) -> Self {
+    fn new(config: BotConfig, parsed_config: ParsedConfig) -> Self {
         // Define the commands the bot will respond to
         let mut commands = HashMap::new();
         commands.insert("hello".to_string(), "world!".to_string());
 
         // Generate a comprehensive help message with all commands
-        let help_message = if !imagine_channels.is_empty() {
+        let help_message = if !parsed_config.imagine_channels.is_empty() {
             // Include the imagine command if channels are configured
             "Available commands:\n!help - Show help\n!hello - Say hello\n!buzz - Generate corporate buzzwords\n!fightcrime - Generate a crime fighting duo\n!trump - Generate a Trump insult\n!bandname [name] - Generate music genre for a band\n!lastseen [name] - Find when a user was last active\n!quote [term] - Get a random quote\n!quote -show [show] - Get quote from specific show\n!quote -dud [user] - Get random message from a user\n!slogan [term] - Get a random advertising slogan\n!frinkiac [term] [-s season] [-e episode] - Get a Simpsons screenshot\n!morbotron [term] - Get a Futurama screenshot\n!masterofallscience [term] - Get a Rick and Morty screenshot\n!imagine [text] - Generate an image\n!alive [name] - Check if a celebrity is alive or dead\n!info - Show bot statistics"
         } else {
@@ -297,10 +281,10 @@ impl Bot {
 
         // Create database manager
         let db_manager = DatabaseManager::new(
-            mysql_host.clone(),
-            mysql_db.clone(),
-            mysql_user.clone(),
-            mysql_password.clone(),
+            config.mysql_host.clone(),
+            config.mysql_db.clone(),
+            config.mysql_user.clone(),
+            config.mysql_password.clone(),
         );
         info!(
             "Database manager created, is configured: {}",
@@ -308,7 +292,7 @@ impl Bot {
         );
 
         // Create DuckDuckGo search client if feature is enabled
-        let search_client = if duckduckgo_search_enabled {
+        let search_client = if parsed_config.duckduckgo_search_enabled {
             info!("Creating DuckDuckGo search client for web scraping");
             Some(DuckDuckGoSearchClient::new())
         } else {
@@ -317,30 +301,31 @@ impl Bot {
         };
 
         // Create Gemini client if API key is provided
-        let gemini_client = match gemini_api_key {
+        let gemini_client = match config.gemini_api_key {
             Some(api_key) => {
                 info!("Creating Gemini client with provided API key");
                 info!(
                     "Gemini rate limits: {} per minute, {} per day",
-                    gemini_rate_limit_minute, gemini_rate_limit_day
+                    parsed_config.gemini_rate_limit_minute, parsed_config.gemini_rate_limit_day
                 );
                 info!(
                     "Gemini image rate limits: {} per minute, {} per day",
-                    gemini_image_rate_limit_minute, gemini_image_rate_limit_day
+                    parsed_config.gemini_image_rate_limit_minute,
+                    parsed_config.gemini_image_rate_limit_day
                 );
-                Some(GeminiClient::new(
+                Some(GeminiClient::new(GeminiConfig {
                     api_key,
-                    gemini_api_endpoint,
-                    gemini_prompt_wrapper,
-                    bot_name.clone(),
-                    gemini_rate_limit_minute,
-                    gemini_rate_limit_day,
-                    gemini_image_rate_limit_minute,
-                    gemini_image_rate_limit_day,
-                    gemini_context_messages,
-                    log_prompts,
-                    gemini_personality_description,
-                ))
+                    api_endpoint: config.gemini_api_endpoint,
+                    prompt_wrapper: config.gemini_prompt_wrapper,
+                    bot_name: parsed_config.bot_name.clone(),
+                    rate_limit_minute: parsed_config.gemini_rate_limit_minute,
+                    rate_limit_day: parsed_config.gemini_rate_limit_day,
+                    image_rate_limit_minute: parsed_config.gemini_image_rate_limit_minute,
+                    image_rate_limit_day: parsed_config.gemini_image_rate_limit_day,
+                    context_messages: parsed_config.gemini_context_messages,
+                    log_prompts: config.log_prompts,
+                    personality_description: config.gemini_personality_description,
+                }))
             }
             None => {
                 info!("Gemini client not created - missing API key");
@@ -368,39 +353,39 @@ impl Bot {
 
         // Initialize the fill silence manager
         let fill_silence_manager = Arc::new(fill_silence::FillSilenceManager::new(
-            fill_silence_enabled,
-            fill_silence_start_hours,
-            fill_silence_max_hours,
+            parsed_config.fill_silence_enabled,
+            parsed_config.fill_silence_start_hours,
+            parsed_config.fill_silence_max_hours,
         ));
 
         Self {
-            followed_channels,
+            followed_channels: config.followed_channels,
             db_manager,
             search_client,
             gemini_client,
             frinkiac_client,
             morbotron_client,
             masterofallscience_client,
-            bot_name,
-            message_db,
-            message_history_limit,
+            bot_name: parsed_config.bot_name,
+            message_db: config.message_db,
+            message_history_limit: parsed_config.message_history_limit,
             commands,
             keyword_triggers,
             crime_generator,
             trump_insult_generator,
             band_genre_generator,
-            gateway_bot_ids,
-            duckduckgo_search_enabled,
-            gemini_interjection_prompt,
-            imagine_channels,
+            gateway_bot_ids: parsed_config.gateway_bot_ids,
+            duckduckgo_search_enabled: parsed_config.duckduckgo_search_enabled,
+            gemini_interjection_prompt: config.gemini_interjection_prompt,
+            imagine_channels: parsed_config.imagine_channels,
             start_time: Instant::now(),
-            gemini_context_messages,
-            interjection_mst3k_probability,
-            interjection_memory_probability,
-            interjection_pondering_probability,
-            interjection_ai_probability,
-            interjection_fact_probability,
-            interjection_news_probability,
+            gemini_context_messages: parsed_config.gemini_context_messages,
+            interjection_mst3k_probability: parsed_config.interjection_mst3k_probability,
+            interjection_memory_probability: parsed_config.interjection_memory_probability,
+            interjection_pondering_probability: parsed_config.interjection_pondering_probability,
+            interjection_ai_probability: parsed_config.interjection_ai_probability,
+            interjection_fact_probability: config.interjection_fact_probability,
+            interjection_news_probability: parsed_config.interjection_news_probability,
             fill_silence_manager,
             last_seen_message: Arc::new(RwLock::new(HashMap::new())),
         }
@@ -745,14 +730,8 @@ impl Bot {
                                 Ok(name)
                             })?;
 
-                            for name_result in rows {
-                                if let Ok(name) = name_result {
-                                    if name == "display_name" {
-                                        return Ok(true);
-                                    }
-                                }
-                            }
-                            Ok(false)
+                            let has_display_name = rows.flatten().any(|name| name == "display_name");
+                            Ok(has_display_name)
                         })
                         .unwrap_or(false);
 
@@ -805,14 +784,8 @@ impl Bot {
                                 Ok(name)
                             })?;
 
-                            for name_result in rows {
-                                if let Ok(name) = name_result {
-                                    if name == "display_name" {
-                                        return Ok(true);
-                                    }
-                                }
-                            }
-                            Ok(false)
+                            let has_display_name = rows.flatten().any(|name| name == "display_name");
+                            Ok(has_display_name)
                         })
                         .unwrap_or(false);
 
@@ -973,14 +946,14 @@ impl Bot {
                     format!(r"{bot_name} won't\b"),    // "Crow won't"
                     format!(r"{bot_name} can't\b"),    // "Crow can't"
                     // Additional negative patterns for rhyming and comparison cases
-                    format!(r"{bot_name} rhymes"), // "Crow rhymes"
+                    format!(r"{bot_name} rhymes"),      // "Crow rhymes"
                     format!(r"rhymes with {bot_name}"), // "rhymes with Crow"
-                    format!(r"{bot_name} and"),    // "Crow and"
-                    format!(r"more of a {bot_name}"), // "more of a Crow"
-                    format!(r"less of a {bot_name}"), // "less of a Crow"
-                    format!(r"kind of {bot_name}"), // "kind of Crow"
-                    format!(r"sort of {bot_name}"), // "sort of Crow"
-                    format!(r"type of {bot_name}"), // "type of Crow"
+                    format!(r"{bot_name} and"),         // "Crow and"
+                    format!(r"more of a {bot_name}"),   // "more of a Crow"
+                    format!(r"less of a {bot_name}"),   // "less of a Crow"
+                    format!(r"kind of {bot_name}"),     // "kind of Crow"
+                    format!(r"sort of {bot_name}"),     // "sort of Crow"
+                    format!(r"type of {bot_name}"),     // "type of Crow"
                 ];
 
                 for pattern in &negative_patterns {
@@ -1079,7 +1052,8 @@ impl Bot {
                         if let Err(e) = msg.channel_id.say(&ctx.http, genre).await {
                             error!("Error sending band genre: {:?}", e);
                         }
-                    } else if let Err(e) = msg.reply(&ctx.http, "Please provide a band name.").await {
+                    } else if let Err(e) = msg.reply(&ctx.http, "Please provide a band name.").await
+                    {
                         error!("Error sending usage message: {:?}", e);
                     }
                 } else if command == "imagine" && !self.imagine_channels.is_empty() {
@@ -2151,7 +2125,8 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                         if let Err(e) = msg.channel_id.say(&ctx.http, genre).await {
                             error!("Error sending band genre: {:?}", e);
                         }
-                    } else if let Err(e) = msg.reply(&ctx.http, "Please provide a band name.").await {
+                    } else if let Err(e) = msg.reply(&ctx.http, "Please provide a band name.").await
+                    {
                         error!("Error sending usage message: {:?}", e);
                     }
                 } else if command == "imagine" && !self.imagine_channels.is_empty() {
@@ -3157,31 +3132,11 @@ async fn main() -> Result<()> {
     let token = &config.discord_token;
 
     // Parse config values
-    let (
-        bot_name,
-        message_history_limit,
-        db_trim_interval,
-        gemini_rate_limit_minute,
-        gemini_rate_limit_day,
-        gemini_image_rate_limit_minute,
-        gemini_image_rate_limit_day,
-        gateway_bot_ids,
-        duckduckgo_search_enabled,
-        gemini_context_messages,
-        interjection_mst3k_probability,
-        interjection_memory_probability,
-        interjection_pondering_probability,
-        interjection_ai_probability,
-        imagine_channels,
-        interjection_news_probability,
-        fill_silence_enabled,
-        fill_silence_start_hours,
-        fill_silence_max_hours,
-    ) = parse_config(&config);
+    let parsed_config = parse_config(&config);
 
     info!(
         "News interjection probability: {}%",
-        interjection_news_probability * 100.0
+        parsed_config.interjection_news_probability * 100.0
     );
 
     // Get fact interjection probability
@@ -3343,19 +3298,31 @@ Keep it brief and natural, as if you're just another participant in the conversa
 
     // Log configuration values
     info!("Configuration loaded:");
-    info!("Bot name: {}", bot_name);
-    info!("Message history limit: {}", message_history_limit);
-    info!("Database trim interval: {} seconds", db_trim_interval);
+    info!("Bot name: {}", parsed_config.bot_name);
+    info!(
+        "Message history limit: {}",
+        parsed_config.message_history_limit
+    );
+    info!(
+        "Database trim interval: {} seconds",
+        parsed_config.db_trim_interval
+    );
     info!(
         "Gemini rate limits: {} per minute, {} per day",
-        gemini_rate_limit_minute, gemini_rate_limit_day
+        parsed_config.gemini_rate_limit_minute, parsed_config.gemini_rate_limit_day
     );
     info!(
         "Gemini image rate limits: {} per minute, {} per day",
-        gemini_image_rate_limit_minute, gemini_image_rate_limit_day
+        parsed_config.gemini_image_rate_limit_minute, parsed_config.gemini_image_rate_limit_day
     );
-    info!("Gemini context messages: {}", gemini_context_messages);
-    info!("DuckDuckGo search enabled: {}", duckduckgo_search_enabled);
+    info!(
+        "Gemini context messages: {}",
+        parsed_config.gemini_context_messages
+    );
+    info!(
+        "DuckDuckGo search enabled: {}",
+        parsed_config.duckduckgo_search_enabled
+    );
 
     // Log channel configuration
     if let Some(channel_id) = &config.followed_channel_id {
@@ -3377,19 +3344,19 @@ Keep it brief and natural, as if you're just another participant in the conversa
     // Log interjection probabilities
     info!(
         "MST3K interjection probability: {}%",
-        interjection_mst3k_probability * 100.0
+        parsed_config.interjection_mst3k_probability * 100.0
     );
     info!(
         "Memory interjection probability: {}%",
-        interjection_memory_probability * 100.0
+        parsed_config.interjection_memory_probability * 100.0
     );
     info!(
         "Pondering interjection probability: {}%",
-        interjection_pondering_probability * 100.0
+        parsed_config.interjection_pondering_probability * 100.0
     );
     info!(
         "AI interjection probability: {}%",
-        interjection_ai_probability * 100.0
+        parsed_config.interjection_ai_probability * 100.0
     );
     info!(
         "Fact interjection probability: {}%",
@@ -3397,7 +3364,7 @@ Keep it brief and natural, as if you're just another participant in the conversa
     );
     info!(
         "News interjection probability: {}%",
-        interjection_news_probability * 100.0
+        parsed_config.interjection_news_probability * 100.0
     );
 
     // Log database configuration
@@ -3564,39 +3531,22 @@ Keep it brief and natural, as if you're just another participant in the conversa
 
     // Create a new bot instance with the valid channel IDs
     let bot = Bot::new(
-        channel_ids.clone(),
-        config.db_host.clone(),
-        config.db_name.clone(),
-        config.db_user.clone(),
-        config.db_password.clone(),
-        None, // No Google API key needed anymore
-        None, // No Google Search Engine ID needed anymore
-        gemini_api_key_for_bot,
-        gemini_api_endpoint_for_bot,
-        gemini_prompt_wrapper_for_bot,
-        Some(gemini_interjection_prompt),
-        bot_name.clone(),
-        message_db.clone(),
-        message_history_limit,
-        gateway_bot_ids.clone(),
-        duckduckgo_search_enabled,
-        gemini_rate_limit_minute,
-        gemini_rate_limit_day,
-        gemini_image_rate_limit_minute,
-        gemini_image_rate_limit_day,
-        gemini_context_messages,
-        interjection_mst3k_probability,
-        interjection_memory_probability,
-        interjection_pondering_probability,
-        interjection_ai_probability,
-        interjection_fact_probability,
-        interjection_news_probability,
-        gemini_log_prompts,
-        imagine_channels,
-        fill_silence_enabled,
-        fill_silence_start_hours,
-        fill_silence_max_hours,
-        gemini_personality_description_for_bot,
+        BotConfig {
+            followed_channels: channel_ids.clone(),
+            mysql_host: config.db_host.clone(),
+            mysql_db: config.db_name.clone(),
+            mysql_user: config.db_user.clone(),
+            mysql_password: config.db_password.clone(),
+            gemini_api_key: gemini_api_key_for_bot,
+            gemini_api_endpoint: gemini_api_endpoint_for_bot,
+            gemini_prompt_wrapper: gemini_prompt_wrapper_for_bot,
+            gemini_interjection_prompt: Some(gemini_interjection_prompt),
+            message_db: message_db.clone(),
+            log_prompts: gemini_log_prompts,
+            interjection_fact_probability,
+            gemini_personality_description: gemini_personality_description_for_bot,
+        },
+        parsed_config.clone(),
     );
 
     // Check database connection
@@ -3607,10 +3557,11 @@ Keep it brief and natural, as if you're just another participant in the conversa
     // Start the database trimming task
     if let Some(db) = &message_db {
         let db_clone = db.clone();
-        let limit = message_history_limit;
+        let limit = parsed_config.message_history_limit;
+        let trim_interval = parsed_config.db_trim_interval;
         tokio::spawn(async move {
             loop {
-                tokio::time::sleep(Duration::from_secs(db_trim_interval)).await;
+                tokio::time::sleep(Duration::from_secs(trim_interval)).await;
                 info!("Running scheduled database trim task");
                 match db_utils::trim_message_history(db_clone.clone(), limit).await {
                     Ok(deleted) => {
@@ -3626,7 +3577,7 @@ Keep it brief and natural, as if you're just another participant in the conversa
         });
         info!(
             "Started database trimming task (interval: {} seconds, limit: {} messages)",
-            db_trim_interval, message_history_limit
+            parsed_config.db_trim_interval, parsed_config.message_history_limit
         );
     }
 
@@ -3642,7 +3593,9 @@ Keep it brief and natural, as if you're just another participant in the conversa
     {
         let mut data = client.data.write().await;
         let recent_speakers = Arc::new(RwLock::new(VecDeque::<(String, String)>::with_capacity(5)));
-        let message_history = Arc::new(RwLock::new(VecDeque::with_capacity(message_history_limit)));
+        let message_history = Arc::new(RwLock::new(VecDeque::with_capacity(
+            parsed_config.message_history_limit,
+        )));
 
         // Load existing messages if database is available
         if let Some(db) = &message_db {
@@ -3653,43 +3606,7 @@ Keep it brief and natural, as if you're just another participant in the conversa
             if let Err(e) = db_utils::load_message_history(
                 db_clone,
                 &mut temp_history,
-                message_history_limit,
-                None,
-            )
-            .await
-            {
-                error!("Failed to load message history: {:?}", e);
-            } else {
-                info!("Loaded {} messages from database", temp_history.len());
-
-                // For now, we can't directly convert the loaded messages to serenity Message objects
-                // In a real implementation, you would need to create Message objects from the stored data
-                // or modify the database schema to store all necessary fields
-            }
-        }
-
-        info!("Initializing RecentSpeakersKey in client data");
-        data.insert::<RecentSpeakersKey>(recent_speakers);
-        info!("Initializing MessageHistoryKey in client data");
-        data.insert::<MessageHistoryKey>(message_history);
-    }
-
-    // Initialize the data structures in the client data
-    {
-        let mut data = client.data.write().await;
-        let recent_speakers = Arc::new(RwLock::new(VecDeque::<(String, String)>::with_capacity(5)));
-        let message_history = Arc::new(RwLock::new(VecDeque::with_capacity(message_history_limit)));
-
-        // Load existing messages if database is available
-        if let Some(db) = &message_db {
-            // Create a temporary VecDeque to hold the loaded messages
-            let mut temp_history = VecDeque::new();
-            let db_clone = db.clone();
-
-            if let Err(e) = db_utils::load_message_history(
-                db_clone,
-                &mut temp_history,
-                message_history_limit,
+                parsed_config.message_history_limit,
                 None,
             )
             .await
@@ -3712,20 +3629,20 @@ Keep it brief and natural, as if you're just another participant in the conversa
 
     // Start the client
     info!("✅ Bot initialization complete! Starting bot...");
-    info!("Bot name: {}", bot_name);
+    info!("Bot name: {}", parsed_config.bot_name);
     info!("Following {} channels", channel_ids.len());
     for channel_id in &channel_ids {
         info!("- Channel ID: {}", channel_id);
     }
-    if !gateway_bot_ids.is_empty() {
+    if !parsed_config.gateway_bot_ids.is_empty() {
         info!(
             "Will respond to gateway bots with IDs: {:?}",
-            gateway_bot_ids
+            parsed_config.gateway_bot_ids
         );
     }
     info!(
         "DuckDuckGo search feature is {}",
-        if duckduckgo_search_enabled {
+        if parsed_config.duckduckgo_search_enabled {
             "enabled"
         } else {
             "disabled"
@@ -3733,7 +3650,7 @@ Keep it brief and natural, as if you're just another participant in the conversa
     );
 
     // Start the spontaneous interjection task if fill silence is enabled
-    if fill_silence_enabled {
+    if parsed_config.fill_silence_enabled {
         info!("Starting spontaneous interjection task for fill silence feature");
 
         // Clone what we need for the task
@@ -3741,7 +3658,7 @@ Keep it brief and natural, as if you're just another participant in the conversa
         let interjection_channels = interjection_channel_ids.clone();
         let bot_id = client.http.get_current_user().await?.id;
         let message_db_clone = message_db.clone();
-        let bot_name_clone = bot_name.clone();
+        let bot_name_clone = parsed_config.bot_name.clone();
 
         // Log interjection channels
         info!(
@@ -3755,22 +3672,26 @@ Keep it brief and natural, as if you're just another participant in the conversa
         // Create a new Gemini client for the task if we have an API key
         let task_gemini_client = if let Some(api_key) = &gemini_api_key {
             info!("Creating Gemini client for spontaneous interjection task");
-            Some(GeminiClient::new(
-                api_key.clone(),
-                gemini_api_endpoint.clone(),
-                gemini_prompt_wrapper.clone(),
-                bot_name.clone(),
-                gemini_rate_limit_minute,
-                gemini_rate_limit_day,
-                gemini_image_rate_limit_minute,
-                gemini_image_rate_limit_day,
-                gemini_context_messages,
-                gemini_log_prompts,
-                gemini_personality_description.clone(),
-            ))
+            Some(GeminiClient::new(GeminiConfig {
+                api_key: api_key.clone(),
+                api_endpoint: gemini_api_endpoint.clone(),
+                prompt_wrapper: gemini_prompt_wrapper.clone(),
+                bot_name: parsed_config.bot_name.clone(),
+                rate_limit_minute: parsed_config.gemini_rate_limit_minute,
+                rate_limit_day: parsed_config.gemini_rate_limit_day,
+                image_rate_limit_minute: parsed_config.gemini_image_rate_limit_minute,
+                image_rate_limit_day: parsed_config.gemini_image_rate_limit_day,
+                context_messages: parsed_config.gemini_context_messages,
+                log_prompts: gemini_log_prompts,
+                personality_description: gemini_personality_description.clone(),
+            }))
         } else {
             None
         };
+
+        // Compile regexes used in the interjection loop
+        let via_regex = regex::Regex::new(r"\s*\(via\s+[^)]+\)\s*").unwrap();
+        let url_regex = regex::Regex::new(r"https?://[^\s]+").unwrap();
 
         // Spawn the task
         tokio::spawn(async move {
@@ -3815,7 +3736,7 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                     // Get recent messages for context
                                     let context_messages = match db_utils::get_recent_messages(
                                         db.clone(),
-                                        gemini_context_messages,
+                                        parsed_config.gemini_context_messages,
                                         Some(&channel_id.to_string()),
                                     )
                                     .await
@@ -3949,7 +3870,7 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                     let context_messages = if let Some(db) = &message_db_clone {
                                         match db_utils::get_recent_messages(
                                             db.clone(),
-                                            gemini_context_messages,
+                                            parsed_config.gemini_context_messages,
                                             Some(&channel_id.to_string()),
                                         )
                                         .await
@@ -4050,7 +3971,7 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                         gemini_client,
                                         &message_db_clone,
                                         &bot_name_clone,
-                                        gemini_context_messages,
+                                        parsed_config.gemini_context_messages,
                                     )
                                     .await
                                     {
@@ -4077,7 +3998,7 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                     let context_messages = if let Some(db) = &message_db_clone {
                                         match db_utils::get_recent_messages(
                                             db.clone(),
-                                            gemini_context_messages,
+                                            parsed_config.gemini_context_messages,
                                             Some(&channel_id.to_string()),
                                         )
                                         .await
@@ -4152,16 +4073,11 @@ Be creative but realistic with your article title and URL."#)
                                                 String::new() // Return empty string to skip the interjection
                                             } else {
                                                 // Remove any "(via search)" or similar tags using regex
-                                                let via_regex =
-                                                    regex::Regex::new(r"\s*\(via\s+[^)]+\)\s*")
-                                                        .unwrap();
                                                 let cleaned_response = via_regex
                                                     .replace_all(&response, "")
                                                     .to_string();
 
                                                 // Validate the URL
-                                                let url_regex =
-                                                    regex::Regex::new(r"https?://[^\s]+").unwrap();
                                                 if let Some(url_match) =
                                                     url_regex.find(&cleaned_response)
                                                 {
