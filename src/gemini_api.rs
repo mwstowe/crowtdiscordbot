@@ -403,281 +403,338 @@ impl GeminiClient {
             return Err(anyhow::anyhow!("IMAGE_QUOTA_EXHAUSTED: Image generation quota has been exceeded for today. This feature will be available again tomorrow."));
         }
 
-        // Check image rate limits first - this will handle both per-minute and per-day limits
-        match self.image_rate_limiter.check().await {
-            Ok(()) => {
-                // We can proceed - record the request
-                self.image_rate_limiter.record_request().await;
-            }
-            Err(e) => {
-                let error_msg = e.to_string();
+        // Maximum number of retries for 500 errors
+        const MAX_RETRIES: usize = 10;
+        let mut delay_secs = 5; // Initial delay for 500 errors
 
-                // Check if this is a daily limit error
-                if error_msg.contains("Daily rate limit reached") {
-                    // Mark image generation as quota exhausted for the day
-                    self.mark_image_quota_exhausted().await;
-                    return Err(anyhow::anyhow!("IMAGE_QUOTA_EXHAUSTED: Daily image generation limit reached. This feature will be available again tomorrow."));
+        // Try up to MAX_RETRIES times
+        for attempt in 1..=MAX_RETRIES {
+            // Check image rate limits first - this will handle both per-minute and per-day limits
+            match self.image_rate_limiter.check().await {
+                Ok(()) => {
+                    // We can proceed - record the request
+                    self.image_rate_limiter.record_request().await;
                 }
+                Err(e) => {
+                    let error_msg = e.to_string();
 
-                // For per-minute limits, return the error as-is (caller can retry)
-                return Err(e);
-            }
-        }
+                    // Check if this is a daily limit error
+                    if error_msg.contains("Daily rate limit reached") {
+                        // Mark image generation as quota exhausted for the day
+                        self.mark_image_quota_exhausted().await;
+                        return Err(anyhow::anyhow!("IMAGE_QUOTA_EXHAUSTED: Daily image generation limit reached. This feature will be available again tomorrow."));
+                    }
 
-        // Prepare the request body for the gemini-2.0-flash-preview-image-generation model
-        // Based on the working example using responseModalities
-        let request_body = serde_json::json!({
-            "contents": [{
-                "parts": [{
-                    "text": prompt
-                }]
-            }],
-            "generationConfig": {
-                "responseModalities": ["TEXT", "IMAGE"]
-            }
-        });
-
-        // Build the URL with API key
-        let url = format!("{}?key={}", self.image_endpoint, self.api_key);
-
-        // Make the API call
-        let client = reqwest::Client::new();
-        let response = client
-            .post(&url)
-            .json(&request_body)
-            .timeout(Duration::from_secs(60)) // Longer timeout for image generation
-            .send()
-            .await?;
-
-        // Check the HTTP status code first
-        let status = response.status();
-        if status == 429 {
-            // This is likely a quota exhaustion error
-            let response_text = response.text().await.unwrap_or_default();
-            error!(
-                "Received HTTP 429 from image generation API: {}",
-                response_text
-            );
-
-            // Check if the response contains quota-related keywords
-            if response_text.to_lowercase().contains("quota")
-                || response_text.to_lowercase().contains("resource_exhausted")
-            {
-                // Mark image generation as quota exhausted
-                self.mark_image_quota_exhausted().await;
-                return Err(anyhow::anyhow!("IMAGE_QUOTA_EXHAUSTED: Image generation quota has been exceeded for today. This feature will be available again tomorrow."));
+                    // For per-minute limits, return the error as-is (caller can retry)
+                    return Err(e);
+                }
             }
 
-            // If it's a 429 but not quota-related, return a generic rate limit error
-            return Err(anyhow::anyhow!(
-                "Rate limit exceeded. Please try again later."
-            ));
-        }
+            // Prepare the request body for the gemini-2.0-flash-preview-image-generation model
+            // Based on the working example using responseModalities
+            let request_body = serde_json::json!({
+                "contents": [{
+                    "parts": [{
+                        "text": prompt
+                    }]
+                }],
+                "generationConfig": {
+                    "responseModalities": ["TEXT", "IMAGE"]
+                }
+            });
 
-        // Parse the response
-        let response_json: serde_json::Value = response.json().await?;
+            // Build the URL with API key
+            let url = format!("{}?key={}", self.image_endpoint, self.api_key);
 
-        // Check for error in response
-        if let Some(error) = response_json.get("error") {
-            let error_message = error
-                .get("message")
-                .and_then(|m| m.as_str())
-                .unwrap_or("Unknown API error");
-            let error_code = error.get("code").and_then(|c| c.as_u64()).unwrap_or(0);
+            // Make the API call
+            let client = reqwest::Client::new();
+            let response = client
+                .post(&url)
+                .json(&request_body)
+                .timeout(Duration::from_secs(60)) // Longer timeout for image generation
+                .send()
+                .await?;
 
-            // Check for RESOURCE_EXHAUSTED error
-            if error_code == 429 || error_message.to_lowercase().contains("resource_exhausted") {
-                // Check if this is specifically about quota
-                if error_message.to_lowercase().contains("quota") {
-                    error!("Image generation quota exhausted: {}", error_message);
+            // Check the HTTP status code first
+            let status = response.status();
+            
+            // Handle 500 errors with retry logic
+            if status.as_u16() == 500 {
+                if attempt < MAX_RETRIES {
+                    info!(
+                        "Image generation API returned 500 error (attempt {}/{}), retrying in {} seconds...",
+                        attempt, MAX_RETRIES, delay_secs
+                    );
+                    tokio::time::sleep(Duration::from_secs(delay_secs)).await;
+                    delay_secs = std::cmp::min(delay_secs * 2, 60); // Cap at 60 seconds
+                    continue;
+                } else {
+                    let response_text = response.text().await.unwrap_or_default();
+                    error!(
+                        "Image generation API returned 500 error after {} attempts: {}",
+                        MAX_RETRIES, response_text
+                    );
+                    return Err(anyhow::anyhow!(
+                        "Image generation failed after {} attempts due to server errors",
+                        MAX_RETRIES
+                    ));
+                }
+            }
+            
+            if status == 429 {
+                // This is likely a quota exhaustion error
+                let response_text = response.text().await.unwrap_or_default();
+                error!(
+                    "Received HTTP 429 from image generation API: {}",
+                    response_text
+                );
+
+                // Check if the response contains quota-related keywords
+                if response_text.to_lowercase().contains("quota")
+                    || response_text.to_lowercase().contains("resource_exhausted")
+                {
+                    // Mark image generation as quota exhausted
                     self.mark_image_quota_exhausted().await;
                     return Err(anyhow::anyhow!("IMAGE_QUOTA_EXHAUSTED: Image generation quota has been exceeded for today. This feature will be available again tomorrow."));
                 }
+
+                // If it's a 429 but not quota-related, return a generic rate limit error
+                return Err(anyhow::anyhow!(
+                    "Rate limit exceeded. Please try again later."
+                ));
             }
 
-            error!(
-                "Image generation API error (code {}): {}",
-                error_code, error_message
-            );
-            return Err(anyhow::anyhow!(
-                "Image generation API error: {}",
-                error_message
-            ));
-        }
+            // Parse the response
+            let response_json: serde_json::Value = response.json().await?;
 
-        // Create a copy of the response for logging, but remove the image data to avoid huge logs
-        let mut log_json = response_json.clone();
-        if let Some(candidates) = log_json.get_mut("candidates") {
-            if let Some(candidate) = candidates.get_mut(0) {
-                if let Some(content) = candidate.get_mut("content") {
-                    if let Some(parts) = content.get_mut("parts") {
-                        // Check for image data in the first part (alternative format)
-                        if let Some(part) = parts.get_mut(0) {
-                            if let Some(inline_data) = part.get_mut("inlineData") {
-                                if let Some(data) = inline_data.get_mut("data") {
-                                    *data = serde_json::Value::String(
-                                        "[IMAGE DATA REDACTED]".to_string(),
-                                    );
+            // Check for error in response
+            if let Some(error) = response_json.get("error") {
+                let error_message = error
+                    .get("message")
+                    .and_then(|m| m.as_str())
+                    .unwrap_or("Unknown API error");
+                let error_code = error.get("code").and_then(|c| c.as_u64()).unwrap_or(0);
+
+                // Handle 500 errors in the JSON response as well
+                if error_code == 500 {
+                    if attempt < MAX_RETRIES {
+                        info!(
+                            "Image generation API returned 500 error in response (attempt {}/{}), retrying in {} seconds...",
+                            attempt, MAX_RETRIES, delay_secs
+                        );
+                        tokio::time::sleep(Duration::from_secs(delay_secs)).await;
+                        delay_secs = std::cmp::min(delay_secs * 2, 60); // Cap at 60 seconds
+                        continue;
+                    } else {
+                        error!(
+                            "Image generation API returned 500 error after {} attempts: {}",
+                            MAX_RETRIES, error_message
+                        );
+                        return Err(anyhow::anyhow!(
+                            "Image generation failed after {} attempts due to server errors: {}",
+                            MAX_RETRIES, error_message
+                        ));
+                    }
+                }
+
+                // Check for RESOURCE_EXHAUSTED error
+                if error_code == 429 || error_message.to_lowercase().contains("resource_exhausted") {
+                    // Check if this is specifically about quota
+                    if error_message.to_lowercase().contains("quota") {
+                        error!("Image generation quota exhausted: {}", error_message);
+                        self.mark_image_quota_exhausted().await;
+                        return Err(anyhow::anyhow!("IMAGE_QUOTA_EXHAUSTED: Image generation quota has been exceeded for today. This feature will be available again tomorrow."));
+                    }
+                }
+
+                error!(
+                    "Image generation API error (code {}): {}",
+                    error_code, error_message
+                );
+                return Err(anyhow::anyhow!(
+                    "Image generation API error: {}",
+                    error_message
+                ));
+            }
+
+            // Create a copy of the response for logging, but remove the image data to avoid huge logs
+            let mut log_json = response_json.clone();
+            if let Some(candidates) = log_json.get_mut("candidates") {
+                if let Some(candidate) = candidates.get_mut(0) {
+                    if let Some(content) = candidate.get_mut("content") {
+                        if let Some(parts) = content.get_mut("parts") {
+                            // Check for image data in the first part (alternative format)
+                            if let Some(part) = parts.get_mut(0) {
+                                if let Some(inline_data) = part.get_mut("inlineData") {
+                                    if let Some(data) = inline_data.get_mut("data") {
+                                        *data = serde_json::Value::String(
+                                            "[IMAGE DATA REDACTED]".to_string(),
+                                        );
+                                    }
+                                }
+                            }
+
+                            // Check for image data in the second part (typical format)
+                            if let Some(part) = parts.get_mut(1) {
+                                if let Some(inline_data) = part.get_mut("inlineData") {
+                                    if let Some(data) = inline_data.get_mut("data") {
+                                        *data = serde_json::Value::String(
+                                            "[IMAGE DATA REDACTED]".to_string(),
+                                        );
+                                    }
                                 }
                             }
                         }
+                    }
+                }
+            }
 
-                        // Check for image data in the second part (typical format)
-                        if let Some(part) = parts.get_mut(1) {
-                            if let Some(inline_data) = part.get_mut("inlineData") {
-                                if let Some(data) = inline_data.get_mut("data") {
-                                    *data = serde_json::Value::String(
-                                        "[IMAGE DATA REDACTED]".to_string(),
-                                    );
-                                }
-                            }
+            // Log the redacted response
+            info!(
+                "Image generation API response: {}",
+                serde_json::to_string_pretty(&log_json)?
+            );
+
+            // Check for safety blocks or other issues
+            if let Some(candidates) = response_json.get("candidates") {
+                if let Some(candidate) = candidates.get(0) {
+                    // Check for finish reason
+                    if let Some(finish_reason) = candidate.get("finishReason") {
+                        let reason = finish_reason.as_str().unwrap_or("UNKNOWN");
+                        if reason == "IMAGE_SAFETY" {
+                            // Extract the text response which contains the safety explanation
+                            let safety_message = response_json
+                                .get("candidates")
+                                .and_then(|c| c.get(0))
+                                .and_then(|c| c.get("content"))
+                                .and_then(|c| c.get("parts"))
+                                .and_then(|p| p.get(0))
+                                .and_then(|p| p.get("text"))
+                                .and_then(|t| t.as_str())
+                                .unwrap_or("I'm unable to generate that image due to content policy restrictions.");
+
+                            error!(
+                                "Image generation blocked due to safety concerns: {}",
+                                safety_message
+                            );
+                            return Err(anyhow::anyhow!("SAFETY_BLOCKED: \"{}\"", safety_message));
+                        }
+                    }
+
+                    // Check for safety ratings with blocked=true
+                    if let Some(safety_ratings) = candidate.get("safetyRatings") {
+                        if safety_ratings.as_array().is_some_and(|ratings| {
+                            ratings.iter().any(|rating| {
+                                rating
+                                    .get("blocked")
+                                    .and_then(|b| b.as_bool())
+                                    .unwrap_or(false)
+                            })
+                        }) {
+                            // Extract the text response which contains the safety explanation
+                            let safety_message = response_json
+                                .get("candidates")
+                                .and_then(|c| c.get(0))
+                                .and_then(|c| c.get("content"))
+                                .and_then(|c| c.get("parts"))
+                                .and_then(|p| p.get(0))
+                                .and_then(|p| p.get("text"))
+                                .and_then(|t| t.as_str())
+                                .unwrap_or("I'm unable to generate that image due to content policy restrictions.");
+
+                            error!(
+                                "Image generation blocked due to safety ratings: {}",
+                                safety_message
+                            );
+                            return Err(anyhow::anyhow!("SAFETY_BLOCKED: \"{}\"", safety_message));
                         }
                     }
                 }
             }
-        }
 
-        // Log the redacted response
-        info!(
-            "Image generation API response: {}",
-            serde_json::to_string_pretty(&log_json)?
-        );
-
-        // Check for safety blocks or other issues
-        if let Some(candidates) = response_json.get("candidates") {
-            if let Some(candidate) = candidates.get(0) {
-                // Check for finish reason
-                if let Some(finish_reason) = candidate.get("finishReason") {
-                    let reason = finish_reason.as_str().unwrap_or("UNKNOWN");
-                    if reason == "IMAGE_SAFETY" {
-                        // Extract the text response which contains the safety explanation
-                        let safety_message = response_json
-                            .get("candidates")
-                            .and_then(|c| c.get(0))
-                            .and_then(|c| c.get("content"))
-                            .and_then(|c| c.get("parts"))
-                            .and_then(|p| p.get(0))
-                            .and_then(|p| p.get("text"))
-                            .and_then(|t| t.as_str())
-                            .unwrap_or("I'm unable to generate that image due to content policy restrictions.");
-
-                        error!(
-                            "Image generation blocked due to safety concerns: {}",
-                            safety_message
-                        );
-                        return Err(anyhow::anyhow!("SAFETY_BLOCKED: \"{}\"", safety_message));
-                    }
-                }
-
-                // Check for safety ratings with blocked=true
-                if let Some(safety_ratings) = candidate.get("safetyRatings") {
-                    if safety_ratings.as_array().is_some_and(|ratings| {
-                        ratings.iter().any(|rating| {
-                            rating
-                                .get("blocked")
-                                .and_then(|b| b.as_bool())
-                                .unwrap_or(false)
-                        })
-                    }) {
-                        // Extract the text response which contains the safety explanation
-                        let safety_message = response_json
-                            .get("candidates")
-                            .and_then(|c| c.get(0))
-                            .and_then(|c| c.get("content"))
-                            .and_then(|c| c.get("parts"))
-                            .and_then(|p| p.get(0))
-                            .and_then(|p| p.get("text"))
-                            .and_then(|t| t.as_str())
-                            .unwrap_or("I'm unable to generate that image due to content policy restrictions.");
-
-                        error!(
-                            "Image generation blocked due to safety ratings: {}",
-                            safety_message
-                        );
-                        return Err(anyhow::anyhow!("SAFETY_BLOCKED: \"{}\"", safety_message));
-                    }
-                }
-            }
-        }
-
-        // Extract the text description
-        let text_description = response_json
-            .get("candidates")
-            .and_then(|c| c.get(0))
-            .and_then(|c| c.get("content"))
-            .and_then(|c| c.get("parts"))
-            .and_then(|p| p.get(0))
-            .and_then(|p| p.get("text"))
-            .and_then(|t| t.as_str())
-            .unwrap_or("")
-            .to_string();
-
-        // Check if the text response indicates a safety block
-        // This handles cases where the API returns a text explanation instead of an image
-        if text_description.contains("unable to create")
-            || text_description.contains("can't generate")
-            || text_description.contains("cannot generate")
-            || text_description.contains("policy violation")
-            || text_description.contains("content policy")
-        {
-            error!(
-                "Image generation blocked based on text response: {}",
-                text_description
-            );
-            return Err(anyhow::anyhow!("SAFETY_BLOCKED: \"{}\"", text_description));
-        }
-
-        // Extract the generated image data - handle both possible response formats
-        let mut image_data = None;
-
-        // First try to find the image in the second part (typical format)
-        if let Some(data) = response_json
-            .get("candidates")
-            .and_then(|c| c.get(0))
-            .and_then(|c| c.get("content"))
-            .and_then(|c| c.get("parts"))
-            .and_then(|p| p.get(1)) // The second part contains the image
-            .and_then(|p| p.get("inlineData"))
-            .and_then(|i| i.get("data"))
-            .and_then(|d| d.as_str())
-        {
-            image_data = Some(data);
-        }
-
-        // If not found, try to find it in the first part (alternative format)
-        if image_data.is_none() {
-            if let Some(data) = response_json
+            // Extract the text description
+            let text_description = response_json
                 .get("candidates")
                 .and_then(|c| c.get(0))
                 .and_then(|c| c.get("content"))
                 .and_then(|c| c.get("parts"))
                 .and_then(|p| p.get(0))
+                .and_then(|p| p.get("text"))
+                .and_then(|t| t.as_str())
+                .unwrap_or("")
+                .to_string();
+
+            // Check if the text response indicates a safety block
+            // This handles cases where the API returns a text explanation instead of an image
+            if text_description.contains("unable to create")
+                || text_description.contains("can't generate")
+                || text_description.contains("cannot generate")
+                || text_description.contains("policy violation")
+                || text_description.contains("content policy")
+            {
+                error!(
+                    "Image generation blocked based on text response: {}",
+                    text_description
+                );
+                return Err(anyhow::anyhow!("SAFETY_BLOCKED: \"{}\"", text_description));
+            }
+
+            // Extract the generated image data - handle both possible response formats
+            let mut image_data = None;
+
+            // First try to find the image in the second part (typical format)
+            if let Some(data) = response_json
+                .get("candidates")
+                .and_then(|c| c.get(0))
+                .and_then(|c| c.get("content"))
+                .and_then(|c| c.get("parts"))
+                .and_then(|p| p.get(1)) // The second part contains the image
                 .and_then(|p| p.get("inlineData"))
                 .and_then(|i| i.get("data"))
                 .and_then(|d| d.as_str())
             {
                 image_data = Some(data);
             }
-        }
 
-        // Process the image data if found
-        if let Some(image_data) = image_data {
-            info!("Successfully generated image from Gemini API");
-
-            // Decode base64 image data
-            match base64::engine::general_purpose::STANDARD.decode(image_data) {
-                Ok(bytes) => Ok((bytes, text_description)),
-                Err(e) => {
-                    error!("Failed to decode base64 image data: {:?}", e);
-                    Err(anyhow::anyhow!("Failed to decode base64 image data"))
+            // If not found, try to find it in the first part (alternative format)
+            if image_data.is_none() {
+                if let Some(data) = response_json
+                    .get("candidates")
+                    .and_then(|c| c.get(0))
+                    .and_then(|c| c.get("content"))
+                    .and_then(|c| c.get("parts"))
+                    .and_then(|p| p.get(0))
+                    .and_then(|p| p.get("inlineData"))
+                    .and_then(|i| i.get("data"))
+                    .and_then(|d| d.as_str())
+                {
+                    image_data = Some(data);
                 }
             }
-        } else {
-            error!("Failed to extract image data from API response");
-            Err(anyhow::anyhow!(
-                "Failed to extract image data from API response"
-            ))
+
+            // Process the image data if found
+            if let Some(image_data) = image_data {
+                info!("Successfully generated image from Gemini API");
+
+                // Decode base64 image data
+                match base64::engine::general_purpose::STANDARD.decode(image_data) {
+                    Ok(bytes) => return Ok((bytes, text_description)),
+                    Err(e) => {
+                        error!("Failed to decode base64 image data: {:?}", e);
+                        return Err(anyhow::anyhow!("Failed to decode base64 image data"));
+                    }
+                }
+            } else {
+                error!("Failed to extract image data from API response");
+                return Err(anyhow::anyhow!(
+                    "Failed to extract image data from API response"
+                ));
+            }
         }
+
+        // This should never be reached due to the return statements above,
+        // but we need it for the compiler
+        Err(anyhow::anyhow!("Maximum retry attempts exceeded"))
     }
 }
 
