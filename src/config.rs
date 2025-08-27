@@ -78,6 +78,10 @@ pub struct Config {
     pub db_password: Option<String>,
     pub gateway_bot_ids: Option<String>,
     pub imagine_channels: Option<String>,
+    pub quiet_channel_name: Option<String>,
+    pub quiet_channel_id: Option<String>,
+    pub quiet_channel_names: Option<String>,
+    pub quiet_channel_ids: Option<String>,
 }
 
 pub fn load_config() -> Result<Config> {
@@ -157,6 +161,7 @@ pub struct ParsedConfig {
     pub fill_silence_enabled: bool,
     pub fill_silence_start_hours: f64,
     pub fill_silence_max_hours: f64,
+    pub quiet_channels: Vec<String>,
 }
 
 pub fn parse_config(config: &Config) -> ParsedConfig {
@@ -387,6 +392,29 @@ pub fn parse_config(config: &Config) -> ParsedConfig {
         info!("Image generation allowed in all channels");
     }
 
+    // Parse quiet channels configuration
+    let quiet_channels = config
+        .quiet_channel_names
+        .as_ref()
+        .or(config.quiet_channel_name.as_ref())
+        .map(|names| {
+            names
+                .split(',')
+                .map(|channel| channel.trim().to_string())
+                .filter(|channel| !channel.is_empty())
+                .collect::<Vec<String>>()
+        })
+        .unwrap_or_default();
+
+    if !quiet_channels.is_empty() {
+        info!(
+            "Quiet channels configured (bot will only respond when directly addressed): {:?}",
+            quiet_channels
+        );
+    } else {
+        info!("No quiet channels configured - bot will respond normally in all channels");
+    }
+
     info!(
         "DuckDuckGo search feature is {}",
         if duckduckgo_search_enabled {
@@ -416,5 +444,6 @@ pub fn parse_config(config: &Config) -> ParsedConfig {
         fill_silence_enabled,
         fill_silence_start_hours,
         fill_silence_max_hours,
+        quiet_channels,
     }
 }

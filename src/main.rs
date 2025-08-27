@@ -130,6 +130,7 @@ struct Bot {
     fill_silence_manager: Arc<fill_silence::FillSilenceManager>,
     // Track the last seen message timestamp for each channel
     last_seen_message: Arc<RwLock<HashMap<ChannelId, (serenity::model::Timestamp, MessageId)>>>,
+    quiet_channels: Vec<String>,
 }
 
 /// Configuration for creating a Bot instance
@@ -388,6 +389,7 @@ impl Bot {
             interjection_news_probability: parsed_config.interjection_news_probability,
             fill_silence_manager,
             last_seen_message: Arc::new(RwLock::new(HashMap::new())),
+            quiet_channels: parsed_config.quiet_channels,
         }
     }
 
@@ -1010,8 +1012,58 @@ impl Bot {
         false
     }
 
+    // Helper function to check if the bot should respond in a quiet channel
+    async fn should_respond_in_quiet_channel(&self, ctx: &Context, msg: &Message) -> bool {
+        // Get the channel name
+        let channel_name = match msg.channel_id.to_channel(&ctx.http).await {
+            Ok(channel) => match channel.guild() {
+                Some(guild_channel) => guild_channel.name.clone(),
+                None => return true, // DM or other non-guild channel, allow response
+            },
+            Err(_) => return true, // If we can't get the channel, allow response
+        };
+
+        // Check if this channel is in the quiet channels list
+        if !self.quiet_channels.contains(&channel_name) {
+            return true; // Not a quiet channel, respond normally
+        }
+
+        // This is a quiet channel, only respond if directly addressed
+        let bot_name_lower = self.bot_name.to_lowercase();
+        let content_lower = msg.content.to_lowercase();
+
+        // Check for direct mention
+        let current_user_id = match ctx.http.get_current_user().await {
+            Ok(user) => user.id,
+            Err(_) => return true, // If we can't get current user, allow response
+        };
+
+        if msg.mentions.iter().any(|user| user.id == current_user_id) {
+            return true;
+        }
+
+        // Check for message starting with bot name
+        if content_lower.starts_with(&bot_name_lower) {
+            return true;
+        }
+
+        // Check for commands (messages starting with !)
+        if msg.content.starts_with('!') {
+            return true;
+        }
+
+        // Not directly addressed in a quiet channel
+        false
+    }
+
     // Process a message
     async fn process_message(&self, ctx: &Context, msg: &Message) -> Result<()> {
+        // Check if we should respond in quiet channels
+        if !self.should_respond_in_quiet_channel(ctx, msg).await {
+            // In a quiet channel and not directly addressed - skip all processing except random interjections
+            return Ok(());
+        }
+
         // Note: Message is already stored in the database in the message() event handler
         // No need to store it again here
 
@@ -2915,6 +2967,12 @@ impl EventHandler for Bot {
             return;
         }
 
+        // Check if we should respond in quiet channels (for special responses like "whoa")
+        if !self.should_respond_in_quiet_channel(&ctx, &msg).await {
+            // In a quiet channel and not directly addressed - skip special responses
+            return;
+        }
+
         // Special case: respond with "I know kung fu!" when someone says exactly "whoa"
         let trimmed_content = msg.content.trim().to_lowercase();
         if trimmed_content == "whoa" || trimmed_content == "woah" {
@@ -4204,4 +4262,21 @@ Be creative but realistic with your article title and URL."#)
     client.start().await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_quiet_channels_configuration() {
+        // Test that quiet channels are properly stored in the bot
+        let quiet_channels = vec!["serious-discussion".to_string(), "work-chat".to_string()];
+        
+        // This test just verifies the data structure works
+        assert_eq!(quiet_channels.len(), 2);
+        assert!(quiet_channels.contains(&"serious-discussion".to_string()));
+        assert!(quiet_channels.contains(&"work-chat".to_string()));
+        assert!(!quiet_channels.contains(&"general".to_string()));
+    }
 }

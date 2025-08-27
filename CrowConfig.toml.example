@@ -11,6 +11,11 @@ DISCORD_TOKEN = "your_discord_token_here"
 # Optional: Limit channel search to a specific server
 # FOLLOWED_SERVER_NAME = "Your Server Name"
 
+# Quiet Channels Configuration
+# Channels where the bot will only respond when directly addressed (mentions, name prefix, or commands)
+# QUIET_CHANNEL_NAME = "serious-discussion"
+# QUIET_CHANNEL_NAMES = "serious-discussion,work-chat,announcements"
+
 # Bot Configuration
 BOT_NAME = "Crow"
 MESSAGE_HISTORY_LIMIT = "10000"

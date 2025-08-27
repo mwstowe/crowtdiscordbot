@@ -15,6 +15,7 @@ A Discord bot that follows specific channels and responds to various triggers in
 - Can follow multiple channels simultaneously
 - Maintains channel-specific conversation contexts
 - Configurable random interjections with separate probability controls
+- Supports "quiet channels" where the bot only responds when directly addressed
 
 ## Installation and Setup
 
@@ -110,6 +111,38 @@ The prompt sent to Gemini can be customized by setting the `GEMINI_PROMPT_WRAPPE
 - `{context}` - Recent conversation history (last 5 messages)
 
 You can also configure which Gemini model to use by setting the `GEMINI_API_ENDPOINT` in your `CrowConfig.toml` file. This allows you to switch between different models like `gemini-1.0-pro`, `gemini-1.5-pro`, `gemini-1.5-flash` or `gemini-2.0-flash`.
+
+## Quiet Channels
+
+The bot supports "quiet channels" where it will only respond when directly addressed. This is useful for channels where you want the bot available but don't want it to randomly interject or respond to keywords.
+
+### Configuration
+
+Configure quiet channels in your `CrowConfig.toml` file:
+
+```toml
+# Single quiet channel
+QUIET_CHANNEL_NAME = "serious-discussion"
+
+# Multiple quiet channels
+QUIET_CHANNEL_NAMES = "serious-discussion,work-chat,announcements"
+```
+
+### Behavior in Quiet Channels
+
+In quiet channels, the bot will **only** respond to:
+
+1. **Direct mentions** - `@BotName what's the weather?`
+2. **Messages starting with the bot's name** - `Crow, tell me a joke`
+3. **Commands** - `!help`, `!quote`, etc.
+
+The bot will **not** respond to:
+- Random interjections
+- Keyword triggers
+- Special responses (like "whoa" → "I know kung fu!")
+- AI-generated conversation starters
+
+This allows you to have the bot available for explicit requests while keeping channels focused and distraction-free.
 
 ## Random Interjections
 
@@ -246,6 +279,8 @@ The bot can be configured through the `CrowConfig.toml` file:
 - `FOLLOWED_CHANNEL_IDS` - Comma-separated list of channel IDs to follow
 - `FOLLOWED_CHANNEL_NAMES` - Comma-separated list of channel names to follow
 - `FOLLOWED_SERVER_NAME` - Name of the server to look for channels in
+- `QUIET_CHANNEL_NAME` - Name of a single quiet channel (bot only responds when directly addressed)
+- `QUIET_CHANNEL_NAMES` - Comma-separated list of quiet channel names
 - `BOT_NAME` - Name of the bot (defaults to "Crow")
 - `MESSAGE_HISTORY_LIMIT` - Maximum number of messages to store (defaults to 10000)
 - `DB_TRIM_INTERVAL_SECS` - How often to trim the database (defaults to 3600 seconds)
