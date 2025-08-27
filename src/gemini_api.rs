@@ -725,10 +725,17 @@ impl GeminiClient {
                     }
                 }
             } else {
-                error!("Failed to extract image data from API response");
-                return Err(anyhow::anyhow!(
-                    "Failed to extract image data from API response"
-                ));
+                // No image data found - check if we have meaningful text content
+                if !text_description.trim().is_empty() {
+                    info!("API returned text-only response (no image): {}", text_description);
+                    // Return a special error that indicates this is a text response, not a failure
+                    return Err(anyhow::anyhow!("TEXT_RESPONSE: {}", text_description));
+                } else {
+                    error!("Failed to extract image data from API response");
+                    return Err(anyhow::anyhow!(
+                        "Failed to extract image data from API response"
+                    ));
+                }
             }
         }
 

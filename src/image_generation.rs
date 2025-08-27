@@ -201,6 +201,20 @@ pub async fn handle_imagine_command(
                             break;
                         }
 
+                        // Check if this is a text-only response (API returned text instead of image)
+                        if error_string.contains("TEXT_RESPONSE") {
+                            // Extract the text response from the error message
+                            let text_response = if let Some(colon_pos) = error_string.find(": ") {
+                                &error_string[colon_pos + 2..]
+                            } else {
+                                "The API provided a text response instead of generating an image."
+                            };
+
+                            // Reply with the text response from the API
+                            msg.reply(&ctx.http, text_response).await?;
+                            break;
+                        }
+
                         // If we've used all our attempts, notify the user
                         if attempt >= max_attempts {
                             msg.reply(
