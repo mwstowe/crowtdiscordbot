@@ -118,6 +118,7 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
     // Extract the original author's name from the bot regex response if applicable
     let original_author = if is_bot_regex_response {
         if let Some(first_msg) = messages.first() {
+            info!("Extracting original author from bot message: '{}'", first_msg.content);
             // Use regex to extract the original author's name
             let re = Regex::new(r"^(.*?) (?:\*really\* )*meant: ").unwrap_or_else(|_| {
                 error!("Failed to compile regex for extracting author name");
@@ -125,10 +126,13 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
             });
 
             if let Some(captures) = re.captures(&first_msg.content) {
-                captures
+                let extracted_name = captures
                     .get(1)
-                    .map(|name_match| name_match.as_str().to_string())
+                    .map(|name_match| name_match.as_str().to_string());
+                info!("Extracted original author name: {:?}", extracted_name);
+                extracted_name
             } else {
+                info!("Failed to extract original author name from message");
                 None
             }
         } else {
@@ -225,18 +229,25 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
                     // Get the display name of the original message author
                     let display_name = if i == 0 && is_bot_regex_response {
                         // If this is a bot regex response, use the extracted original author's name
+                        info!("Using bot regex response path, original_author: {:?}", original_author);
                         if let Some(ref author_name) = original_author {
+                            info!("Using extracted original author name: {}", author_name);
                             author_name.clone()
                         } else {
+                            info!("No original author extracted, falling back to regex extraction");
                             // Fallback to extracting from the message content
                             if let Some(captures) = extract_author_regex.captures(&prev_msg.content)
                             {
                                 if let Some(name_match) = captures.get(1) {
-                                    name_match.as_str().to_string()
+                                    let extracted = name_match.as_str().to_string();
+                                    info!("Fallback extraction successful: {}", extracted);
+                                    extracted
                                 } else {
+                                    info!("Fallback extraction failed, using best display name");
                                     get_best_display_name(ctx, prev_msg).await
                                 }
                             } else {
+                                info!("Fallback regex failed, using best display name");
                                 get_best_display_name(ctx, prev_msg).await
                             }
                         }
