@@ -4,6 +4,9 @@ CrowConfig.toml
 # Ignore message history DB
 message_history.db
 
+# Ignore context file
+context
+
 # Ignore target directory
 /target/
 
