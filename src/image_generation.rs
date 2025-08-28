@@ -153,7 +153,7 @@ pub async fn handle_imagine_command(
 
                         // Check if this is a per-minute rate limit error
                         if error_string.contains("Per-minute rate limit reached") {
-                            // For per-minute limits, we can retry after waiting
+                            // For per-minute limits, we can retry after waiting (silently)
                             if attempt < max_attempts {
                                 // Extract wait time from error message if possible
                                 let wait_time = if let Some(seconds_str) =
@@ -171,15 +171,16 @@ pub async fn handle_imagine_command(
                                     retry_delays[attempt - 1]
                                 };
 
-                                warn!(
-                                    "Image generation rate limited, retrying in {} seconds...",
+                                // Silent retry - no user notification for per-minute limits
+                                info!(
+                                    "Image generation rate limited, silently retrying in {} seconds...",
                                     wait_time
                                 );
                                 sleep(Duration::from_secs(wait_time)).await;
                                 continue; // Retry the request
                             } else {
-                                // If we've exhausted retries for rate limiting, give up
-                                msg.reply(&ctx.http, "Image generation is currently rate limited. Please try again later.").await?;
+                                // If we've exhausted retries for rate limiting, give up silently
+                                // Don't notify the user about per-minute rate limits
                                 break;
                             }
                         }
