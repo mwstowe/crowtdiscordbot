@@ -4266,13 +4266,13 @@ Be creative but realistic with your article title and URL."#)
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    
 
     #[test]
     fn test_quiet_channels_configuration() {
         // Test that quiet channels are properly stored in the bot
-        let quiet_channels = vec!["serious-discussion".to_string(), "work-chat".to_string()];
-        
+        let quiet_channels = ["serious-discussion".to_string(), "work-chat".to_string()];
+
         // This test just verifies the data structure works
         assert_eq!(quiet_channels.len(), 2);
         assert!(quiet_channels.contains(&"serious-discussion".to_string()));

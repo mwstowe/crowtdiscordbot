@@ -457,7 +457,7 @@ impl GeminiClient {
 
             // Check the HTTP status code first
             let status = response.status();
-            
+
             // Handle 500 errors with retry logic
             if status.as_u16() == 500 {
                 if attempt < MAX_RETRIES {
@@ -480,7 +480,7 @@ impl GeminiClient {
                     ));
                 }
             }
-            
+
             if status == 429 {
                 // This is likely a quota exhaustion error
                 let response_text = response.text().await.unwrap_or_default();
@@ -532,13 +532,15 @@ impl GeminiClient {
                         );
                         return Err(anyhow::anyhow!(
                             "Image generation failed after {} attempts due to server errors: {}",
-                            MAX_RETRIES, error_message
+                            MAX_RETRIES,
+                            error_message
                         ));
                     }
                 }
 
                 // Check for RESOURCE_EXHAUSTED error
-                if error_code == 429 || error_message.to_lowercase().contains("resource_exhausted") {
+                if error_code == 429 || error_message.to_lowercase().contains("resource_exhausted")
+                {
                     // Check if this is specifically about quota
                     if error_message.to_lowercase().contains("quota") {
                         error!("Image generation quota exhausted: {}", error_message);
@@ -727,7 +729,10 @@ impl GeminiClient {
             } else {
                 // No image data found - check if we have meaningful text content
                 if !text_description.trim().is_empty() {
-                    info!("API returned text-only response (no image): {}", text_description);
+                    info!(
+                        "API returned text-only response (no image): {}",
+                        text_description
+                    );
                     // Return a special error that indicates this is a text response, not a failure
                     return Err(anyhow::anyhow!("TEXT_RESPONSE: {}", text_description));
                 } else {
