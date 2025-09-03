@@ -3808,12 +3808,17 @@ Keep it brief and natural, as if you're just another participant in the conversa
 
                                     // Convert to the format expected by generate_response_with_context
                                     // (author, display_name, content) -> (author, display_name, content)
-                                    let context_for_gemini: Vec<(String, String, String)> = context_messages
-                                        .iter()
-                                        .map(|(author, display_name, content)| {
-                                            (author.clone(), display_name.clone(), content.clone())
-                                        })
-                                        .collect();
+                                    let context_for_gemini: Vec<(String, String, String)> =
+                                        context_messages
+                                            .iter()
+                                            .map(|(author, display_name, content)| {
+                                                (
+                                                    author.clone(),
+                                                    display_name.clone(),
+                                                    content.clone(),
+                                                )
+                                            })
+                                            .collect();
                                     // Query the database for a random message with minimum length of 20 characters
                                     let query_result = db.lock().await.call(|conn| {
                                         let query = "SELECT content, author, display_name FROM messages WHERE length(content) >= 20 ORDER BY RANDOM() LIMIT 1";
@@ -4256,7 +4261,6 @@ Be creative but realistic with your article title and URL."#)
 
 #[cfg(test)]
 mod tests {
-    
 
     #[test]
     fn test_quiet_channels_configuration() {

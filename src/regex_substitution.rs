@@ -245,8 +245,12 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
                         if prev_msg.author.id == bot_id {
                             // Special case: if this is the bot's own regex response message,
                             // extract the original author from the message content
-                            if prev_msg.content.contains(" meant: ") || prev_msg.content.contains(" *really* meant: ") {
-                                if let Some(captures) = extract_author_regex.captures(&prev_msg.content) {
+                            if prev_msg.content.contains(" meant: ")
+                                || prev_msg.content.contains(" *really* meant: ")
+                            {
+                                if let Some(captures) =
+                                    extract_author_regex.captures(&prev_msg.content)
+                                {
                                     if let Some(name_match) = captures.get(1) {
                                         name_match.as_str().to_string()
                                     } else {

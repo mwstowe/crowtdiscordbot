@@ -211,7 +211,11 @@ pub async fn handle_imagine_command(
                                 "The API provided a text response instead of generating an image."
                             };
 
-                            info!("Sending text response (length: {}): {}", text_response.len(), text_response);
+                            info!(
+                                "Sending text response (length: {}): {}",
+                                text_response.len(),
+                                text_response
+                            );
 
                             // Ensure the message isn't too long for Discord (2000 char limit)
                             let final_response = if text_response.len() > 1900 {
@@ -224,7 +228,11 @@ pub async fn handle_imagine_command(
                             if let Err(e) = msg.reply(&ctx.http, &final_response).await {
                                 error!("Failed to send text response: {:?}", e);
                                 // Fallback to a simple message
-                                msg.reply(&ctx.http, "The API provided a text response, but I couldn't send it.").await?;
+                                msg.reply(
+                                    &ctx.http,
+                                    "The API provided a text response, but I couldn't send it.",
+                                )
+                                .await?;
                             }
                             break;
                         }
