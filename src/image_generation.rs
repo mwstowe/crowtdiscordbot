@@ -66,10 +66,10 @@ pub async fn handle_imagine_command(
 
     info!("Generating image for prompt: {}", prompt);
 
-    // Try up to 3 times (initial attempt + 2 retries)
+    // Try up to 6 times to handle concurrent requests better
     let mut attempt = 0;
-    let max_attempts = 3;
-    let retry_delays = [15, 30]; // Seconds to wait before retries
+    let max_attempts = 6;
+    let retry_delays = [15, 30, 45, 60, 90]; // Seconds to wait before retries
 
     loop {
         attempt += 1;
