@@ -3806,23 +3806,14 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                         }
                                     };
 
-                                    // Format context for the prompt
-                                    let context_text = if !context_messages.is_empty() {
-                                        // Reverse the messages to get chronological order (oldest first)
-                                        let mut chronological_messages = context_messages.clone();
-                                        chronological_messages.reverse();
-
-                                        let formatted_messages: Vec<String> =
-                                            chronological_messages
-                                                .iter()
-                                                .map(|(_author, display_name, content)| {
-                                                    format!("{display_name}: {content}")
-                                                })
-                                                .collect();
-                                        formatted_messages.join("\n")
-                                    } else {
-                                        "".to_string()
-                                    };
+                                    // Convert to the format expected by generate_response_with_context
+                                    // (author, display_name, content) -> (author, display_name, content)
+                                    let context_for_gemini: Vec<(String, String, String)> = context_messages
+                                        .iter()
+                                        .map(|(author, display_name, content)| {
+                                            (author.clone(), display_name.clone(), content.clone())
+                                        })
+                                        .collect();
                                     // Query the database for a random message with minimum length of 20 characters
                                     let query_result = db.lock().await.call(|conn| {
                                         let query = "SELECT content, author, display_name FROM messages WHERE length(content) >= 20 ORDER BY RANDOM() LIMIT 1";
@@ -3852,7 +3843,6 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                                     let memory_prompt = format!(
                                                         "You are {bot_name_clone}, a witty Discord bot. You've found this message in your memory: \"{content}\". \
                                                         Please contribute to the conversation by saying something related to this memory.\n\n\
-                                                        Recent conversation context (use this for relevance only):\n{context_text}\n\n\
                                                         Guidelines:\n\
                                                         1. Your comment should be primarily based on the MEMORY, not the recent context\n\
                                                         2. Use the recent context only to make your comment relevant to the current conversation\n\
@@ -3877,7 +3867,7 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                                         .generate_response_with_context(
                                                             &memory_prompt,
                                                             "",
-                                                            &context_messages,
+                                                            &context_for_gemini,
                                                             None,
                                                         )
                                                         .await
