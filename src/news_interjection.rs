@@ -21,7 +21,7 @@ pub async fn handle_news_interjection(
 ) -> Result<()> {
     // Get recent messages for context
     let context_messages = if let Some(db) = message_db {
-        match db_utils::get_recent_messages(
+        match db_utils::get_recent_messages_with_pronouns(
             db.clone(),
             gemini_context_messages,
             Some(msg.channel_id.to_string().as_str()),
@@ -49,7 +49,7 @@ pub async fn handle_news_interjection(
 
         let formatted_messages: Vec<String> = chronological_messages
             .iter()
-            .map(|(_author, display_name, content)| format!("{display_name}: {content}"))
+            .map(|(_author, display_name, _pronouns, content)| format!("{display_name}: {content}"))
             .collect();
         formatted_messages.join("\n")
     } else {
@@ -68,7 +68,7 @@ pub async fn handle_news_interjection(
 
     // Call Gemini API with the news prompt
     match gemini_client
-        .generate_response_with_context(&news_prompt, "", &Vec::new(), None)
+        .generate_response_with_context_and_pronouns(&news_prompt, "", &Vec::new(), None)
         .await
     {
         Ok(response) => {

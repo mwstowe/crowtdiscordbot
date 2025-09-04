@@ -24,7 +24,7 @@ pub async fn handle_fact_interjection(
 ) -> Result<()> {
     // Get recent messages for context
     let context_messages = if let Some(db) = message_db {
-        match db_utils::get_recent_messages(
+        match db_utils::get_recent_messages_with_pronouns(
             db.clone(),
             gemini_context_messages,
             Some(msg.channel_id.to_string().as_str()),
@@ -66,7 +66,7 @@ pub async fn handle_spontaneous_fact_interjection(
 ) -> Result<()> {
     // Get recent messages for context
     let context_messages = if let Some(db) = message_db {
-        match db_utils::get_recent_messages(
+        match db_utils::get_recent_messages_with_pronouns(
             db.clone(),
             gemini_context_messages,
             Some(&channel_id.to_string()),
@@ -263,7 +263,7 @@ async fn handle_fact_interjection_common(
     http: &Http,
     channel_id: ChannelId,
     gemini_client: &GeminiClient,
-    context_messages: &[(String, String, String)],
+    context_messages: &[(String, String, Option<String>, String)],
     _bot_name: &str,
 ) -> Result<()> {
     // Format context for the prompt
@@ -274,7 +274,7 @@ async fn handle_fact_interjection_common(
 
         let formatted_messages: Vec<String> = chronological_messages
             .iter()
-            .map(|(_author, display_name, content)| format!("{display_name}: {content}"))
+            .map(|(_author, display_name, _pronouns, content)| format!("{display_name}: {content}"))
             .collect();
         formatted_messages.join("\n")
     } else {
@@ -293,7 +293,7 @@ async fn handle_fact_interjection_common(
 
     // Call Gemini API with the fact prompt
     match gemini_client
-        .generate_response_with_context(&fact_prompt, "", context_messages, None)
+        .generate_response_with_context_and_pronouns(&fact_prompt, "", context_messages, None)
         .await
     {
         Ok(response) => {
