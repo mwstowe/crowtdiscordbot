@@ -2864,20 +2864,6 @@ impl EventHandler for Bot {
         if let Some(db) = &self.message_db {
             // Get the display name
             let display_name = get_best_display_name(&ctx, &msg).await;
-            
-            // Debug logging to see what names we're storing
-            info!("📝 Storing message - Author: '{}', Display Name: '{}', Username: '{}'", 
-                  msg.author.name, display_name, msg.author.name);
-            if let Some(global_name) = &msg.author.global_name {
-                info!("📝 User has global name: '{}'", global_name);
-            }
-            if let Some(guild_id) = msg.guild_id {
-                if let Ok(member) = guild_id.member(&ctx.http, msg.author.id).await {
-                    if let Some(nick) = &member.nick {
-                        info!("📝 User has server nickname: '{}'", nick);
-                    }
-                }
-            }
 
             // Check if this is a gateway bot message and extract the real username
             let (author_name, final_display_name) = if msg.author.bot {
@@ -3806,7 +3792,7 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                 // Memory interjection - get a random message from the database and process it
                                 if let Some(db) = &message_db_clone {
                                     // Get recent messages for context
-                                    let context_messages = match db_utils::get_recent_messages(
+                                    let context_messages = match db_utils::get_recent_messages_with_pronouns(
                                         db.clone(),
                                         parsed_config.gemini_context_messages,
                                         Some(&channel_id.to_string()),
@@ -3820,19 +3806,7 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                         }
                                     };
 
-                                    // Convert to the format expected by generate_response_with_context
-                                    // (author, display_name, content) -> (author, display_name, content)
-                                    let context_for_gemini: Vec<(String, String, String)> =
-                                        context_messages
-                                            .iter()
-                                            .map(|(author, display_name, content)| {
-                                                (
-                                                    author.clone(),
-                                                    display_name.clone(),
-                                                    content.clone(),
-                                                )
-                                            })
-                                            .collect();
+                                    // Context is already in correct format: (author, display_name, pronouns, content)
                                     // Query the database for a random message with minimum length of 20 characters
                                     let query_result = db.lock().await.call(|conn| {
                                         let query = "SELECT content, author, display_name FROM messages WHERE length(content) >= 20 ORDER BY RANDOM() LIMIT 1";
@@ -3883,10 +3857,10 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                                     );
 
                                                     match gemini
-                                                        .generate_response_with_context(
+                                                        .generate_response_with_context_and_pronouns(
                                                             &memory_prompt,
                                                             "",
-                                                            &context_for_gemini,
+                                                            &context_messages,
                                                             None,
                                                         )
                                                         .await
