@@ -2864,6 +2864,20 @@ impl EventHandler for Bot {
         if let Some(db) = &self.message_db {
             // Get the display name
             let display_name = get_best_display_name(&ctx, &msg).await;
+            
+            // Debug logging to see what names we're storing
+            info!("📝 Storing message - Author: '{}', Display Name: '{}', Username: '{}'", 
+                  msg.author.name, display_name, msg.author.name);
+            if let Some(global_name) = &msg.author.global_name {
+                info!("📝 User has global name: '{}'", global_name);
+            }
+            if let Some(guild_id) = msg.guild_id {
+                if let Ok(member) = guild_id.member(&ctx.http, msg.author.id).await {
+                    if let Some(nick) = &member.nick {
+                        info!("📝 User has server nickname: '{}'", nick);
+                    }
+                }
+            }
 
             // Check if this is a gateway bot message and extract the real username
             let (author_name, final_display_name) = if msg.author.bot {
