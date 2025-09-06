@@ -309,8 +309,29 @@ async fn handle_fact_interjection_common(
                 || response.contains("Guidelines:")
                 || response.contains("Example good response:")
             {
-                error!("Fact interjection error: API returned the prompt instead of a response");
+                error!("Fact interjection: API returned prompt template instead of response");
                 return Ok(());
+            }
+
+            // Validate the fact and reference with a second API call
+            let validation_prompt = format!(
+                "Validate this fact and reference:\n\nFact: {}\n\nCheck if:\n1. Any URLs mentioned exist and are accessible\n2. The content supports the stated fact\n3. The source appears credible\n\nRespond with only: VALID or INVALID",
+                response.trim()
+            );
+
+            match gemini_client.generate_content(&validation_prompt).await {
+                Ok(validation_response) => {
+                    let validation = validation_response.trim().to_uppercase();
+                    if !validation.starts_with("VALID") {
+                        info!("Fact interjection validation failed: {} - skipping interjection", validation);
+                        return Ok(());
+                    }
+                    info!("Fact interjection validation passed: {}", validation);
+                }
+                Err(e) => {
+                    error!("Fact interjection validation API call failed: {:?} - skipping interjection", e);
+                    return Ok(());
+                }
             }
 
             // Check for self-reference issues

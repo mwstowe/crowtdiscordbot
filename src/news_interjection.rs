@@ -88,6 +88,27 @@ pub async fn handle_news_interjection(
                 return Ok(());
             }
 
+            // Validate the news article and reference with a second API call
+            let validation_prompt = format!(
+                "Validate this news article reference:\n\nArticle: {}\n\nCheck if:\n1. Any URLs mentioned exist and are accessible\n2. The article summary matches the actual content\n3. The source appears to be a legitimate news/tech website\n\nRespond with only: VALID or INVALID",
+                response.trim()
+            );
+
+            match gemini_client.generate_content(&validation_prompt).await {
+                Ok(validation_response) => {
+                    let validation = validation_response.trim().to_uppercase();
+                    if !validation.starts_with("VALID") {
+                        info!("News interjection validation failed: {} - skipping interjection", validation);
+                        return Ok(());
+                    }
+                    info!("News interjection validation passed: {}", validation);
+                }
+                Err(e) => {
+                    error!("News interjection validation API call failed: {:?} - skipping interjection", e);
+                    return Ok(());
+                }
+            }
+
             // Check for self-reference issues
             if response.contains("I'm Crow")
                 || response.contains("As Crow")
