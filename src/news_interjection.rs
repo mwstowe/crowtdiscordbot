@@ -98,7 +98,10 @@ pub async fn handle_news_interjection(
                 Ok(validation_response) => {
                     let validation = validation_response.trim().to_uppercase();
                     if !validation.starts_with("VALID") {
-                        info!("News interjection validation failed: {} - skipping interjection", validation);
+                        info!(
+                            "News interjection validation failed: {} - skipping interjection",
+                            validation
+                        );
                         return Ok(());
                     }
                     info!("News interjection validation passed: {}", validation);

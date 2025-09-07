@@ -323,7 +323,10 @@ async fn handle_fact_interjection_common(
                 Ok(validation_response) => {
                     let validation = validation_response.trim().to_uppercase();
                     if !validation.starts_with("VALID") {
-                        info!("Fact interjection validation failed: {} - skipping interjection", validation);
+                        info!(
+                            "Fact interjection validation failed: {} - skipping interjection",
+                            validation
+                        );
                         return Ok(());
                     }
                     info!("Fact interjection validation passed: {}", validation);

@@ -3792,19 +3792,20 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                 // Memory interjection - get a random message from the database and process it
                                 if let Some(db) = &message_db_clone {
                                     // Get recent messages for context
-                                    let context_messages = match db_utils::get_recent_messages_with_pronouns(
-                                        db.clone(),
-                                        parsed_config.gemini_context_messages,
-                                        Some(&channel_id.to_string()),
-                                    )
-                                    .await
-                                    {
-                                        Ok(messages) => messages,
-                                        Err(e) => {
-                                            error!("Error retrieving recent messages for memory interjection: {:?}", e);
-                                            Vec::new()
-                                        }
-                                    };
+                                    let context_messages =
+                                        match db_utils::get_recent_messages_with_pronouns(
+                                            db.clone(),
+                                            parsed_config.gemini_context_messages,
+                                            Some(&channel_id.to_string()),
+                                        )
+                                        .await
+                                        {
+                                            Ok(messages) => messages,
+                                            Err(e) => {
+                                                error!("Error retrieving recent messages for memory interjection: {:?}", e);
+                                                Vec::new()
+                                            }
+                                        };
 
                                     // Context is already in correct format: (author, display_name, pronouns, content)
                                     // Query the database for a random message with minimum length of 20 characters
