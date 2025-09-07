@@ -1014,17 +1014,17 @@ impl Bot {
 
     // Helper function to check if the bot should respond in a quiet channel
     async fn should_respond_in_quiet_channel(&self, ctx: &Context, msg: &Message) -> bool {
-        // Get the channel name
-        let channel_name = match msg.channel_id.to_channel(&ctx.http).await {
+        // Get the channel name and ID
+        let (channel_name, channel_id) = match msg.channel_id.to_channel(&ctx.http).await {
             Ok(channel) => match channel.guild() {
-                Some(guild_channel) => guild_channel.name.clone(),
+                Some(guild_channel) => (guild_channel.name.clone(), msg.channel_id.to_string()),
                 None => return true, // DM or other non-guild channel, allow response
             },
             Err(_) => return true, // If we can't get the channel, allow response
         };
 
-        // Check if this channel is in the quiet channels list
-        if !self.quiet_channels.contains(&channel_name) {
+        // Check if this channel is in the quiet channels list (by name or ID)
+        if !self.quiet_channels.contains(&channel_name) && !self.quiet_channels.contains(&channel_id) {
             return true; // Not a quiet channel, respond normally
         }
 

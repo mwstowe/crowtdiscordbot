@@ -392,8 +392,8 @@ pub fn parse_config(config: &Config) -> ParsedConfig {
         info!("Image generation allowed in all channels");
     }
 
-    // Parse quiet channels configuration
-    let quiet_channels = config
+    // Parse quiet channels configuration (names and IDs)
+    let mut quiet_channels = config
         .quiet_channel_names
         .as_ref()
         .or(config.quiet_channel_name.as_ref())
@@ -405,6 +405,22 @@ pub fn parse_config(config: &Config) -> ParsedConfig {
                 .collect::<Vec<String>>()
         })
         .unwrap_or_default();
+
+    // Add quiet channel IDs to the list
+    let quiet_channel_ids = config
+        .quiet_channel_ids
+        .as_ref()
+        .or(config.quiet_channel_id.as_ref())
+        .map(|ids| {
+            ids
+                .split(',')
+                .map(|id| id.trim().to_string())
+                .filter(|id| !id.is_empty())
+                .collect::<Vec<String>>()
+        })
+        .unwrap_or_default();
+
+    quiet_channels.extend(quiet_channel_ids);
 
     if !quiet_channels.is_empty() {
         info!(
