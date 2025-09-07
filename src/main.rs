@@ -1024,7 +1024,9 @@ impl Bot {
         };
 
         // Check if this channel is in the quiet channels list (by name or ID)
-        if !self.quiet_channels.contains(&channel_name) && !self.quiet_channels.contains(&channel_id) {
+        if !self.quiet_channels.contains(&channel_name)
+            && !self.quiet_channels.contains(&channel_id)
+        {
             return true; // Not a quiet channel, respond normally
         }
 

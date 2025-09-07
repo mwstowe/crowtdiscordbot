@@ -412,8 +412,7 @@ pub fn parse_config(config: &Config) -> ParsedConfig {
         .as_ref()
         .or(config.quiet_channel_id.as_ref())
         .map(|ids| {
-            ids
-                .split(',')
+            ids.split(',')
                 .map(|id| id.trim().to_string())
                 .filter(|id| !id.is_empty())
                 .collect::<Vec<String>>()
