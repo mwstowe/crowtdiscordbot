@@ -283,25 +283,7 @@ pub async fn trim_database(
 }
 
 // Get recent messages from the database in chronological order
-pub async fn get_recent_messages(
-    conn: Arc<Mutex<SqliteConnection>>,
-    limit: usize,
-    channel_id: Option<&str>,
-) -> Result<Vec<(String, String, String)>, Box<dyn std::error::Error>> {
-    // Get messages with display names
-    let messages_with_display_names =
-        get_recent_messages_with_pronouns(conn, limit, channel_id).await?;
-
-    // Convert to the original format for backward compatibility
-    let messages = messages_with_display_names
-        .into_iter()
-        .map(|(author, display_name, _pronouns, content)| (author, display_name, content))
-        .collect();
-
-    Ok(messages)
-}
-
-// New function that includes pronouns in the returned data
+// Get recent messages from the database in chronological order with pronouns
 pub async fn get_recent_messages_with_pronouns(
     conn: Arc<Mutex<SqliteConnection>>,
     limit: usize,
