@@ -63,6 +63,7 @@ pub struct Config {
     pub interjection_ai_probability: Option<String>,
     pub interjection_fact_probability: Option<String>,
     pub interjection_news_probability: Option<String>,
+    pub interjection_minimum_messages: Option<String>,
     pub fill_silence_enabled: Option<String>,
     pub fill_silence_start_hours: Option<String>,
     pub fill_silence_max_hours: Option<String>,
@@ -158,6 +159,7 @@ pub struct ParsedConfig {
     pub interjection_ai_probability: f64,
     pub imagine_channels: Vec<String>,
     pub interjection_news_probability: f64,
+    pub interjection_minimum_messages: usize,
     pub fill_silence_enabled: bool,
     pub fill_silence_start_hours: f64,
     pub fill_silence_max_hours: f64,
@@ -326,6 +328,13 @@ pub fn parse_config(config: &Config) -> ParsedConfig {
         .and_then(|prob| prob.parse::<f64>().ok())
         .unwrap_or(0.005); // Default: 0.5% chance (1 in 200)
 
+    // Parse minimum messages between interjections
+    let interjection_minimum_messages = config
+        .interjection_minimum_messages
+        .as_ref()
+        .and_then(|msgs| msgs.parse::<usize>().ok())
+        .unwrap_or(3); // Default: 3 messages from others before interjecting
+
     // Parse fill silence configuration
     let fill_silence_enabled = config
         .fill_silence_enabled
@@ -456,6 +465,7 @@ pub fn parse_config(config: &Config) -> ParsedConfig {
         interjection_ai_probability,
         imagine_channels,
         interjection_news_probability,
+        interjection_minimum_messages,
         fill_silence_enabled,
         fill_silence_start_hours,
         fill_silence_max_hours,

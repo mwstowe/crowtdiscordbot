@@ -357,6 +357,7 @@ impl Bot {
             parsed_config.fill_silence_enabled,
             parsed_config.fill_silence_start_hours,
             parsed_config.fill_silence_max_hours,
+            parsed_config.interjection_minimum_messages,
         ));
 
         Self {
@@ -2837,20 +2838,25 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
 #[async_trait]
 impl EventHandler for Bot {
     async fn message(&self, ctx: Context, msg: Message) {
-        // Update the last activity time for this channel
+        // Get the bot ID
+        let bot_id = match ctx.http.get_current_user().await {
+            Ok(user) => user.id,
+            Err(_) => {
+                // Fallback to old method if we can't get bot ID
+                self.fill_silence_manager
+                    .update_activity(msg.channel_id, msg.author.id)
+                    .await;
+                return;
+            }
+        };
+
+        // Update the last activity time and message count for this channel
         self.fill_silence_manager
-            .update_activity(msg.channel_id, msg.author.id)
+            .update_activity_and_count(msg.channel_id, msg.author.id, bot_id)
             .await;
 
         // Mark that a user (not the bot) was the last speaker
-        if msg.author.id
-            != ctx
-                .http
-                .get_current_user()
-                .await
-                .map(|u| u.id)
-                .unwrap_or_default()
-        {
+        if msg.author.id != bot_id {
             self.fill_silence_manager
                 .mark_user_as_last_speaker(msg.channel_id)
                 .await;
@@ -3197,6 +3203,10 @@ async fn main() -> Result<()> {
     info!(
         "News interjection probability: {}%",
         parsed_config.interjection_news_probability * 100.0
+    );
+    info!(
+        "Minimum messages between interjections: {}",
+        parsed_config.interjection_minimum_messages
     );
 
     // Get fact interjection probability

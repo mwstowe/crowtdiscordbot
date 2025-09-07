@@ -26,11 +26,17 @@ pub struct FillSilenceManager {
 
     /// Tracks if the bot was the last speaker in a channel
     bot_was_last_speaker: Arc<RwLock<HashMap<ChannelId, bool>>>,
+
+    /// Tracks the number of messages from others since the bot's last interjection
+    messages_since_bot_interjection: Arc<RwLock<HashMap<ChannelId, usize>>>,
+
+    /// Minimum number of messages from others before allowing interjections
+    minimum_messages: usize,
 }
 
 impl FillSilenceManager {
     /// Create a new FillSilenceManager
-    pub fn new(enabled: bool, start_hours: f64, max_hours: f64) -> Self {
+    pub fn new(enabled: bool, start_hours: f64, max_hours: f64, minimum_messages: usize) -> Self {
         Self {
             enabled,
             start_hours,
@@ -38,6 +44,8 @@ impl FillSilenceManager {
             last_activity: Arc::new(RwLock::new(HashMap::new())),
             last_check: Arc::new(RwLock::new(HashMap::new())),
             bot_was_last_speaker: Arc::new(RwLock::new(HashMap::new())),
+            messages_since_bot_interjection: Arc::new(RwLock::new(HashMap::new())),
+            minimum_messages,
         }
     }
 
@@ -56,6 +64,28 @@ impl FillSilenceManager {
         );
     }
 
+    /// Update activity and increment message count for non-bot users
+    pub async fn update_activity_and_count(&self, channel_id: ChannelId, user_id: UserId, bot_id: UserId) {
+        if !self.enabled {
+            return;
+        }
+
+        // Update activity time
+        self.update_activity(channel_id, user_id).await;
+
+        // If this is not the bot, increment the message count
+        if user_id != bot_id {
+            let mut message_counts = self.messages_since_bot_interjection.write().await;
+            let count = message_counts.entry(channel_id).or_insert(0);
+            *count += 1;
+
+            debug!(
+                "Incremented message count for channel {} to {} (user: {})",
+                channel_id, *count, user_id
+            );
+        }
+    }
+
     /// Mark that the bot was the last speaker in a channel
     pub async fn mark_bot_as_last_speaker(&self, channel_id: ChannelId) {
         if !self.enabled {
@@ -65,7 +95,11 @@ impl FillSilenceManager {
         let mut bot_last = self.bot_was_last_speaker.write().await;
         bot_last.insert(channel_id, true);
 
-        debug!("Marked bot as last speaker in channel {}", channel_id);
+        // Reset the message count since the bot just spoke
+        let mut message_counts = self.messages_since_bot_interjection.write().await;
+        message_counts.insert(channel_id, 0);
+
+        debug!("Marked bot as last speaker in channel {} and reset message count", channel_id);
     }
 
     /// Mark that a user (not the bot) was the last speaker in a channel
@@ -157,6 +191,17 @@ impl FillSilenceManager {
             debug!(
                 "Bot was last speaker in channel {}, skipping spontaneous interjection check",
                 channel_id
+            );
+            return false;
+        }
+
+        // Check if we have enough messages from others since the bot's last interjection
+        let message_counts = self.messages_since_bot_interjection.read().await;
+        let message_count = message_counts.get(&channel_id).unwrap_or(&0);
+        if *message_count < self.minimum_messages {
+            debug!(
+                "Not enough messages since bot's last interjection in channel {} ({} < {}), skipping check",
+                channel_id, message_count, self.minimum_messages
             );
             return false;
         }
