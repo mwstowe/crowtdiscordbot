@@ -523,6 +523,31 @@ async fn search_actor(name: &str, client: &Client) -> Result<Option<String>> {
 }
 
 async fn search_celebrity(name: &str) -> Result<Option<String>> {
+    const MAX_RETRIES: usize = 5;
+    const INITIAL_DELAY_MS: u64 = 1000; // 1 second
+
+    for attempt in 0..MAX_RETRIES {
+        match search_celebrity_attempt(name).await {
+            Ok(result) => return Ok(result),
+            Err(e) => {
+                if attempt == MAX_RETRIES - 1 {
+                    // Last attempt failed, return the error
+                    return Err(e);
+                }
+                
+                // Calculate exponential backoff delay: 1s, 2s, 4s, 8s, 16s
+                let delay_ms = INITIAL_DELAY_MS * (1 << attempt);
+                info!("Wikipedia API attempt {} failed, retrying in {}ms: {:?}", attempt + 1, delay_ms, e);
+                
+                tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
+            }
+        }
+    }
+    
+    unreachable!()
+}
+
+async fn search_celebrity_attempt(name: &str) -> Result<Option<String>> {
     let client = Client::new();
 
     // First, search for the page
