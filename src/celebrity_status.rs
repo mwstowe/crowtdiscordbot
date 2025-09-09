@@ -548,7 +548,9 @@ async fn search_celebrity(name: &str) -> Result<Option<String>> {
 }
 
 async fn search_celebrity_attempt(name: &str) -> Result<Option<String>> {
-    let client = Client::new();
+    let client = Client::builder()
+        .user_agent("CrowBot/1.0 (https://github.com/mwstowe/crowtdiscordbot)")
+        .build()?;
 
     // First, search for the page
     let search_url = format!(
@@ -558,7 +560,22 @@ async fn search_celebrity_attempt(name: &str) -> Result<Option<String>> {
 
     info!("Searching Wikipedia for: {}", name);
     let search_response = client.get(&search_url).send().await?;
-    let search_json: Value = search_response.json().await?;
+    
+    // Check if we got a successful HTTP response
+    if !search_response.status().is_success() {
+        error!("Wikipedia API returned HTTP {}: {}", search_response.status(), search_response.status().canonical_reason().unwrap_or("Unknown"));
+        return Err(anyhow::anyhow!("Wikipedia API returned HTTP {}", search_response.status()));
+    }
+    
+    // Get response text first to log it if JSON parsing fails
+    let response_text = search_response.text().await?;
+    let search_json: Value = match serde_json::from_str(&response_text) {
+        Ok(json) => json,
+        Err(e) => {
+            error!("Failed to parse Wikipedia search response as JSON. Response was: {}", response_text.chars().take(200).collect::<String>());
+            return Err(anyhow::anyhow!("JSON parsing failed: {}", e));
+        }
+    };
 
     // Extract the page title from search results
     let page_title = match search_json
@@ -584,7 +601,22 @@ async fn search_celebrity_attempt(name: &str) -> Result<Option<String>> {
     );
 
     let page_response = client.get(&page_url).send().await?;
-    let page_json: Value = page_response.json().await?;
+    
+    // Check if we got a successful HTTP response
+    if !page_response.status().is_success() {
+        error!("Wikipedia page API returned HTTP {}: {}", page_response.status(), page_response.status().canonical_reason().unwrap_or("Unknown"));
+        return Err(anyhow::anyhow!("Wikipedia page API returned HTTP {}", page_response.status()));
+    }
+    
+    // Get response text first to log it if JSON parsing fails
+    let page_response_text = page_response.text().await?;
+    let page_json: Value = match serde_json::from_str(&page_response_text) {
+        Ok(json) => json,
+        Err(e) => {
+            error!("Failed to parse Wikipedia page response as JSON. Response was: {}", page_response_text.chars().take(200).collect::<String>());
+            return Err(anyhow::anyhow!("JSON parsing failed: {}", e));
+        }
+    };
 
     // Extract the page ID
     let pages = match page_json.get("query").and_then(|q| q.get("pages")) {
