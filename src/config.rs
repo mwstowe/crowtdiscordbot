@@ -333,7 +333,7 @@ pub fn parse_config(config: &Config) -> ParsedConfig {
         .interjection_minimum_messages
         .as_ref()
         .and_then(|msgs| msgs.parse::<usize>().ok())
-        .unwrap_or(3); // Default: 3 messages from others before interjecting
+        .unwrap_or(7); // Default: 7 messages from others before interjecting
 
     // Parse fill silence configuration
     let fill_silence_enabled = config
