@@ -75,8 +75,16 @@ impl RateLimiter {
         if minute_requests.len() >= self.minute_limit as usize {
             // Calculate when the oldest request will expire
             if let Some(oldest) = minute_requests.front() {
-                let wait_duration = Duration::from_secs(60) - now.duration_since(*oldest);
-                let wait_secs = wait_duration.as_secs();
+                let elapsed = now.duration_since(*oldest);
+                let wait_duration = if elapsed >= Duration::from_secs(60) {
+                    // This shouldn't happen due to cleanup above, but handle it gracefully
+                    Duration::from_secs(1)
+                } else {
+                    Duration::from_secs(60) - elapsed
+                };
+                
+                // Ensure minimum wait time of 1 second
+                let wait_secs = std::cmp::max(wait_duration.as_secs(), 1);
 
                 let error_msg = format!(
                     "⏳ Per-minute rate limit reached ({} requests). Try again in {wait_secs} seconds",

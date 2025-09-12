@@ -66,10 +66,9 @@ pub async fn handle_imagine_command(
 
     info!("Generating image for prompt: {}", prompt);
 
-    // Try up to 6 times to handle concurrent requests better
+    // Try up to 20 times with exponential backoff for rate limiting
     let mut attempt = 0;
-    let max_attempts = 6;
-    let retry_delays = [15, 30, 45, 60, 90]; // Seconds to wait before retries
+    let max_attempts = 20;
 
     loop {
         attempt += 1;
@@ -155,26 +154,14 @@ pub async fn handle_imagine_command(
                         if error_string.contains("Per-minute rate limit reached") {
                             // For per-minute limits, we can retry after waiting (silently)
                             if attempt < max_attempts {
-                                // Extract wait time from error message if possible
-                                let wait_time = if let Some(seconds_str) =
-                                    error_string.split("Try again in ").nth(1)
-                                {
-                                    if let Some(seconds_str) = seconds_str.split(" seconds").next()
-                                    {
-                                        seconds_str
-                                            .parse::<u64>()
-                                            .unwrap_or(retry_delays[attempt - 1])
-                                    } else {
-                                        retry_delays[attempt - 1]
-                                    }
-                                } else {
-                                    retry_delays[attempt - 1]
-                                };
+                                // Use exponential backoff: 2^attempt seconds, capped at 300 seconds (5 minutes)
+                                let base_wait = 2_u64.pow((attempt - 1) as u32);
+                                let wait_time = std::cmp::min(base_wait, 300);
 
                                 // Silent retry - no user notification for per-minute limits
                                 info!(
-                                    "Image generation rate limited, silently retrying in {} seconds...",
-                                    wait_time
+                                    "Image generation rate limited, silently retrying in {} seconds... (exponential backoff: 2^{})",
+                                    wait_time, attempt - 1
                                 );
                                 sleep(Duration::from_secs(wait_time)).await;
                                 continue; // Retry the request
@@ -247,8 +234,8 @@ pub async fn handle_imagine_command(
                             break;
                         }
 
-                        // Otherwise, wait and retry
-                        let retry_delay = retry_delays[attempt - 1];
+                        // Otherwise, wait and retry with exponential backoff
+                        let retry_delay = std::cmp::min(2_u64.pow((attempt - 1) as u32), 300);
                         warn!("Retrying image generation in {} seconds...", retry_delay);
                         sleep(Duration::from_secs(retry_delay)).await;
                     }
@@ -271,8 +258,8 @@ pub async fn handle_imagine_command(
                     break;
                 }
 
-                // Otherwise, wait and retry
-                let retry_delay = retry_delays[attempt - 1];
+                // Otherwise, wait and retry with exponential backoff
+                let retry_delay = std::cmp::min(2_u64.pow((attempt - 1) as u32), 300);
                 warn!(
                     "Retrying image generation in {} seconds after timeout...",
                     retry_delay
