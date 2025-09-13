@@ -1259,15 +1259,20 @@ pub fn extract_year_from_parentheses(text: &str, date_type: &str) -> Option<Stri
     // Common patterns in Wikipedia parentheses
     // Examples: "born January 20, 1930", "20 January 1930 – 15 April 2023"
 
-    info!("Extracting {} date from parentheses: {}", date_type, text);
+    info!("Extracting {} date from parentheses: '{}'", date_type, text);
 
     if date_type == "born" {
         // Look for birth date
         // Pattern: "born January 20, 1930" or just a date at the beginning
         let born_re = Regex::new(r"(?:born|b\.)\s+([A-Za-z]+\s+\d{1,2},?\s+\d{4})").unwrap();
+        info!("Trying born regex pattern: {:?}", born_re.as_str());
+        
         if let Some(captures) = born_re.captures(text) {
             let date = captures.get(1).map(|m| m.as_str().to_string());
+            info!("Found birth date with born regex: {:?}", date);
             return date;
+        } else {
+            info!("Born regex did not match");
         }
 
         // If there's a dash, the birth date is likely before it
@@ -1352,11 +1357,11 @@ fn extract_date(text: &str, keyword: &str) -> Option<String> {
 
     info!("Searching for date in: {}", search_text);
 
-    // General date patterns
+    // General date patterns - more specific to avoid matching ranges like "86 to 1991"
     let general_patterns = [
-        r"(\d{1,2} [A-Za-z]+ \d{4})",  // 20 April 2023
-        r"([A-Za-z]+ \d{1,2}, \d{4})", // April 20, 2023
-        r"(\d{4}-\d{2}-\d{2})",        // 2023-04-20
+        r"(\d{1,2} [A-Za-z]{3,} \d{4})",  // 20 April 2023 (month must be 3+ chars to avoid "to")
+        r"([A-Za-z]{3,} \d{1,2}, \d{4})", // April 20, 2023 (month must be 3+ chars)
+        r"(\d{4}-\d{2}-\d{2})",           // 2023-04-20
     ];
 
     for pattern in &general_patterns {
