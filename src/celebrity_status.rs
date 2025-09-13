@@ -1375,6 +1375,8 @@ fn extract_date(text: &str, keyword: &str) -> Option<String> {
 }
 
 fn parse_date(date_str: &str) -> Option<NaiveDate> {
+    info!("Attempting to parse date string: '{}'", date_str);
+    
     // Try various date formats
     let formats = [
         "%d %B %Y",  // 20 April 2023
@@ -1386,11 +1388,18 @@ fn parse_date(date_str: &str) -> Option<NaiveDate> {
     ];
 
     for format in &formats {
-        if let Ok(date) = NaiveDate::parse_from_str(date_str, format) {
-            return Some(date);
+        match NaiveDate::parse_from_str(date_str, format) {
+            Ok(date) => {
+                info!("Successfully parsed '{}' with format '{}' as {}", date_str, format, date);
+                return Some(date);
+            }
+            Err(e) => {
+                info!("Failed to parse '{}' with format '{}': {}", date_str, format, e);
+            }
         }
     }
 
+    info!("Failed to parse date string '{}' with any format", date_str);
     None
 }
 
@@ -1715,13 +1724,18 @@ fn extract_cause_with_context(text: &str, cause: &str) -> String {
 }
 fn calculate_age(birth_date: NaiveDate, today: NaiveDate) -> u32 {
     let mut age = today.year() - birth_date.year();
+    
+    info!("Age calculation: birth_date={}, today={}, initial_age={}", birth_date, today, age);
 
     // Adjust age if birthday hasn't occurred yet this year
     if today.month() < birth_date.month()
         || (today.month() == birth_date.month() && today.day() < birth_date.day())
     {
         age -= 1;
+        info!("Birthday hasn't occurred yet this year, adjusted age to {}", age);
     }
 
-    age as u32
+    let final_age = age as u32;
+    info!("Final calculated age: {}", final_age);
+    final_age
 }
