@@ -248,22 +248,9 @@ async fn validate_citation_with_ai(
             }
         }
         Ok((true, None)) => {
-            // URL exists but no final URL returned - validate against original
-            match validate_fact_matches_citation(gemini_client, fact, citation).await {
-                Ok(matches) => {
-                    if matches {
-                        info!("Fact validation successful: fact matches citation content");
-                        true
-                    } else {
-                        info!("Fact validation failed: fact does NOT match citation content");
-                        false
-                    }
-                }
-                Err(e) => {
-                    error!("Error validating fact-citation match: {:?}", e);
-                    false
-                }
-            }
+            // URL exists but no final URL returned (shouldn't happen)
+            info!("Citation URL validation failed: No final URL returned");
+            false
         }
         Ok((false, _)) => {
             info!("Citation URL validation failed: URL doesn't exist or isn't HTML");
@@ -471,7 +458,7 @@ async fn validate_citation_with_fallback(
     fact: &str,
     citation: &str,
 ) -> Result<(bool, Option<String>)> {
-    // First try the original URL
+    // First try the original URL and resolve any redirects
     match news_interjection::validate_url_exists(citation).await {
         Ok((true, Some(final_url))) => {
             // URL exists and we have the final URL after redirects
@@ -489,9 +476,7 @@ async fn validate_citation_with_fallback(
                     match find_better_url(fact).await {
                         Ok(Some(better_url)) => {
                             // Validate the new URL matches the fact
-                            match validate_fact_matches_citation(gemini_client, fact, &better_url)
-                                .await
-                            {
+                            match validate_fact_matches_citation(gemini_client, fact, &better_url).await {
                                 Ok(true) => {
                                     info!("Found better matching URL: {}", better_url);
                                     Ok((true, Some(better_url)))
@@ -516,39 +501,10 @@ async fn validate_citation_with_fallback(
             }
         }
         Ok((true, None)) => {
-            // URL exists but no final URL returned - validate against original
-            info!("Citation URL exists but no redirect info: {}", citation);
-            match validate_fact_matches_citation(gemini_client, fact, citation).await {
-                Ok(true) => {
-                    info!("Fact matches citation content: {}", citation);
-                    Ok((true, None))
-                }
-                Ok(false) => {
-                    info!("Fact does NOT match citation content: {}. Attempting to find a better URL...", citation);
-                    // Try to find a better URL
-                    match find_better_url(fact).await {
-                        Ok(Some(better_url)) => {
-                            // Validate the new URL matches the fact
-                            match validate_fact_matches_citation(gemini_client, fact, &better_url).await {
-                                Ok(true) => {
-                                    info!("Found better matching URL: {}", better_url);
-                                    Ok((true, Some(better_url)))
-                                }
-                                _ => {
-                                    info!("Better URL also doesn't match fact content");
-                                    Ok((false, None))
-                                }
-                            }
-                        }
-                        _ => {
-                            info!("Could not find a better URL for fact");
-                            Ok((false, None))
-                        }
-                    }
-                }
-                Err(e) => {
-                    error!("Error validating fact-citation match: {:?}", e);
-                    Ok((false, None))
+            // URL exists but no final URL returned (shouldn't happen)
+            info!("Citation URL validation failed: No final URL returned for {}", citation);
+            Ok((false, None))
+        }
                 }
             }
         }
@@ -589,6 +545,22 @@ async fn validate_citation_with_fallback(
                     match validate_fact_matches_citation(gemini_client, fact, &better_url).await {
                         Ok(true) => {
                             info!("Found better matching URL after error: {}", better_url);
+                            Ok((true, Some(better_url)))
+                        }
+                        _ => {
+                            info!("Better URL doesn't match fact content");
+                            Ok((false, None))
+                        }
+                    }
+                }
+                _ => {
+                    info!("Could not find a better URL for fact");
+                    Ok((false, None))
+                }
+            }
+        }
+    }
+}
                             Ok((true, Some(better_url)))
                         }
                         _ => {
