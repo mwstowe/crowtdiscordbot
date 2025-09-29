@@ -281,14 +281,16 @@ impl GeminiClient {
                     .unwrap_or("Unknown API error");
                 let error_code = error.get("code").and_then(|c| c.as_u64()).unwrap_or(0);
 
-                // Check if this is an overload error that we should retry
-                if error_message.contains("overloaded") || error_message.contains("try again later")
+                // Check if this is a retryable error
+                if error_message.contains("overloaded") 
+                    || error_message.contains("try again later")
+                    || (error_code == 500 && error_message.contains("Internal error encountered"))
                 {
                     if attempt < MAX_RETRIES {
                         // Log that we're retrying
                         info!(
-                            "Gemini API overloaded (attempt {}/{}), retrying in {} seconds...",
-                            attempt, MAX_RETRIES, delay_secs
+                            "Gemini API retryable error (attempt {}/{}): {} (code {}), retrying in {} seconds...",
+                            attempt, MAX_RETRIES, error_message, error_code, delay_secs
                         );
 
                         // Wait before retrying
@@ -300,15 +302,15 @@ impl GeminiClient {
                         // Continue to the next retry attempt
                         continue;
                     } else {
-                        // If we've exhausted retries for overload errors, return a special error
+                        // If we've exhausted retries, return a special error
                         // that callers can check for to avoid showing error messages to users
                         error!(
-                            "Gemini API overloaded, maximum retries ({}) exceeded",
-                            MAX_RETRIES
+                            "Gemini API retryable error, maximum retries ({}) exceeded: {} (code {})",
+                            MAX_RETRIES, error_message, error_code
                         );
                         return Err(anyhow::anyhow!(
-                            "SILENT_ERROR: Gemini API overloaded after {} retries",
-                            MAX_RETRIES
+                            "SILENT_ERROR: Gemini API retryable error after {} retries: {}",
+                            MAX_RETRIES, error_message
                         ));
                     }
                 }
