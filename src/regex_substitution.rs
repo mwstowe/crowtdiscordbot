@@ -77,11 +77,12 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
     // Extract flags if present
     let flags = if parts.len() > 3 { parts[3] } else { "" };
     let case_insensitive = flags.contains('i');
+    let global_replace = flags.contains('g');
 
     // Log the substitution attempt
     info!(
-        "Regex substitution attempt: pattern='{}', replacement='{}', flags='{}'",
-        pattern, replacement, flags
+        "Regex substitution attempt: pattern='{}', replacement='{}', flags='{}', global={}",
+        pattern, replacement, flags, global_replace
     );
 
     // Get the last four messages from the channel
@@ -200,7 +201,13 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
                 };
 
                 // Apply regex to the cleaned content
-                let new_content = re.replace_all(&content_to_modify, replacement);
+                let new_content = if global_replace {
+                    // Replace all matches when /g flag is present
+                    re.replace_all(&content_to_modify, replacement)
+                } else {
+                    // Replace only first match when /g flag is not present
+                    re.replace(&content_to_modify, replacement)
+                };
 
                 // If the content changed, check if we modified any URLs
                 if new_content != content_to_modify {
