@@ -1485,7 +1485,7 @@ impl Bot {
                     // Get recent messages for context
                     let context_messages = if let Some(db) = &self.message_db {
                         // Get the last self.gemini_context_messages messages from the database
-                        match db_utils::get_recent_messages_with_pronouns(
+                        match db_utils::get_recent_messages_with_reply_context(
                             db.clone(),
                             self.gemini_context_messages,
                             Some(msg.channel_id.to_string().as_str()),
@@ -1502,12 +1502,44 @@ impl Bot {
                         Vec::new()
                     };
 
+                    // Convert to the format expected by generate_response_with_context_and_pronouns
+                    let context_for_api: Vec<(String, String, Option<String>, String)> = context_messages
+                        .iter()
+                        .map(|(author, display_name, pronouns, content, _reply_context)| {
+                            (author.clone(), display_name.clone(), pronouns.clone(), content.clone())
+                        })
+                        .collect();
+
                     // Call the Gemini API with context and pronouns
+                                        // Convert to the format expected by generate_response_with_context_and_pronouns
+                    let context_for_api: Vec<(String, String, Option<String>, String)> = context_messages
+                        .iter()
+                        .map(|(author, display_name, pronouns, content, _reply_context)| {
+                            (author.clone(), display_name.clone(), pronouns.clone(), content.clone())
+                        })
+                        .collect();
+
+                                        // Convert to the format expected by generate_response_with_context_and_pronouns
+                    let context_for_api: Vec<(String, String, Option<String>, String)> = context_messages
+                        .iter()
+                        .map(|(author, display_name, pronouns, content, _reply_context)| {
+                            (author.clone(), display_name.clone(), pronouns.clone(), content.clone())
+                        })
+                        .collect();
+
+                                        // Convert to the format expected by generate_response_with_context_and_pronouns
+                    let context_for_api: Vec<(String, String, Option<String>, String)> = context_messages
+                        .iter()
+                        .map(|(author, display_name, pronouns, content, _reply_context)| {
+                            (author.clone(), display_name.clone(), pronouns.clone(), content.clone())
+                        })
+                        .collect();
+
                     match gemini_client
                         .generate_response_with_context_and_pronouns(
                             &content,
                             &clean_display_name,
-                            &context_messages,
+                            &context_for_api,
                             user_pronouns.as_deref(),
                         )
                         .await
@@ -1774,7 +1806,7 @@ impl Bot {
             if let Some(gemini_client) = &self.gemini_client {
                 // Get recent messages for context
                 let recent_messages = if let Some(db) = &self.message_db {
-                    match db_utils::get_recent_messages_with_pronouns(
+                    match db_utils::get_recent_messages_with_reply_context(
                         db.clone(),
                         5, // Get last 5 messages for context
                         Some(&msg.channel_id.to_string()),
@@ -1797,7 +1829,7 @@ impl Bot {
                 // Format messages for context
                 let context = if !recent_messages.is_empty() {
                     let mut formatted_messages = Vec::new();
-                    for (_, _, _, content) in recent_messages {
+                    for (_, _, _, content, _) in recent_messages {
                         // Skip empty messages
                         if content.trim().is_empty() {
                             continue;
@@ -1920,7 +1952,7 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
 
                     // Get recent messages for context - use more messages for better context
                     let context_messages = if let Some(db) = &self.message_db {
-                        match db_utils::get_recent_messages_with_pronouns(
+                        match db_utils::get_recent_messages_with_reply_context(
                             db.clone(),
                             self.gemini_context_messages,
                             Some(msg.channel_id.to_string().as_str()),
@@ -1948,14 +1980,19 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
 
                         let formatted_messages: Vec<String> = chronological_messages
                             .iter()
-                            .map(|(author, display_name, _pronouns, content)| {
+                            .map(|(author, display_name, _pronouns, content, reply_context)| {
                                 // Make sure we're using the display name, not the username
                                 let name_to_use = if !display_name.is_empty() {
                                     display_name
                                 } else {
                                     author
                                 };
-                                format!("{name_to_use}: {content}")
+                                
+                                if let Some(reply) = reply_context {
+                                    format!("{}: {} (in reply to: {})", name_to_use, content, reply)
+                                } else {
+                                    format!("{name_to_use}: {content}")
+                                }
                             })
                             .collect();
                         formatted_messages.join("\n")
@@ -1973,12 +2010,20 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                         .replace("{bot_name}", &self.bot_name)
                         .replace("{context}", &context_text);
 
+                    // Convert to the format expected by generate_response_with_context_and_pronouns
+                    let context_for_api: Vec<(String, String, Option<String>, String)> = context_messages
+                        .iter()
+                        .map(|(author, display_name, pronouns, content, _reply_context)| {
+                            (author.clone(), display_name.clone(), pronouns.clone(), content.clone())
+                        })
+                        .collect();
+
                     // Call Gemini API with the custom prompt - use bot name as user name
                     match gemini_client
                         .generate_response_with_context_and_pronouns(
                             &prompt,
                             &self.bot_name,
-                            &context_messages,
+                            &context_for_api,
                             None,
                         )
                         .await
@@ -2557,7 +2602,7 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                         );
 
                         // Get the last self.gemini_context_messages messages from the database
-                        match db_utils::get_recent_messages_with_pronouns(
+                        match db_utils::get_recent_messages_with_reply_context(
                             db.clone(),
                             self.gemini_context_messages,
                             Some(msg.channel_id.to_string().as_str()),
@@ -2588,12 +2633,20 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                         Vec::new()
                     };
 
+                    // Convert to the format expected by generate_response_with_context_and_pronouns
+                    let context_for_api: Vec<(String, String, Option<String>, String)> = context_messages
+                        .iter()
+                        .map(|(author, display_name, pronouns, content, _reply_context)| {
+                            (author.clone(), display_name.clone(), pronouns.clone(), content.clone())
+                        })
+                        .collect();
+
                     // Call the Gemini API with context and pronouns
                     match gemini_client
                         .generate_response_with_context_and_pronouns(
                             &content,
                             &clean_display_name,
-                            &context_messages,
+                            &context_for_api,
                             user_pronouns.as_deref(),
                         )
                         .await
@@ -2751,7 +2804,7 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
 
                     // Get recent messages for context
                     let context_messages = if let Some(db) = &self.message_db {
-                        match db_utils::get_recent_messages_with_pronouns(
+                        match db_utils::get_recent_messages_with_reply_context(
                             db.clone(),
                             self.gemini_context_messages,
                             Some(msg.channel_id.to_string().as_str()),
@@ -2768,11 +2821,19 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                         Vec::new()
                     };
 
+                    // Convert to the format expected by generate_response_with_context_and_pronouns
+                    let context_for_api: Vec<(String, String, Option<String>, String)> = context_messages
+                        .iter()
+                        .map(|(author, display_name, pronouns, content, _reply_context)| {
+                            (author.clone(), display_name.clone(), pronouns.clone(), content.clone())
+                        })
+                        .collect();
+
                     match gemini_client
                         .generate_response_with_context_and_pronouns(
                             &content,
                             &clean_display_name,
-                            &context_messages,
+                            &context_for_api,
                             user_pronouns.as_deref(),
                         )
                         .await
@@ -3805,7 +3866,7 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                 if let Some(db) = &message_db_clone {
                                     // Get recent messages for context
                                     let context_messages =
-                                        match db_utils::get_recent_messages_with_pronouns(
+                                        match db_utils::get_recent_messages_with_reply_context(
                                             db.clone(),
                                             parsed_config.gemini_context_messages,
                                             Some(&channel_id.to_string()),
@@ -3869,11 +3930,19 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                                         Remember: Be natural and direct - no meta-commentary."
                                                     );
 
+                                                    // Convert to the format expected by generate_response_with_context_and_pronouns
+                                                    let context_for_api: Vec<(String, String, Option<String>, String)> = context_messages
+                                                        .iter()
+                                                        .map(|(author, display_name, pronouns, content, _reply_context)| {
+                                                            (author.clone(), display_name.clone(), pronouns.clone(), content.clone())
+                                                        })
+                                                        .collect();
+
                                                     match gemini
                                                         .generate_response_with_context_and_pronouns(
                                                             &memory_prompt,
                                                             "",
-                                                            &context_messages,
+                                                            &context_for_api,
                                                             None,
                                                         )
                                                         .await
@@ -3922,7 +3991,7 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                 if let Some(gemini_client) = &task_gemini_client {
                                     // Get recent messages for context
                                     let context_messages = if let Some(db) = &message_db_clone {
-                                        match db_utils::get_recent_messages_with_pronouns(
+                                        match db_utils::get_recent_messages_with_reply_context(
                                             db.clone(),
                                             parsed_config.gemini_context_messages,
                                             Some(&channel_id.to_string()),
@@ -3948,7 +4017,7 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                         let formatted_messages: Vec<String> =
                                             chronological_messages
                                                 .iter()
-                                                .map(|(_author, display_name, _pronouns, content)| {
+                                                .map(|(_author, display_name, _pronouns, content, _)| {
                                                     format!("{display_name}: {content}")
                                                 })
                                                 .collect();
@@ -3986,11 +4055,27 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                     );
 
                                     // Call Gemini API with the AI prompt
+                                                        // Convert to the format expected by generate_response_with_context_and_pronouns
+                    let context_for_api: Vec<(String, String, Option<String>, String)> = context_messages
+                        .iter()
+                        .map(|(author, display_name, pronouns, content, _reply_context)| {
+                            (author.clone(), display_name.clone(), pronouns.clone(), content.clone())
+                        })
+                        .collect();
+
+                                                        // Convert to the format expected by generate_response_with_context_and_pronouns
+                    let context_for_api: Vec<(String, String, Option<String>, String)> = context_messages
+                        .iter()
+                        .map(|(author, display_name, pronouns, content, _reply_context)| {
+                            (author.clone(), display_name.clone(), pronouns.clone(), content.clone())
+                        })
+                        .collect();
+
                                     match gemini_client
                                         .generate_response_with_context_and_pronouns(
                                             &ai_prompt,
                                             "",
-                                            &context_messages,
+                                            &context_for_api,
                                             None,
                                         )
                                         .await
@@ -4050,7 +4135,7 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                 if let Some(gemini_client) = &task_gemini_client {
                                     // Get recent messages for context
                                     let context_messages = if let Some(db) = &message_db_clone {
-                                        match db_utils::get_recent_messages_with_pronouns(
+                                        match db_utils::get_recent_messages_with_reply_context(
                                             db.clone(),
                                             parsed_config.gemini_context_messages,
                                             Some(&channel_id.to_string()),
@@ -4076,7 +4161,7 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                         let formatted_messages: Vec<String> =
                                             chronological_messages
                                                 .iter()
-                                                .map(|(_author, display_name, _pronouns, content)| {
+                                                .map(|(_author, display_name, _pronouns, content, _)| {
                                                     format!("{display_name}: {content}")
                                                 })
                                                 .collect();
@@ -4110,12 +4195,20 @@ Be creative but realistic with your article title and URL."#)
                                         .replace("{bot_name}", &bot_name_clone)
                                         .replace("{context}", &context_text);
 
+                                    // Convert to the format expected by generate_response_with_context_and_pronouns
+                                    let context_for_api: Vec<(String, String, Option<String>, String)> = context_messages
+                                        .iter()
+                                        .map(|(author, display_name, pronouns, content, _reply_context)| {
+                                            (author.clone(), display_name.clone(), pronouns.clone(), content.clone())
+                                        })
+                                        .collect();
+
                                     // Call Gemini API with the news prompt
                                     match gemini_client
                                         .generate_response_with_context_and_pronouns(
                                             &news_prompt,
                                             "",
-                                            &context_messages,
+                                            &context_for_api,
                                             None,
                                         )
                                         .await

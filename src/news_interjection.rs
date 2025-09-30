@@ -21,7 +21,7 @@ pub async fn handle_news_interjection(
 ) -> Result<()> {
     // Get recent messages for context
     let context_messages = if let Some(db) = message_db {
-        match db_utils::get_recent_messages_with_pronouns(
+        match db_utils::get_recent_messages_with_reply_context(
             db.clone(),
             gemini_context_messages,
             Some(msg.channel_id.to_string().as_str()),
@@ -49,7 +49,13 @@ pub async fn handle_news_interjection(
 
         let formatted_messages: Vec<String> = chronological_messages
             .iter()
-            .map(|(_author, display_name, _pronouns, content)| format!("{display_name}: {content}"))
+            .map(|(_author, display_name, _pronouns, content, reply_context)| {
+                if let Some(reply) = reply_context {
+                    format!("{}: {} (in reply to: {})", display_name, content, reply)
+                } else {
+                    format!("{}: {}", display_name, content)
+                }
+            })
             .collect();
         formatted_messages.join("\n")
     } else {
