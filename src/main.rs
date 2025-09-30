@@ -1503,37 +1503,69 @@ impl Bot {
                     };
 
                     // Convert to the format expected by generate_response_with_context_and_pronouns
-                    let context_for_api: Vec<(String, String, Option<String>, String)> = context_messages
-                        .iter()
-                        .map(|(author, display_name, pronouns, content, _reply_context)| {
-                            (author.clone(), display_name.clone(), pronouns.clone(), content.clone())
-                        })
-                        .collect();
+                    let context_for_api: Vec<(String, String, Option<String>, String)> =
+                        context_messages
+                            .iter()
+                            .map(
+                                |(author, display_name, pronouns, content, _reply_context)| {
+                                    (
+                                        author.clone(),
+                                        display_name.clone(),
+                                        pronouns.clone(),
+                                        content.clone(),
+                                    )
+                                },
+                            )
+                            .collect();
 
                     // Call the Gemini API with context and pronouns
-                                        // Convert to the format expected by generate_response_with_context_and_pronouns
-                    let context_for_api: Vec<(String, String, Option<String>, String)> = context_messages
-                        .iter()
-                        .map(|(author, display_name, pronouns, content, _reply_context)| {
-                            (author.clone(), display_name.clone(), pronouns.clone(), content.clone())
-                        })
-                        .collect();
+                    // Convert to the format expected by generate_response_with_context_and_pronouns
+                    let context_for_api: Vec<(String, String, Option<String>, String)> =
+                        context_messages
+                            .iter()
+                            .map(
+                                |(author, display_name, pronouns, content, _reply_context)| {
+                                    (
+                                        author.clone(),
+                                        display_name.clone(),
+                                        pronouns.clone(),
+                                        content.clone(),
+                                    )
+                                },
+                            )
+                            .collect();
 
-                                        // Convert to the format expected by generate_response_with_context_and_pronouns
-                    let context_for_api: Vec<(String, String, Option<String>, String)> = context_messages
-                        .iter()
-                        .map(|(author, display_name, pronouns, content, _reply_context)| {
-                            (author.clone(), display_name.clone(), pronouns.clone(), content.clone())
-                        })
-                        .collect();
+                    // Convert to the format expected by generate_response_with_context_and_pronouns
+                    let context_for_api: Vec<(String, String, Option<String>, String)> =
+                        context_messages
+                            .iter()
+                            .map(
+                                |(author, display_name, pronouns, content, _reply_context)| {
+                                    (
+                                        author.clone(),
+                                        display_name.clone(),
+                                        pronouns.clone(),
+                                        content.clone(),
+                                    )
+                                },
+                            )
+                            .collect();
 
-                                        // Convert to the format expected by generate_response_with_context_and_pronouns
-                    let context_for_api: Vec<(String, String, Option<String>, String)> = context_messages
-                        .iter()
-                        .map(|(author, display_name, pronouns, content, _reply_context)| {
-                            (author.clone(), display_name.clone(), pronouns.clone(), content.clone())
-                        })
-                        .collect();
+                    // Convert to the format expected by generate_response_with_context_and_pronouns
+                    let context_for_api: Vec<(String, String, Option<String>, String)> =
+                        context_messages
+                            .iter()
+                            .map(
+                                |(author, display_name, pronouns, content, _reply_context)| {
+                                    (
+                                        author.clone(),
+                                        display_name.clone(),
+                                        pronouns.clone(),
+                                        content.clone(),
+                                    )
+                                },
+                            )
+                            .collect();
 
                     match gemini_client
                         .generate_response_with_context_and_pronouns(
@@ -1980,20 +2012,25 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
 
                         let formatted_messages: Vec<String> = chronological_messages
                             .iter()
-                            .map(|(author, display_name, _pronouns, content, reply_context)| {
-                                // Make sure we're using the display name, not the username
-                                let name_to_use = if !display_name.is_empty() {
-                                    display_name
-                                } else {
-                                    author
-                                };
-                                
-                                if let Some(reply) = reply_context {
-                                    format!("{}: {} (in reply to: {})", name_to_use, content, reply)
-                                } else {
-                                    format!("{name_to_use}: {content}")
-                                }
-                            })
+                            .map(
+                                |(author, display_name, _pronouns, content, reply_context)| {
+                                    // Make sure we're using the display name, not the username
+                                    let name_to_use = if !display_name.is_empty() {
+                                        display_name
+                                    } else {
+                                        author
+                                    };
+
+                                    if let Some(reply) = reply_context {
+                                        format!(
+                                            "{}: {} (in reply to: {})",
+                                            name_to_use, content, reply
+                                        )
+                                    } else {
+                                        format!("{name_to_use}: {content}")
+                                    }
+                                },
+                            )
                             .collect();
                         formatted_messages.join("\n")
                     } else {
@@ -2011,12 +2048,20 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                         .replace("{context}", &context_text);
 
                     // Convert to the format expected by generate_response_with_context_and_pronouns
-                    let context_for_api: Vec<(String, String, Option<String>, String)> = context_messages
-                        .iter()
-                        .map(|(author, display_name, pronouns, content, _reply_context)| {
-                            (author.clone(), display_name.clone(), pronouns.clone(), content.clone())
-                        })
-                        .collect();
+                    let context_for_api: Vec<(String, String, Option<String>, String)> =
+                        context_messages
+                            .iter()
+                            .map(
+                                |(author, display_name, pronouns, content, _reply_context)| {
+                                    (
+                                        author.clone(),
+                                        display_name.clone(),
+                                        pronouns.clone(),
+                                        content.clone(),
+                                    )
+                                },
+                            )
+                            .collect();
 
                     // Call Gemini API with the custom prompt - use bot name as user name
                     match gemini_client
@@ -2634,12 +2679,20 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                     };
 
                     // Convert to the format expected by generate_response_with_context_and_pronouns
-                    let context_for_api: Vec<(String, String, Option<String>, String)> = context_messages
-                        .iter()
-                        .map(|(author, display_name, pronouns, content, _reply_context)| {
-                            (author.clone(), display_name.clone(), pronouns.clone(), content.clone())
-                        })
-                        .collect();
+                    let context_for_api: Vec<(String, String, Option<String>, String)> =
+                        context_messages
+                            .iter()
+                            .map(
+                                |(author, display_name, pronouns, content, _reply_context)| {
+                                    (
+                                        author.clone(),
+                                        display_name.clone(),
+                                        pronouns.clone(),
+                                        content.clone(),
+                                    )
+                                },
+                            )
+                            .collect();
 
                     // Call the Gemini API with context and pronouns
                     match gemini_client
@@ -2822,12 +2875,20 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                     };
 
                     // Convert to the format expected by generate_response_with_context_and_pronouns
-                    let context_for_api: Vec<(String, String, Option<String>, String)> = context_messages
-                        .iter()
-                        .map(|(author, display_name, pronouns, content, _reply_context)| {
-                            (author.clone(), display_name.clone(), pronouns.clone(), content.clone())
-                        })
-                        .collect();
+                    let context_for_api: Vec<(String, String, Option<String>, String)> =
+                        context_messages
+                            .iter()
+                            .map(
+                                |(author, display_name, pronouns, content, _reply_context)| {
+                                    (
+                                        author.clone(),
+                                        display_name.clone(),
+                                        pronouns.clone(),
+                                        content.clone(),
+                                    )
+                                },
+                            )
+                            .collect();
 
                     match gemini_client
                         .generate_response_with_context_and_pronouns(
@@ -4055,21 +4116,57 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                     );
 
                                     // Call Gemini API with the AI prompt
-                                                        // Convert to the format expected by generate_response_with_context_and_pronouns
-                    let context_for_api: Vec<(String, String, Option<String>, String)> = context_messages
-                        .iter()
-                        .map(|(author, display_name, pronouns, content, _reply_context)| {
-                            (author.clone(), display_name.clone(), pronouns.clone(), content.clone())
-                        })
-                        .collect();
+                                    // Convert to the format expected by generate_response_with_context_and_pronouns
+                                    let context_for_api: Vec<(
+                                        String,
+                                        String,
+                                        Option<String>,
+                                        String,
+                                    )> = context_messages
+                                        .iter()
+                                        .map(
+                                            |(
+                                                author,
+                                                display_name,
+                                                pronouns,
+                                                content,
+                                                _reply_context,
+                                            )| {
+                                                (
+                                                    author.clone(),
+                                                    display_name.clone(),
+                                                    pronouns.clone(),
+                                                    content.clone(),
+                                                )
+                                            },
+                                        )
+                                        .collect();
 
-                                                        // Convert to the format expected by generate_response_with_context_and_pronouns
-                    let context_for_api: Vec<(String, String, Option<String>, String)> = context_messages
-                        .iter()
-                        .map(|(author, display_name, pronouns, content, _reply_context)| {
-                            (author.clone(), display_name.clone(), pronouns.clone(), content.clone())
-                        })
-                        .collect();
+                                    // Convert to the format expected by generate_response_with_context_and_pronouns
+                                    let context_for_api: Vec<(
+                                        String,
+                                        String,
+                                        Option<String>,
+                                        String,
+                                    )> = context_messages
+                                        .iter()
+                                        .map(
+                                            |(
+                                                author,
+                                                display_name,
+                                                pronouns,
+                                                content,
+                                                _reply_context,
+                                            )| {
+                                                (
+                                                    author.clone(),
+                                                    display_name.clone(),
+                                                    pronouns.clone(),
+                                                    content.clone(),
+                                                )
+                                            },
+                                        )
+                                        .collect();
 
                                     match gemini_client
                                         .generate_response_with_context_and_pronouns(
@@ -4196,11 +4293,29 @@ Be creative but realistic with your article title and URL."#)
                                         .replace("{context}", &context_text);
 
                                     // Convert to the format expected by generate_response_with_context_and_pronouns
-                                    let context_for_api: Vec<(String, String, Option<String>, String)> = context_messages
+                                    let context_for_api: Vec<(
+                                        String,
+                                        String,
+                                        Option<String>,
+                                        String,
+                                    )> = context_messages
                                         .iter()
-                                        .map(|(author, display_name, pronouns, content, _reply_context)| {
-                                            (author.clone(), display_name.clone(), pronouns.clone(), content.clone())
-                                        })
+                                        .map(
+                                            |(
+                                                author,
+                                                display_name,
+                                                pronouns,
+                                                content,
+                                                _reply_context,
+                                            )| {
+                                                (
+                                                    author.clone(),
+                                                    display_name.clone(),
+                                                    pronouns.clone(),
+                                                    content.clone(),
+                                                )
+                                            },
+                                        )
                                         .collect();
 
                                     // Call Gemini API with the news prompt

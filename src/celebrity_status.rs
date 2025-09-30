@@ -534,16 +534,21 @@ async fn search_celebrity(name: &str) -> Result<Option<String>> {
                     // Last attempt failed, return the error
                     return Err(e);
                 }
-                
+
                 // Calculate exponential backoff delay: 1s, 2s, 4s, 8s, 16s
                 let delay_ms = INITIAL_DELAY_MS * (1 << attempt);
-                info!("Wikipedia API attempt {} failed, retrying in {}ms: {:?}", attempt + 1, delay_ms, e);
-                
+                info!(
+                    "Wikipedia API attempt {} failed, retrying in {}ms: {:?}",
+                    attempt + 1,
+                    delay_ms,
+                    e
+                );
+
                 tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
             }
         }
     }
-    
+
     unreachable!()
 }
 
@@ -560,19 +565,32 @@ async fn search_celebrity_attempt(name: &str) -> Result<Option<String>> {
 
     info!("Searching Wikipedia for: {}", name);
     let search_response = client.get(&search_url).send().await?;
-    
+
     // Check if we got a successful HTTP response
     if !search_response.status().is_success() {
-        error!("Wikipedia API returned HTTP {}: {}", search_response.status(), search_response.status().canonical_reason().unwrap_or("Unknown"));
-        return Err(anyhow::anyhow!("Wikipedia API returned HTTP {}", search_response.status()));
+        error!(
+            "Wikipedia API returned HTTP {}: {}",
+            search_response.status(),
+            search_response
+                .status()
+                .canonical_reason()
+                .unwrap_or("Unknown")
+        );
+        return Err(anyhow::anyhow!(
+            "Wikipedia API returned HTTP {}",
+            search_response.status()
+        ));
     }
-    
+
     // Get response text first to log it if JSON parsing fails
     let response_text = search_response.text().await?;
     let search_json: Value = match serde_json::from_str(&response_text) {
         Ok(json) => json,
         Err(e) => {
-            error!("Failed to parse Wikipedia search response as JSON. Response was: {}", response_text.chars().take(200).collect::<String>());
+            error!(
+                "Failed to parse Wikipedia search response as JSON. Response was: {}",
+                response_text.chars().take(200).collect::<String>()
+            );
             return Err(anyhow::anyhow!("JSON parsing failed: {}", e));
         }
     };
@@ -601,19 +619,32 @@ async fn search_celebrity_attempt(name: &str) -> Result<Option<String>> {
     );
 
     let page_response = client.get(&page_url).send().await?;
-    
+
     // Check if we got a successful HTTP response
     if !page_response.status().is_success() {
-        error!("Wikipedia page API returned HTTP {}: {}", page_response.status(), page_response.status().canonical_reason().unwrap_or("Unknown"));
-        return Err(anyhow::anyhow!("Wikipedia page API returned HTTP {}", page_response.status()));
+        error!(
+            "Wikipedia page API returned HTTP {}: {}",
+            page_response.status(),
+            page_response
+                .status()
+                .canonical_reason()
+                .unwrap_or("Unknown")
+        );
+        return Err(anyhow::anyhow!(
+            "Wikipedia page API returned HTTP {}",
+            page_response.status()
+        ));
     }
-    
+
     // Get response text first to log it if JSON parsing fails
     let page_response_text = page_response.text().await?;
     let page_json: Value = match serde_json::from_str(&page_response_text) {
         Ok(json) => json,
         Err(e) => {
-            error!("Failed to parse Wikipedia page response as JSON. Response was: {}", page_response_text.chars().take(200).collect::<String>());
+            error!(
+                "Failed to parse Wikipedia page response as JSON. Response was: {}",
+                page_response_text.chars().take(200).collect::<String>()
+            );
             return Err(anyhow::anyhow!("JSON parsing failed: {}", e));
         }
     };
@@ -1266,7 +1297,7 @@ pub fn extract_year_from_parentheses(text: &str, date_type: &str) -> Option<Stri
         // Pattern: "born January 20, 1930" or just a date at the beginning
         let born_re = Regex::new(r"(?:born|b\.)\s+([A-Za-z]+\s+\d{1,2},?\s+\d{4})").unwrap();
         info!("Trying born regex pattern: {:?}", born_re.as_str());
-        
+
         if let Some(captures) = born_re.captures(text) {
             let date = captures.get(1).map(|m| m.as_str().to_string());
             info!("Found birth date with born regex: {:?}", date);
@@ -1359,9 +1390,9 @@ fn extract_date(text: &str, keyword: &str) -> Option<String> {
 
     // General date patterns - more specific to avoid matching ranges like "86 to 1991"
     let general_patterns = [
-        r"(\d{1,2} [A-Za-z]{3,} \d{4})",  // 20 April 2023 (month must be 3+ chars to avoid "to")
+        r"(\d{1,2} [A-Za-z]{3,} \d{4})", // 20 April 2023 (month must be 3+ chars to avoid "to")
         r"([A-Za-z]{3,} \d{1,2}, \d{4})", // April 20, 2023 (month must be 3+ chars)
-        r"(\d{4}-\d{2}-\d{2})",           // 2023-04-20
+        r"(\d{4}-\d{2}-\d{2})",          // 2023-04-20
     ];
 
     for pattern in &general_patterns {
@@ -1381,7 +1412,7 @@ fn extract_date(text: &str, keyword: &str) -> Option<String> {
 
 fn parse_date(date_str: &str) -> Option<NaiveDate> {
     info!("Attempting to parse date string: '{}'", date_str);
-    
+
     // Try various date formats
     let formats = [
         "%d %B %Y",  // 20 April 2023
@@ -1395,11 +1426,17 @@ fn parse_date(date_str: &str) -> Option<NaiveDate> {
     for format in &formats {
         match NaiveDate::parse_from_str(date_str, format) {
             Ok(date) => {
-                info!("Successfully parsed '{}' with format '{}' as {}", date_str, format, date);
+                info!(
+                    "Successfully parsed '{}' with format '{}' as {}",
+                    date_str, format, date
+                );
                 return Some(date);
             }
             Err(e) => {
-                info!("Failed to parse '{}' with format '{}': {}", date_str, format, e);
+                info!(
+                    "Failed to parse '{}' with format '{}': {}",
+                    date_str, format, e
+                );
             }
         }
     }
@@ -1729,15 +1766,21 @@ fn extract_cause_with_context(text: &str, cause: &str) -> String {
 }
 fn calculate_age(birth_date: NaiveDate, today: NaiveDate) -> u32 {
     let mut age = today.year() - birth_date.year();
-    
-    info!("Age calculation: birth_date={}, today={}, initial_age={}", birth_date, today, age);
+
+    info!(
+        "Age calculation: birth_date={}, today={}, initial_age={}",
+        birth_date, today, age
+    );
 
     // Adjust age if birthday hasn't occurred yet this year
     if today.month() < birth_date.month()
         || (today.month() == birth_date.month() && today.day() < birth_date.day())
     {
         age -= 1;
-        info!("Birthday hasn't occurred yet this year, adjusted age to {}", age);
+        info!(
+            "Birthday hasn't occurred yet this year, adjusted age to {}",
+            age
+        );
     }
 
     let final_age = age as u32;

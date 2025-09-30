@@ -65,7 +65,12 @@ impl FillSilenceManager {
     }
 
     /// Update activity and increment message count for non-bot users
-    pub async fn update_activity_and_count(&self, channel_id: ChannelId, user_id: UserId, bot_id: UserId) {
+    pub async fn update_activity_and_count(
+        &self,
+        channel_id: ChannelId,
+        user_id: UserId,
+        bot_id: UserId,
+    ) {
         if !self.enabled {
             return;
         }
@@ -99,7 +104,10 @@ impl FillSilenceManager {
         let mut message_counts = self.messages_since_bot_interjection.write().await;
         message_counts.insert(channel_id, 0);
 
-        debug!("Marked bot as last speaker in channel {} and reset message count", channel_id);
+        debug!(
+            "Marked bot as last speaker in channel {} and reset message count",
+            channel_id
+        );
     }
 
     /// Mark that a user (not the bot) was the last speaker in a channel

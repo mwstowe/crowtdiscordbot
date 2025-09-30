@@ -49,13 +49,15 @@ pub async fn handle_news_interjection(
 
         let formatted_messages: Vec<String> = chronological_messages
             .iter()
-            .map(|(_author, display_name, _pronouns, content, reply_context)| {
-                if let Some(reply) = reply_context {
-                    format!("{}: {} (in reply to: {})", display_name, content, reply)
-                } else {
-                    format!("{}: {}", display_name, content)
-                }
-            })
+            .map(
+                |(_author, display_name, _pronouns, content, reply_context)| {
+                    if let Some(reply) = reply_context {
+                        format!("{}: {} (in reply to: {})", display_name, content, reply)
+                    } else {
+                        format!("{}: {}", display_name, content)
+                    }
+                },
+            )
             .collect();
         formatted_messages.join("\n")
     } else {

@@ -282,7 +282,7 @@ impl GeminiClient {
                 let error_code = error.get("code").and_then(|c| c.as_u64()).unwrap_or(0);
 
                 // Check if this is a retryable error
-                if error_message.contains("overloaded") 
+                if error_message.contains("overloaded")
                     || error_message.contains("try again later")
                     || (error_code == 500 && error_message.contains("Internal error encountered"))
                 {
@@ -310,7 +310,8 @@ impl GeminiClient {
                         );
                         return Err(anyhow::anyhow!(
                             "SILENT_ERROR: Gemini API retryable error after {} retries: {}",
-                            MAX_RETRIES, error_message
+                            MAX_RETRIES,
+                            error_message
                         ));
                     }
                 }

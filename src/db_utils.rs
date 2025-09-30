@@ -288,11 +288,14 @@ pub async fn get_recent_messages_with_reply_context(
     conn: Arc<Mutex<SqliteConnection>>,
     limit: usize,
     channel_id: Option<&str>,
-) -> Result<Vec<(String, String, Option<String>, String, Option<String>)>, Box<dyn std::error::Error>> {
+) -> Result<Vec<(String, String, Option<String>, String, Option<String>)>, Box<dyn std::error::Error>>
+{
     let conn_guard = conn.lock().await;
 
     // If channel_id is provided, filter by it
-    let raw_messages: Vec<(String, String, String, String, Option<String>)> = if let Some(channel) = channel_id {
+    let raw_messages: Vec<(String, String, String, String, Option<String>)> = if let Some(channel) =
+        channel_id
+    {
         let channel_str = channel.to_string();
 
         // Get the most recent messages with their referenced message content
@@ -301,7 +304,7 @@ pub async fn get_recent_messages_with_reply_context(
                 let channel_str = channel_str.clone();
                 move |conn| {
                     let mut stmt = conn.prepare(
-                        "SELECT m.message_id, m.channel_id, m.guild_id, m.author_id, m.author, 
+                        "SELECT m.message_id, m.channel_id, m.guild_id, m.author_id, m.author,
                                 m.display_name, m.content, m.timestamp, m.referenced_message_id,
                                 ref.author as ref_author, ref.display_name as ref_display_name, ref.content as ref_content
                          FROM messages m
@@ -314,7 +317,7 @@ pub async fn get_recent_messages_with_reply_context(
                         let _ref_author: Option<String> = row.get(9)?;
                         let ref_display_name: Option<String> = row.get(10)?;
                         let ref_content: Option<String> = row.get(11)?;
-                        
+
                         let reply_context = if let (Some(ref_display), Some(ref_cont)) = (ref_display_name, ref_content) {
                             Some(format!("{}: {}", ref_display, ref_cont))
                         } else {
@@ -341,7 +344,7 @@ pub async fn get_recent_messages_with_reply_context(
         // If no channel_id is provided, get messages from all channels
         conn_guard.call(move |conn| {
             let mut stmt = conn.prepare(
-                "SELECT m.message_id, m.channel_id, m.guild_id, m.author_id, m.author, 
+                "SELECT m.message_id, m.channel_id, m.guild_id, m.author_id, m.author,
                         m.display_name, m.content, m.timestamp, m.referenced_message_id,
                         ref.author as ref_author, ref.display_name as ref_display_name, ref.content as ref_content
                  FROM messages m
@@ -353,7 +356,7 @@ pub async fn get_recent_messages_with_reply_context(
                 let _ref_author: Option<String> = row.get(9)?;
                 let ref_display_name: Option<String> = row.get(10)?;
                 let ref_content: Option<String> = row.get(11)?;
-                
+
                 let reply_context = if let (Some(ref_display), Some(ref_cont)) = (ref_display_name, ref_content) {
                     Some(format!("{}: {}", ref_display, ref_cont))
                 } else {
@@ -377,13 +380,15 @@ pub async fn get_recent_messages_with_reply_context(
     // Convert to the expected format: (author, display_name, pronouns, content, reply_context)
     let messages: Vec<(String, String, Option<String>, String, Option<String>)> = raw_messages
         .into_iter()
-        .map(|(author, display_name, content, _timestamp, reply_context)| {
-            // Extract pronouns from display name if present
-            let pronouns = crate::utils::extract_pronouns(&display_name);
-            let clean_display_name = crate::display_name::clean_display_name(&display_name);
-            
-            (author, clean_display_name, pronouns, content, reply_context)
-        })
+        .map(
+            |(author, display_name, content, _timestamp, reply_context)| {
+                // Extract pronouns from display name if present
+                let pronouns = crate::utils::extract_pronouns(&display_name);
+                let clean_display_name = crate::display_name::clean_display_name(&display_name);
+
+                (author, clean_display_name, pronouns, content, reply_context)
+            },
+        )
         .collect();
 
     Ok(messages)

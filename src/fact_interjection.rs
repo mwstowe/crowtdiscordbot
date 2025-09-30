@@ -293,13 +293,15 @@ async fn handle_fact_interjection_common(
 
         let formatted_messages: Vec<String> = chronological_messages
             .iter()
-            .map(|(_author, display_name, _pronouns, content, reply_context)| {
-                if let Some(reply) = reply_context {
-                    format!("{}: {} (in reply to: {})", display_name, content, reply)
-                } else {
-                    format!("{}: {}", display_name, content)
-                }
-            })
+            .map(
+                |(_author, display_name, _pronouns, content, reply_context)| {
+                    if let Some(reply) = reply_context {
+                        format!("{}: {} (in reply to: {})", display_name, content, reply)
+                    } else {
+                        format!("{}: {}", display_name, content)
+                    }
+                },
+            )
             .collect();
         formatted_messages.join("\n")
     } else {
@@ -320,9 +322,16 @@ async fn handle_fact_interjection_common(
     // Convert to the format expected by generate_response_with_context_and_pronouns
     let context_for_api: Vec<(String, String, Option<String>, String)> = context_messages
         .iter()
-        .map(|(author, display_name, pronouns, content, _reply_context)| {
-            (author.clone(), display_name.clone(), pronouns.clone(), content.clone())
-        })
+        .map(
+            |(author, display_name, pronouns, content, _reply_context)| {
+                (
+                    author.clone(),
+                    display_name.clone(),
+                    pronouns.clone(),
+                    content.clone(),
+                )
+            },
+        )
         .collect();
 
     match gemini_client
@@ -543,7 +552,9 @@ async fn validate_citation_with_fallback(
                     match find_better_url(fact).await {
                         Ok(Some(better_url)) => {
                             // Validate the new URL matches the fact
-                            match validate_fact_matches_citation(gemini_client, fact, &better_url).await {
+                            match validate_fact_matches_citation(gemini_client, fact, &better_url)
+                                .await
+                            {
                                 Ok(true) => {
                                     info!("Found better matching URL: {}", better_url);
                                     Ok((true, Some(better_url)))

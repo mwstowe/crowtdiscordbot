@@ -82,7 +82,7 @@ impl RateLimiter {
                 } else {
                     Duration::from_secs(60) - elapsed
                 };
-                
+
                 // Ensure minimum wait time of 1 second
                 let wait_secs = std::cmp::max(wait_duration.as_secs(), 1);
 
