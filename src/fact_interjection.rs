@@ -24,7 +24,7 @@ pub async fn handle_fact_interjection(
 ) -> Result<()> {
     // Get recent messages for context
     let context_messages = if let Some(db) = message_db {
-        match db_utils::get_recent_messages_with_pronouns(
+        match db_utils::get_recent_messages_with_reply_context(
             db.clone(),
             gemini_context_messages,
             Some(msg.channel_id.to_string().as_str()),
@@ -66,7 +66,7 @@ pub async fn handle_spontaneous_fact_interjection(
 ) -> Result<()> {
     // Get recent messages for context
     let context_messages = if let Some(db) = message_db {
-        match db_utils::get_recent_messages_with_pronouns(
+        match db_utils::get_recent_messages_with_reply_context(
             db.clone(),
             gemini_context_messages,
             Some(&channel_id.to_string()),
@@ -282,7 +282,7 @@ async fn handle_fact_interjection_common(
     http: &Http,
     channel_id: ChannelId,
     gemini_client: &GeminiClient,
-    context_messages: &[(String, String, Option<String>, String)],
+    context_messages: &[(String, String, Option<String>, String, Option<String>)],
     _bot_name: &str,
 ) -> Result<()> {
     // Format context for the prompt
@@ -293,7 +293,13 @@ async fn handle_fact_interjection_common(
 
         let formatted_messages: Vec<String> = chronological_messages
             .iter()
-            .map(|(_author, display_name, _pronouns, content)| format!("{display_name}: {content}"))
+            .map(|(_author, display_name, _pronouns, content, reply_context)| {
+                if let Some(reply) = reply_context {
+                    format!("{}: {} (in reply to: {})", display_name, content, reply)
+                } else {
+                    format!("{}: {}", display_name, content)
+                }
+            })
             .collect();
         formatted_messages.join("\n")
     } else {
@@ -311,8 +317,16 @@ async fn handle_fact_interjection_common(
         .format_fact_interjection(&context_text);
 
     // Call Gemini API with the fact prompt
+    // Convert to the format expected by generate_response_with_context_and_pronouns
+    let context_for_api: Vec<(String, String, Option<String>, String)> = context_messages
+        .iter()
+        .map(|(author, display_name, pronouns, content, _reply_context)| {
+            (author.clone(), display_name.clone(), pronouns.clone(), content.clone())
+        })
+        .collect();
+
     match gemini_client
-        .generate_response_with_context_and_pronouns(&fact_prompt, "", context_messages, None)
+        .generate_response_with_context_and_pronouns(&fact_prompt, "", &context_for_api, None)
         .await
     {
         Ok(response) => {
