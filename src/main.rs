@@ -2805,6 +2805,13 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
             return Ok(());
         }
 
+        if content_lower.contains("stop") {
+            if let Err(e) = msg.channel_id.say(&ctx.http, "Hammer time!").await {
+                error!("Error sending response: {:?}", e);
+            }
+            return Ok(());
+        }
+
         if content_lower.contains("my spoon is too big") {
             if let Err(e) = msg.channel_id.say(&ctx.http, "I am a banana!").await {
                 error!("Error sending response: {:?}", e);
