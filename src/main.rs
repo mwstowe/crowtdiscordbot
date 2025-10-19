@@ -2805,7 +2805,7 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
             return Ok(());
         }
 
-        if content_lower.contains("stop") {
+        if content_lower.trim_matches(|c: char| c.is_whitespace() || c.is_ascii_punctuation()) == "stop" {
             if let Err(e) = msg.channel_id.say(&ctx.http, "Hammer time!").await {
                 error!("Error sending response: {:?}", e);
             }
