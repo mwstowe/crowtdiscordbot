@@ -1749,7 +1749,17 @@ impl Bot {
 
                 let context_text = context
                     .iter()
-                    .map(|m| format!("{}: {}", m.author.name, m.content))
+                    .map(|m| {
+                        // Use display name if available, otherwise fall back to username
+                        let name = if let Some(member) = &m.member {
+                            member.nick.as_ref().unwrap_or(&m.author.name).clone()
+                        } else if let Some(global_name) = &m.author.global_name {
+                            global_name.clone()
+                        } else {
+                            m.author.name.clone()
+                        };
+                        format!("{}: {}", name, m.content)
+                    })
                     .collect::<Vec<_>>()
                     .join("\n");
 
@@ -2014,7 +2024,8 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                             .iter()
                             .map(
                                 |(author, display_name, _pronouns, content, reply_context)| {
-                                    // Make sure we're using the display name, not the username
+                                    // Use display name if available and non-empty, otherwise use author
+                                    // This matches the logic in get_best_display_name
                                     let name_to_use = if !display_name.is_empty() {
                                         display_name
                                     } else {
