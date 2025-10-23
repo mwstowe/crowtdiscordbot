@@ -1473,8 +1473,8 @@ impl Bot {
                     let display_name = get_best_display_name(ctx, msg).await;
                     let clean_display_name = clean_display_name(&display_name);
 
-                    // Extract pronouns from the original display name
-                    let display_name = get_best_display_name(ctx, msg).await;
+                    // Extract pronouns from the same display name
+                    let user_pronouns = crate::display_name::extract_pronouns(&display_name);
                     let user_pronouns = crate::display_name::extract_pronouns(&display_name);
 
                     // Start typing indicator before making API call
@@ -2629,8 +2629,8 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                     let display_name = get_best_display_name(ctx, msg).await;
                     let clean_display_name = clean_display_name(&display_name);
 
-                    // Extract pronouns from the original display name
-                    let display_name = get_best_display_name(ctx, msg).await;
+                    // Extract pronouns from the same display name
+                    let user_pronouns = crate::display_name::extract_pronouns(&display_name);
                     let user_pronouns = crate::display_name::extract_pronouns(&display_name);
 
                     // Start typing indicator before making API call
@@ -2805,7 +2805,9 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
             return Ok(());
         }
 
-        if content_lower.trim_matches(|c: char| c.is_whitespace() || c.is_ascii_punctuation()) == "stop" {
+        if content_lower.trim_matches(|c: char| c.is_whitespace() || c.is_ascii_punctuation())
+            == "stop"
+        {
             if let Err(e) = msg.channel_id.say(&ctx.http, "Hammer time!").await {
                 error!("Error sending response: {:?}", e);
             }
@@ -2853,8 +2855,8 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                     let display_name = get_best_display_name(ctx, msg).await;
                     let clean_display_name = clean_display_name(&display_name);
 
-                    // Extract pronouns from the original display name
-                    let display_name = get_best_display_name(ctx, msg).await;
+                    // Extract pronouns from the same display name
+                    let user_pronouns = crate::display_name::extract_pronouns(&display_name);
                     let user_pronouns = crate::display_name::extract_pronouns(&display_name);
 
                     // Start typing indicator before making API call
