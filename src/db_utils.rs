@@ -378,6 +378,7 @@ pub async fn get_recent_messages_with_reply_context(
     };
 
     // Convert to the expected format: (author, display_name, pronouns, content, reply_context)
+    #[allow(clippy::type_complexity)]
     let messages: Vec<(String, String, Option<String>, String, Option<String>)> = raw_messages
         .into_iter()
         .map(
@@ -395,6 +396,7 @@ pub async fn get_recent_messages_with_reply_context(
 }
 
 // Get recent messages from the database in chronological order with pronouns
+#[allow(dead_code)]
 pub async fn get_recent_messages_with_pronouns(
     conn: Arc<Mutex<SqliteConnection>>,
     limit: usize,

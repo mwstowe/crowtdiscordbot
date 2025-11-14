@@ -1,6 +1,7 @@
 use crate::db_utils;
 use crate::duckduckgo_search::DuckDuckGoSearchClient;
 use crate::gemini_api::GeminiClient;
+use crate::multi_response_generator::MultiResponseGenerator;
 use crate::news_interjection;
 use crate::url_validator;
 use anyhow::Result;
@@ -18,6 +19,7 @@ pub async fn handle_fact_interjection(
     ctx: &Context,
     msg: &Message,
     gemini_client: &GeminiClient,
+    multi_response_generator: &Option<MultiResponseGenerator>,
     message_db: &Option<Arc<tokio::sync::Mutex<Connection>>>,
     bot_name: &str,
     gemini_context_messages: usize,
@@ -49,6 +51,7 @@ pub async fn handle_fact_interjection(
         &ctx.http,
         msg.channel_id,
         gemini_client,
+        multi_response_generator,
         &context_messages,
         bot_name,
     )
@@ -60,6 +63,7 @@ pub async fn handle_spontaneous_fact_interjection(
     http: &Http,
     channel_id: ChannelId,
     gemini_client: &GeminiClient,
+    multi_response_generator: &Option<MultiResponseGenerator>,
     message_db: &Option<Arc<tokio::sync::Mutex<Connection>>>,
     bot_name: &str,
     gemini_context_messages: usize,
@@ -87,8 +91,15 @@ pub async fn handle_spontaneous_fact_interjection(
     };
 
     // Call the common implementation
-    handle_fact_interjection_common(http, channel_id, gemini_client, &context_messages, bot_name)
-        .await
+    handle_fact_interjection_common(
+        http,
+        channel_id,
+        gemini_client,
+        multi_response_generator,
+        &context_messages,
+        bot_name,
+    )
+    .await
 }
 
 // Function to validate if a fact has a proper citation with a URL
@@ -282,6 +293,8 @@ async fn handle_fact_interjection_common(
     http: &Http,
     channel_id: ChannelId,
     gemini_client: &GeminiClient,
+    multi_response_generator: &Option<MultiResponseGenerator>,
+    #[allow(clippy::type_complexity)]
     context_messages: &[(String, String, Option<String>, String, Option<String>)],
     _bot_name: &str,
 ) -> Result<()> {
@@ -334,17 +347,31 @@ async fn handle_fact_interjection_common(
         )
         .collect();
 
-    match gemini_client
-        .generate_response_with_context_and_pronouns(&fact_prompt, "", &context_for_api, None)
-        .await
-    {
-        Ok(response) => {
-            // Check if the response starts with "pass" (case-insensitive) - if so, don't send anything
-            if response.trim().to_lowercase().starts_with("pass") {
-                info!("Fact interjection evaluation: decided to PASS - no response sent");
-                return Ok(());
+    // Call multi-response generator if available, otherwise fall back to single response
+    let response_result = if let Some(multi_gen) = multi_response_generator {
+        multi_gen
+            .generate_best_response_with_context(&fact_prompt, &context_for_api)
+            .await
+    } else {
+        // Fallback to single response
+        match gemini_client
+            .generate_response_with_context_and_pronouns(&fact_prompt, "", &context_for_api, None)
+            .await
+        {
+            Ok(response) => {
+                let response = response.trim();
+                if response.to_lowercase().starts_with("pass") {
+                    Ok(None)
+                } else {
+                    Ok(Some(response.to_string()))
+                }
             }
+            Err(e) => Err(e),
+        }
+    };
 
+    match response_result {
+        Ok(Some(response)) => {
             // Check if the response looks like the prompt itself (API error)
             if response.contains("{bot_name}")
                 || response.contains("{context}")
@@ -480,6 +507,10 @@ async fn handle_fact_interjection_common(
             } else {
                 info!("Fact interjection sent: {}", response_text);
             }
+        }
+        Ok(None) => {
+            info!("Fact interjection evaluation: decided to PASS - no response sent");
+            return Ok(());
         }
         Err(e) => {
             error!("Error generating fact interjection: {:?}", e);

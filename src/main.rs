@@ -34,6 +34,7 @@ mod image_generation;
 mod lastseen;
 mod masterofallscience;
 mod morbotron;
+mod multi_response_generator;
 mod news_interjection;
 mod news_search;
 mod news_verification;
@@ -78,6 +79,7 @@ use image_generation::handle_imagine_command;
 use lastseen::handle_lastseen_command;
 use masterofallscience::{handle_masterofallscience_command, MasterOfAllScienceClient};
 use morbotron::{handle_morbotron_command, MorbotronClient};
+use multi_response_generator::{MultiResponseConfig, MultiResponseGenerator};
 use news_interjection::handle_news_interjection;
 use regex_substitution::handle_regex_substitution;
 use response_timing::apply_realistic_delay;
@@ -99,6 +101,7 @@ struct Bot {
     db_manager: DatabaseManager,
     search_client: Option<DuckDuckGoSearchClient>,
     gemini_client: Option<GeminiClient>,
+    multi_response_generator: Option<MultiResponseGenerator>,
     frinkiac_client: FrinkiacClient,
     morbotron_client: MorbotronClient,
     masterofallscience_client: MasterOfAllScienceClient,
@@ -334,6 +337,12 @@ impl Bot {
             }
         };
 
+        // Create multi-response generator if Gemini client is available
+        let multi_response_generator = gemini_client.as_ref().map(|client| {
+            info!("Creating multi-response generator");
+            MultiResponseGenerator::new(client.clone(), MultiResponseConfig::default())
+        });
+
         // Create crime fighting generator
         let crime_generator = CrimeFightingGenerator::new();
 
@@ -365,6 +374,7 @@ impl Bot {
             db_manager,
             search_client,
             gemini_client,
+            multi_response_generator,
             frinkiac_client,
             morbotron_client,
             masterofallscience_client,
@@ -1918,15 +1928,26 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                     self.bot_name, context
                 );
 
-                // Call Gemini API
-                match gemini_client.generate_content(&pondering_prompt).await {
-                    Ok(response) => {
-                        // Check if the response starts with "pass" (case-insensitive) - if so, don't send anything
-                        if response.trim().to_lowercase().starts_with("pass") {
-                            info!("Pondering interjection evaluation: decided to PASS - no response sent");
-                            return Ok(());
+                // Call multi-response generator if available, otherwise fall back to single response
+                let response_result = if let Some(multi_gen) = &self.multi_response_generator {
+                    multi_gen.generate_best_response(&pondering_prompt).await
+                } else {
+                    // Fallback to single response
+                    match gemini_client.generate_content(&pondering_prompt).await {
+                        Ok(response) => {
+                            let response = response.trim();
+                            if response.to_lowercase().starts_with("pass") {
+                                Ok(None)
+                            } else {
+                                Ok(Some(response.to_string()))
+                            }
                         }
+                        Err(e) => Err(e),
+                    }
+                };
 
+                match response_result {
+                    Ok(Some(response)) => {
                         // Check if the response contains parts of the prompt (API error)
                         if response.contains("You are")
                             || response.contains("Requirements:")
@@ -1958,6 +1979,12 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                         } else {
                             info!("Pondering interjection sent: {}", response_text);
                         }
+                    }
+                    Ok(None) => {
+                        info!(
+                            "Pondering interjection evaluation: decided to PASS - no response sent"
+                        );
+                        return Ok(());
                     }
                     Err(e) => {
                         error!("Pondering interjection error: {:?}", e);
@@ -2074,23 +2101,36 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                             )
                             .collect();
 
-                    // Call Gemini API with the custom prompt - use bot name as user name
-                    match gemini_client
-                        .generate_response_with_context_and_pronouns(
-                            &prompt,
-                            &self.bot_name,
-                            &context_for_api,
-                            None,
-                        )
-                        .await
-                    {
-                        Ok(response) => {
-                            // Check if the response starts with "pass" (case-insensitive) - if so, don't send anything
-                            if response.trim().to_lowercase().starts_with("pass") {
-                                info!("AI interjection evaluation: decided to PASS - no response sent");
-                                return Ok(());
+                    // Call multi-response generator if available, otherwise fall back to single response
+                    let response_result = if let Some(multi_gen) = &self.multi_response_generator {
+                        multi_gen
+                            .generate_best_response_with_context(&prompt, &context_for_api)
+                            .await
+                    } else {
+                        // Fallback to single response
+                        match gemini_client
+                            .generate_response_with_context_and_pronouns(
+                                &prompt,
+                                &self.bot_name,
+                                &context_for_api,
+                                None,
+                            )
+                            .await
+                        {
+                            Ok(response) => {
+                                let response = response.trim();
+                                if response.to_lowercase().starts_with("pass") {
+                                    Ok(None)
+                                } else {
+                                    Ok(Some(response.to_string()))
+                                }
                             }
+                            Err(e) => Err(e),
+                        }
+                    };
 
+                    match response_result {
+                        Ok(Some(response)) => {
                             // Check if the response looks like the prompt itself (API error)
                             if response.contains("{bot_name}")
                                 || response.contains("{context}")
@@ -2121,6 +2161,10 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                             } else {
                                 info!("AI interjection sent: {}", response_text);
                             }
+                        }
+                        Ok(None) => {
+                            info!("AI interjection evaluation: decided to PASS - no response sent");
+                            return Ok(());
                         }
                         Err(e) => {
                             error!("AI interjection evaluation: ERROR - {:?}", e);
@@ -2158,6 +2202,7 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                     ctx,
                     msg,
                     gemini_client,
+                    &self.multi_response_generator,
                     &self.message_db,
                     &self.bot_name,
                     self.gemini_context_messages,
@@ -3901,6 +3946,12 @@ Keep it brief and natural, as if you're just another participant in the conversa
             None
         };
 
+        // Create multi-response generator for the task if Gemini client is available
+        let task_multi_response_generator = task_gemini_client.as_ref().map(|client| {
+            info!("Creating multi-response generator for spontaneous interjection task");
+            MultiResponseGenerator::new(client.clone(), MultiResponseConfig::default())
+        });
+
         // Compile regexes used in the interjection loop
         let via_regex = regex::Regex::new(r"\s*\(via\s+[^)]+\)\s*").unwrap();
         let url_regex = regex::Regex::new(r"https?://[^\s]+").unwrap();
@@ -4225,6 +4276,7 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                         &http,
                                         *channel_id,
                                         gemini_client,
+                                        &task_multi_response_generator,
                                         &message_db_clone,
                                         &bot_name_clone,
                                         parsed_config.gemini_context_messages,

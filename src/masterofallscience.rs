@@ -354,9 +354,10 @@ impl MasterOfAllScienceClient {
         }
 
         // If it's the same query, use the result we found
-        if same_query && result_to_use.is_some() {
-            let (episode, timestamp) = result_to_use.unwrap();
-            return self.get_caption_for_frame(&episode, timestamp).await;
+        if same_query {
+            if let Some((episode, timestamp)) = result_to_use {
+                return self.get_caption_for_frame(&episode, timestamp).await;
+            }
         }
 
         // New query, reset the index and fetch new results
