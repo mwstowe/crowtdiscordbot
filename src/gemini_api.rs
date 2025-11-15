@@ -44,7 +44,7 @@ impl GeminiClient {
     pub fn new(config: GeminiConfig) -> Self {
         // Default endpoint for Gemini API
         let default_endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent".to_string();
-        let image_endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-preview-image-generation:generateContent".to_string();
+        let image_endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent".to_string();
 
         // Create prompt templates with custom personality if provided
         let mut prompt_templates = PromptTemplates::new_with_custom_personality(
