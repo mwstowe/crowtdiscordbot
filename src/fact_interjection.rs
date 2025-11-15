@@ -294,8 +294,13 @@ async fn handle_fact_interjection_common(
     channel_id: ChannelId,
     gemini_client: &GeminiClient,
     multi_response_generator: &Option<MultiResponseGenerator>,
-    #[allow(clippy::type_complexity)]
-    context_messages: &[(String, String, Option<String>, String, Option<String>)],
+    #[allow(clippy::type_complexity)] context_messages: &[(
+        String,
+        String,
+        Option<String>,
+        String,
+        Option<String>,
+    )],
     _bot_name: &str,
 ) -> Result<()> {
     // Format context for the prompt
