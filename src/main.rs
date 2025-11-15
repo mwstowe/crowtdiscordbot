@@ -1485,7 +1485,6 @@ impl Bot {
 
                     // Extract pronouns from the same display name
                     let user_pronouns = crate::display_name::extract_pronouns(&display_name);
-                    let user_pronouns = crate::display_name::extract_pronouns(&display_name);
 
                     // Start typing indicator before making API call
                     if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
@@ -1511,55 +1510,6 @@ impl Bot {
                     } else {
                         Vec::new()
                     };
-
-                    // Convert to the format expected by generate_response_with_context_and_pronouns
-                    let context_for_api: Vec<(String, String, Option<String>, String)> =
-                        context_messages
-                            .iter()
-                            .map(
-                                |(author, display_name, pronouns, content, _reply_context)| {
-                                    (
-                                        author.clone(),
-                                        display_name.clone(),
-                                        pronouns.clone(),
-                                        content.clone(),
-                                    )
-                                },
-                            )
-                            .collect();
-
-                    // Call the Gemini API with context and pronouns
-                    // Convert to the format expected by generate_response_with_context_and_pronouns
-                    let context_for_api: Vec<(String, String, Option<String>, String)> =
-                        context_messages
-                            .iter()
-                            .map(
-                                |(author, display_name, pronouns, content, _reply_context)| {
-                                    (
-                                        author.clone(),
-                                        display_name.clone(),
-                                        pronouns.clone(),
-                                        content.clone(),
-                                    )
-                                },
-                            )
-                            .collect();
-
-                    // Convert to the format expected by generate_response_with_context_and_pronouns
-                    let context_for_api: Vec<(String, String, Option<String>, String)> =
-                        context_messages
-                            .iter()
-                            .map(
-                                |(author, display_name, pronouns, content, _reply_context)| {
-                                    (
-                                        author.clone(),
-                                        display_name.clone(),
-                                        pronouns.clone(),
-                                        content.clone(),
-                                    )
-                                },
-                            )
-                            .collect();
 
                     // Convert to the format expected by generate_response_with_context_and_pronouns
                     let context_for_api: Vec<(String, String, Option<String>, String)> =
@@ -2687,7 +2637,6 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
 
                     // Extract pronouns from the same display name
                     let user_pronouns = crate::display_name::extract_pronouns(&display_name);
-                    let user_pronouns = crate::display_name::extract_pronouns(&display_name);
 
                     // Start typing indicator before making API call
                     if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
@@ -2912,7 +2861,6 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                     let clean_display_name = clean_display_name(&display_name);
 
                     // Extract pronouns from the same display name
-                    let user_pronouns = crate::display_name::extract_pronouns(&display_name);
                     let user_pronouns = crate::display_name::extract_pronouns(&display_name);
 
                     // Start typing indicator before making API call
@@ -4185,33 +4133,6 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                         16. If you're unsure if a response is appropriate, respond with ONLY the word \"pass\"\n\
                                         Remember: Be natural and direct - no meta-commentary."
                                     );
-
-                                    // Call Gemini API with the AI prompt
-                                    // Convert to the format expected by generate_response_with_context_and_pronouns
-                                    let context_for_api: Vec<(
-                                        String,
-                                        String,
-                                        Option<String>,
-                                        String,
-                                    )> = context_messages
-                                        .iter()
-                                        .map(
-                                            |(
-                                                author,
-                                                display_name,
-                                                pronouns,
-                                                content,
-                                                _reply_context,
-                                            )| {
-                                                (
-                                                    author.clone(),
-                                                    display_name.clone(),
-                                                    pronouns.clone(),
-                                                    content.clone(),
-                                                )
-                                            },
-                                        )
-                                        .collect();
 
                                     // Convert to the format expected by generate_response_with_context_and_pronouns
                                     let context_for_api: Vec<(
