@@ -44,7 +44,7 @@ impl GeminiClient {
     pub fn new(config: GeminiConfig) -> Self {
         // Default endpoint for Gemini API
         let default_endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent".to_string();
-        let image_endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent".to_string();
+        let image_endpoint = "https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-001:generateContent".to_string();
 
         // Create prompt templates with custom personality if provided
         let mut prompt_templates = PromptTemplates::new_with_custom_personality(
@@ -542,6 +542,11 @@ impl GeminiClient {
                 }
 
                 // Check for RESOURCE_EXHAUSTED error
+                // Check for model not found error (404)
+                if error_code == 404 && error_message.contains("is not found for API version") {
+                    return Err(anyhow::anyhow!("MODEL_NOT_FOUND: My image generation circuits are fried! 🤖💥 The Gemini overlords changed their API again and now I can't make pretty pictures. Someone needs to fix my brain... again."));
+                }
+
                 if error_code == 429 || error_message.to_lowercase().contains("resource_exhausted")
                 {
                     // Check if this is specifically about quota

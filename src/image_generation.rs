@@ -150,6 +150,18 @@ pub async fn handle_imagine_command(
                             break;
                         }
 
+                        // Check if this is a model not found error (API changed)
+                        if error_string.contains("MODEL_NOT_FOUND") {
+                            // Extract the humorous message after the colon
+                            let model_message = if let Some(colon_pos) = error_string.find(": ") {
+                                &error_string[colon_pos + 2..]
+                            } else {
+                                "My image generation circuits are fried! 🤖💥 The Gemini overlords changed their API again."
+                            };
+                            msg.reply(&ctx.http, model_message).await?;
+                            break;
+                        }
+
                         // Check if this is a per-minute rate limit error
                         if error_string.contains("Per-minute rate limit reached") {
                             // For per-minute limits, we can retry after waiting (silently)
