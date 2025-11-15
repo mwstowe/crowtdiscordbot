@@ -15,6 +15,10 @@ pub async fn handle_imagine_command(
     prompt: &str,
     imagine_channels: &[String],
 ) -> Result<()> {
+    // Temporarily disable image generation until we find a working endpoint
+    msg.reply(&ctx.http, "My image generation circuits are fried! 🤖💥 The Gemini overlords keep changing their API and I can't keep up. Until someone fixes my brain, I'll just have to describe images with interpretive dance... 💃🤖").await?;
+    return Ok(());
+
     // Check if image generation quota is exhausted before doing anything else
     if gemini_client.is_image_quota_exhausted().await {
         msg.reply(&ctx.http, "Image generation quota has been exceeded for today. This feature will be available again tomorrow.").await?;
