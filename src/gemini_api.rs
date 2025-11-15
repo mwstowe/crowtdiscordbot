@@ -492,13 +492,43 @@ impl GeminiClient {
                     response_text
                 );
 
+                // Try to parse the retry delay from the response
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&response_text) {
+                    if let Some(details) = json.get("error").and_then(|e| e.get("details")) {
+                        if let Some(details_array) = details.as_array() {
+                            for detail in details_array {
+                                if let Some(retry_info) = detail.get("retryDelay") {
+                                    if let Some(delay_str) = retry_info.as_str() {
+                                        // Parse delay like "55s" or "55.22892879s"
+                                        if let Some(seconds_str) = delay_str.strip_suffix('s') {
+                                            if let Ok(seconds) = seconds_str.parse::<f64>() {
+                                                let delay_secs = seconds.ceil() as u64;
+                                                info!("API requested retry delay of {} seconds", delay_secs);
+                                                
+                                                // Wait for the specified delay, then retry
+                                                tokio::time::sleep(Duration::from_secs(delay_secs)).await;
+                                                continue; // Retry the request
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Check if the response contains quota-related keywords
                 if response_text.to_lowercase().contains("quota")
                     || response_text.to_lowercase().contains("resource_exhausted")
                 {
-                    // Mark image generation as quota exhausted
-                    self.mark_image_quota_exhausted().await;
-                    return Err(anyhow::anyhow!("IMAGE_QUOTA_EXHAUSTED: Image generation quota has been exceeded for today. This feature will be available again tomorrow."));
+                    // Only mark as daily quota exhausted if it's actually a daily limit
+                    if response_text.contains("daily") || response_text.contains("day") {
+                        self.mark_image_quota_exhausted().await;
+                        return Err(anyhow::anyhow!("IMAGE_QUOTA_EXHAUSTED: Image generation quota has been exceeded for today. This feature will be available again tomorrow."));
+                    } else {
+                        // This is a per-minute rate limit, not daily - let caller retry
+                        return Err(anyhow::anyhow!("Per-minute rate limit reached. Please try again in a moment."));
+                    }
                 }
 
                 // If it's a 429 but not quota-related, return a generic rate limit error
