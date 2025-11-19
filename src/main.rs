@@ -1537,6 +1537,11 @@ impl Bot {
                         .await
                     {
                         Ok(response) => {
+                            // Filter out "pass" responses
+                            if response.trim().to_lowercase() == "pass" {
+                                return Ok(());
+                            }
+
                             // Apply realistic typing delay based on response length
                             apply_realistic_delay(&response, ctx, msg.channel_id).await;
 
@@ -2710,6 +2715,11 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                         .await
                     {
                         Ok(response) => {
+                            // Filter out "pass" responses
+                            if response.trim().to_lowercase() == "pass" {
+                                return Ok(());
+                            }
+
                             // Apply realistic typing delay based on response length
                             apply_realistic_delay(&response, ctx, msg.channel_id).await;
 
@@ -2913,6 +2923,11 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                         .await
                     {
                         Ok(response) => {
+                            // Filter out "pass" responses
+                            if response.trim().to_lowercase() == "pass" {
+                                return Ok(());
+                            }
+
                             // Apply realistic typing delay based on response length
                             apply_realistic_delay(&response, ctx, msg.channel_id).await;
 
