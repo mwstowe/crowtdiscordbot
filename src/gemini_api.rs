@@ -87,22 +87,29 @@ impl GeminiClient {
     /// Get API quota usage statistics
     pub async fn get_quota_stats(&self) -> (String, String, String) {
         // Get text API usage
-        let (text_min_used, text_min_limit, text_day_used, text_day_limit) = 
+        let (text_min_used, text_min_limit, text_day_used, text_day_limit) =
             self.rate_limiter.get_usage_stats().await;
-        let text_quota = format!("{}/{} per minute, {}/{} per day", 
-            text_min_used, text_min_limit, text_day_used, text_day_limit);
+        let text_quota = format!(
+            "{}/{} per minute, {}/{} per day",
+            text_min_used, text_min_limit, text_day_used, text_day_limit
+        );
 
         // Get image API usage
-        let (img_min_used, img_min_limit, img_day_used, img_day_limit) = 
+        let (img_min_used, img_min_limit, img_day_used, img_day_limit) =
             self.image_rate_limiter.get_usage_stats().await;
-        let image_quota = format!("{}/{} per minute, {}/{} per day", 
-            img_min_used, img_min_limit, img_day_used, img_day_limit);
+        let image_quota = format!(
+            "{}/{} per minute, {}/{} per day",
+            img_min_used, img_min_limit, img_day_used, img_day_limit
+        );
 
         // Get image quota exhaustion status
         let image_status = if self.is_image_quota_exhausted().await {
             let quota_lock = self.image_quota_exhausted_until.lock().await;
             if let Some(exhausted_until) = *quota_lock {
-                format!("Exhausted until {}", exhausted_until.format("%Y-%m-%d %H:%M UTC"))
+                format!(
+                    "Exhausted until {}",
+                    exhausted_until.format("%Y-%m-%d %H:%M UTC")
+                )
             } else {
                 "Exhausted".to_string()
             }
@@ -539,10 +546,14 @@ impl GeminiClient {
                                         if let Some(seconds_str) = delay_str.strip_suffix('s') {
                                             if let Ok(seconds) = seconds_str.parse::<f64>() {
                                                 let delay_secs = seconds.ceil() as u64;
-                                                info!("API requested retry delay of {} seconds", delay_secs);
-                                                
+                                                info!(
+                                                    "API requested retry delay of {} seconds",
+                                                    delay_secs
+                                                );
+
                                                 // Wait for the specified delay, then retry
-                                                tokio::time::sleep(Duration::from_secs(delay_secs)).await;
+                                                tokio::time::sleep(Duration::from_secs(delay_secs))
+                                                    .await;
                                                 continue; // Retry the request
                                             }
                                         }
@@ -563,7 +574,9 @@ impl GeminiClient {
                         return Err(anyhow::anyhow!("IMAGE_QUOTA_EXHAUSTED: Image generation quota has been exceeded for today. This feature will be available again tomorrow."));
                     } else {
                         // This is a per-minute rate limit, not daily - let caller retry
-                        return Err(anyhow::anyhow!("Per-minute rate limit reached. Please try again in a moment."));
+                        return Err(anyhow::anyhow!(
+                            "Per-minute rate limit reached. Please try again in a moment."
+                        ));
                     }
                 }
 
