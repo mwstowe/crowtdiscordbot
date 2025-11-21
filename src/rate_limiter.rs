@@ -1,10 +1,11 @@
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 use std::collections::VecDeque;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
-use tracing::{info, warn};
+use tracing::{info, warn, error};
 
 /// A rate limiter that enforces both per-minute and per-day limits
 #[derive(Clone)]
@@ -16,6 +17,9 @@ pub struct RateLimiter {
     // Per-day tracking
     day_limit: u32,
     day_requests: Arc<Mutex<VecDeque<DateTime<Utc>>>>,
+    
+    // Persistence
+    persistence_file: Option<String>,
 }
 
 impl RateLimiter {
@@ -26,7 +30,67 @@ impl RateLimiter {
             minute_requests: Arc::new(Mutex::new(VecDeque::new())),
             day_limit,
             day_requests: Arc::new(Mutex::new(VecDeque::new())),
+            persistence_file: None,
         }
+    }
+
+    /// Create a new rate limiter with persistence
+    pub fn new_with_persistence(minute_limit: u32, day_limit: u32, persistence_file: String) -> Self {
+        let limiter = Self {
+            minute_limit,
+            minute_requests: Arc::new(Mutex::new(VecDeque::new())),
+            day_limit,
+            day_requests: Arc::new(Mutex::new(VecDeque::new())),
+            persistence_file: Some(persistence_file),
+        };
+        
+        // Load existing daily usage on startup
+        if let Err(e) = limiter.load_daily_usage() {
+            warn!("Failed to load daily usage from persistence: {}", e);
+        }
+        
+        limiter
+    }
+
+    /// Load daily usage from persistence file
+    fn load_daily_usage(&self) -> Result<()> {
+        if let Some(file_path) = &self.persistence_file {
+            if Path::new(file_path).exists() {
+                let content = std::fs::read_to_string(file_path)?;
+                let timestamps: Vec<DateTime<Utc>> = serde_json::from_str(&content)?;
+                
+                // Only keep timestamps from the last 24 hours
+                let day_ago = Utc::now() - chrono::Duration::days(1);
+                let valid_timestamps: VecDeque<DateTime<Utc>> = timestamps
+                    .into_iter()
+                    .filter(|t| *t > day_ago)
+                    .collect();
+                
+                // Update the day_requests with loaded data
+                tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current().block_on(async {
+                        let mut day_requests = self.day_requests.lock().await;
+                        *day_requests = valid_timestamps;
+                    })
+                });
+                
+                info!("Loaded {} daily requests from persistence", self.day_requests.try_lock().map(|r| r.len()).unwrap_or(0));
+            }
+        }
+        Ok(())
+    }
+
+    /// Save daily usage to persistence file
+    async fn save_daily_usage(&self) -> Result<()> {
+        if let Some(file_path) = &self.persistence_file {
+            let day_requests = self.day_requests.lock().await;
+            let timestamps: Vec<DateTime<Utc>> = day_requests.iter().cloned().collect();
+            drop(day_requests);
+            
+            let content = serde_json::to_string(&timestamps)?;
+            tokio::fs::write(file_path, content).await?;
+        }
+        Ok(())
     }
 
     /// Get current usage statistics
@@ -130,11 +194,18 @@ impl RateLimiter {
         let now = Instant::now();
         let mut minute_requests = self.minute_requests.lock().await;
         minute_requests.push_back(now);
+        drop(minute_requests);
 
         // Record the request for per-day tracking
         let now_utc = Utc::now();
         let mut day_requests = self.day_requests.lock().await;
         day_requests.push_back(now_utc);
+        drop(day_requests);
+
+        // Save daily usage to persistence
+        if let Err(e) = self.save_daily_usage().await {
+            error!("Failed to save daily usage to persistence: {}", e);
+        }
     }
 
     /// Wait until a request can be made, then record it

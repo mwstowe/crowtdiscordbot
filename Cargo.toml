@@ -24,7 +24,7 @@ lazy_static = "1.4.0"
 mysql = "24.0.0"
 rustc_version_runtime = "0.3.0"
 sysinfo = "0.30.5"
-chrono = "0.4"
+chrono = { version = "0.4", features = ["serde"] }
 scraper = "0.18.1"
 select = "0.6.0"
 urlencoding = "2.1.3"

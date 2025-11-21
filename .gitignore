@@ -7,6 +7,10 @@ message_history.db
 # Ignore context file
 context
 
+# Ignore quota persistence files
+gemini_text_quota.json
+gemini_image_quota.json
+
 # Ignore target directory
 /target/
 

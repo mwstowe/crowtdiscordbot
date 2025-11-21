@@ -57,12 +57,19 @@ impl GeminiClient {
             prompt_templates.set_template("general_response", &wrapper);
         }
 
-        // Create rate limiter for text generation
-        let rate_limiter = RateLimiter::new(config.rate_limit_minute, config.rate_limit_day);
+        // Create rate limiter for text generation with persistence
+        let rate_limiter = RateLimiter::new_with_persistence(
+            config.rate_limit_minute,
+            config.rate_limit_day,
+            "gemini_text_quota.json".to_string(),
+        );
 
-        // Create separate rate limiter for image generation
-        let image_rate_limiter =
-            RateLimiter::new(config.image_rate_limit_minute, config.image_rate_limit_day);
+        // Create separate rate limiter for image generation with persistence
+        let image_rate_limiter = RateLimiter::new_with_persistence(
+            config.image_rate_limit_minute,
+            config.image_rate_limit_day,
+            "gemini_image_quota.json".to_string(),
+        );
 
         Self {
             api_key: config.api_key,
