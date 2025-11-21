@@ -59,11 +59,11 @@ impl RateLimiter {
                 let content = std::fs::read_to_string(file_path)?;
                 let timestamps: Vec<DateTime<Utc>> = serde_json::from_str(&content)?;
                 
-                // Only keep timestamps from the last 24 hours
-                let day_ago = Utc::now() - chrono::Duration::days(1);
+                // Only keep timestamps from today (current UTC day)
+                let today_start = Utc::now().date_naive().and_hms_opt(0, 0, 0).unwrap().and_utc();
                 let valid_timestamps: VecDeque<DateTime<Utc>> = timestamps
                     .into_iter()
-                    .filter(|t| *t > day_ago)
+                    .filter(|t| *t >= today_start)
                     .collect();
                 
                 // Update the day_requests with loaded data
@@ -107,10 +107,10 @@ impl RateLimiter {
         let minute_used = minute_requests.len() as u32;
         drop(minute_requests);
 
-        // Clean up and count day requests
+        // Clean up and count day requests (current UTC day only)
         let mut day_requests = self.day_requests.lock().await;
-        let day_ago = now_utc - chrono::Duration::days(1);
-        while day_requests.front().is_some_and(|t| *t < day_ago) {
+        let today_start = now_utc.date_naive().and_hms_opt(0, 0, 0).unwrap().and_utc();
+        while day_requests.front().is_some_and(|t| *t < today_start) {
             day_requests.pop_front();
         }
         let day_used = day_requests.len() as u32;
@@ -125,28 +125,27 @@ impl RateLimiter {
         let now_utc = Utc::now();
         let mut day_requests = self.day_requests.lock().await;
 
-        // Clean up old day requests (older than 24 hours)
-        let day_ago = now_utc - chrono::Duration::days(1);
-        while day_requests.front().is_some_and(|t| *t < day_ago) {
+        // Clean up old day requests (before today's start)
+        let today_start = now_utc.date_naive().and_hms_opt(0, 0, 0).unwrap().and_utc();
+        while day_requests.front().is_some_and(|t| *t < today_start) {
             day_requests.pop_front();
         }
 
         // Check if we've hit the daily limit
         if day_requests.len() >= self.day_limit as usize {
-            // Calculate when the oldest request will expire
-            if let Some(oldest) = day_requests.front() {
-                let reset_time = *oldest + chrono::Duration::days(1);
-                let wait_duration = reset_time - now_utc;
-                let hours = wait_duration.num_hours();
-                let minutes = wait_duration.num_minutes() % 60;
+            // Daily quota resets at midnight UTC (start of next day)
+            let tomorrow_start = (now_utc.date_naive() + chrono::Duration::days(1))
+                .and_hms_opt(0, 0, 0).unwrap().and_utc();
+            let wait_duration = tomorrow_start - now_utc;
+            let hours = wait_duration.num_hours();
+            let minutes = wait_duration.num_minutes() % 60;
 
-                let error_msg = format!(
-                    "⛔ Daily rate limit reached ({} requests). Reset in {hours} hours {minutes} minutes",
-                    self.day_limit
-                );
-                warn!("{}", error_msg);
-                return Err(anyhow!(error_msg));
-            }
+            let error_msg = format!(
+                "⛔ Daily rate limit reached ({} requests). Reset in {hours} hours {minutes} minutes",
+                self.day_limit
+            );
+            warn!("{}", error_msg);
+            return Err(anyhow!(error_msg));
         }
 
         // Then check the per-minute limit
