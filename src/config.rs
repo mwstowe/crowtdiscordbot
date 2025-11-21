@@ -215,13 +215,13 @@ pub fn parse_config(config: &Config) -> ParsedConfig {
         .gemini_image_rate_limit_minute
         .as_ref()
         .and_then(|limit| limit.parse::<u32>().ok())
-        .unwrap_or(5); // Default: 5 calls per minute (more conservative for image generation)
+        .unwrap_or(2); // Default: 2 calls per minute (Google's actual free tier limit)
 
     let gemini_image_rate_limit_day = config
         .gemini_image_rate_limit_day
         .as_ref()
         .and_then(|limit| limit.parse::<u32>().ok())
-        .unwrap_or(100); // Default: 100 calls per day (more conservative for image generation)
+        .unwrap_or(50); // Default: 50 calls per day (Google's actual free tier limit)
 
     info!(
         "Gemini Image API rate limits set to {} calls per minute and {} calls per day",
