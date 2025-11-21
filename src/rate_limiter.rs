@@ -29,6 +29,32 @@ impl RateLimiter {
         }
     }
 
+    /// Get current usage statistics
+    pub async fn get_usage_stats(&self) -> (u32, u32, u32, u32) {
+        let now_utc = Utc::now();
+        let now_instant = Instant::now();
+
+        // Clean up and count minute requests
+        let mut minute_requests = self.minute_requests.lock().await;
+        let minute_ago = now_instant - Duration::from_secs(60);
+        while minute_requests.front().is_some_and(|t| *t < minute_ago) {
+            minute_requests.pop_front();
+        }
+        let minute_used = minute_requests.len() as u32;
+        drop(minute_requests);
+
+        // Clean up and count day requests
+        let mut day_requests = self.day_requests.lock().await;
+        let day_ago = now_utc - chrono::Duration::days(1);
+        while day_requests.front().is_some_and(|t| *t < day_ago) {
+            day_requests.pop_front();
+        }
+        let day_used = day_requests.len() as u32;
+        drop(day_requests);
+
+        (minute_used, self.minute_limit, day_used, self.day_limit)
+    }
+
     /// Check if a request can be made, and if not, how long to wait
     pub async fn check(&self) -> Result<()> {
         // First check the daily limit

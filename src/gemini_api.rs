@@ -77,6 +77,35 @@ impl GeminiClient {
         }
     }
 
+    /// Get API quota usage statistics
+    pub async fn get_quota_stats(&self) -> (String, String, String) {
+        // Get text API usage
+        let (text_min_used, text_min_limit, text_day_used, text_day_limit) = 
+            self.rate_limiter.get_usage_stats().await;
+        let text_quota = format!("{}/{} per minute, {}/{} per day", 
+            text_min_used, text_min_limit, text_day_used, text_day_limit);
+
+        // Get image API usage
+        let (img_min_used, img_min_limit, img_day_used, img_day_limit) = 
+            self.image_rate_limiter.get_usage_stats().await;
+        let image_quota = format!("{}/{} per minute, {}/{} per day", 
+            img_min_used, img_min_limit, img_day_used, img_day_limit);
+
+        // Get image quota exhaustion status
+        let image_status = if self.is_image_quota_exhausted().await {
+            let quota_lock = self.image_quota_exhausted_until.lock().await;
+            if let Some(exhausted_until) = *quota_lock {
+                format!("Exhausted until {}", exhausted_until.format("%Y-%m-%d %H:%M UTC"))
+            } else {
+                "Exhausted".to_string()
+            }
+        } else {
+            "Available".to_string()
+        };
+
+        (text_quota, image_quota, image_status)
+    }
+
     // Check if image generation is currently blocked due to quota exhaustion
     pub async fn is_image_quota_exhausted(&self) -> bool {
         let quota_lock = self.image_quota_exhausted_until.lock().await;

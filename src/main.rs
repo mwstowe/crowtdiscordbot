@@ -526,6 +526,15 @@ impl Bot {
             }
         ));
 
+        // Add API quota information if Gemini client is available
+        if let Some(gemini_client) = &self.gemini_client {
+            let (text_quota, image_quota, image_status) = gemini_client.get_quota_stats().await;
+            info.push_str("\n**API Quotas:**\n");
+            info.push_str(&format!("- Text API: {}\n", text_quota));
+            info.push_str(&format!("- Image API: {}\n", image_quota));
+            info.push_str(&format!("- Image Status: {}\n", image_status));
+        }
+
         // Send the info message
         if let Err(e) = msg.channel_id.say(&ctx.http, info).await {
             error!("Error sending info message: {:?}", e);
