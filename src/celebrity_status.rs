@@ -1055,7 +1055,7 @@ async fn search_celebrity_attempt(name: &str) -> Result<Option<String>> {
 
         // If we couldn't determine age
         response.push_str(&format!(
-            ". {} appears to be alive, but I couldn't determine {}_age.",
+            ". {} appears to be alive, but I couldn't determine {} age.",
             subject_pronoun
                 .to_string()
                 .to_uppercase()
