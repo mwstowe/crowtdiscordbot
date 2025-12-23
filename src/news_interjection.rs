@@ -74,18 +74,18 @@ pub async fn handle_news_interjection(
         .prompt_templates()
         .format_news_interjection(&context_text);
 
-    // Call Gemini API with the news prompt
+    // Call Gemini API with the news prompt using multi-response generation
     match gemini_client
-        .generate_response_with_context_and_pronouns(&news_prompt, "", &Vec::new(), None)
+        .generate_best_response_with_context_and_pronouns(
+            &news_prompt,
+            "",
+            &Vec::new(),
+            None,
+            false, // Let it decide whether to respond for news interjections
+        )
         .await
     {
-        Ok(response) => {
-            // Check if the response starts with "pass" (case-insensitive) - if so, don't send anything
-            if response.trim().to_lowercase().starts_with("pass") {
-                info!("News interjection evaluation: decided to PASS - no response sent");
-                return Ok(());
-            }
-
+        Ok(Some(response)) => {
             // Check if the response looks like the prompt itself (API error)
             if response.contains("{bot_name}")
                 || response.contains("{context}")
@@ -224,6 +224,9 @@ pub async fn handle_news_interjection(
             } else {
                 info!("News interjection skipped: Couldn't extract article title and URL");
             }
+        }
+        Ok(None) => {
+            info!("News interjection evaluation: decided to PASS - no response sent");
         }
         Err(e) => {
             error!("Error generating news interjection: {:?}", e);

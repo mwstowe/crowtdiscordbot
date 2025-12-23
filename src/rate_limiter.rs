@@ -23,17 +23,6 @@ pub struct RateLimiter {
 }
 
 impl RateLimiter {
-    /// Create a new rate limiter with specified limits
-    pub fn new(minute_limit: u32, day_limit: u32) -> Self {
-        Self {
-            minute_limit,
-            minute_requests: Arc::new(Mutex::new(VecDeque::new())),
-            day_limit,
-            day_requests: Arc::new(Mutex::new(VecDeque::new())),
-            persistence_file: None,
-        }
-    }
-
     /// Create a new rate limiter with persistence
     pub fn new_with_persistence(
         minute_limit: u32,

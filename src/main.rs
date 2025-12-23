@@ -1537,20 +1537,16 @@ impl Bot {
                             .collect();
 
                     match gemini_client
-                        .generate_response_with_context_and_pronouns(
+                        .generate_best_response_with_context_and_pronouns(
                             &content,
                             &clean_display_name,
                             &context_for_api,
                             user_pronouns.as_deref(),
+                            true, // Always respond when directly addressed by name
                         )
                         .await
                     {
-                        Ok(response) => {
-                            // Filter out "pass" responses
-                            if response.trim().to_lowercase() == "pass" {
-                                return Ok(());
-                            }
-
+                        Ok(Some(response)) => {
                             // Apply realistic typing delay based on response length
                             apply_realistic_delay(&response, ctx, msg.channel_id).await;
 
@@ -1569,6 +1565,10 @@ impl Bot {
                                     error!("Error sending fallback Gemini response: {:?}", e);
                                 }
                             }
+                        }
+                        Ok(None) => {
+                            // No response generated (all were "pass")
+                            return Ok(());
                         }
                         Err(e) => {
                             error!("Error calling Gemini API: {:?}", e);
@@ -2071,26 +2071,16 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                             .generate_best_response_with_context(&prompt, &context_for_api)
                             .await
                     } else {
-                        // Fallback to single response
-                        match gemini_client
-                            .generate_response_with_context_and_pronouns(
+                        // Use the new multi-response generation with decision logic
+                        gemini_client
+                            .generate_best_response_with_context_and_pronouns(
                                 &prompt,
                                 &self.bot_name,
                                 &context_for_api,
                                 None,
+                                false, // Let it decide whether to respond for interjections
                             )
                             .await
-                        {
-                            Ok(response) => {
-                                let response = response.trim();
-                                if response.to_lowercase().starts_with("pass") {
-                                    Ok(None)
-                                } else {
-                                    Ok(Some(response.to_string()))
-                                }
-                            }
-                            Err(e) => Err(e),
-                        }
                     };
 
                     match response_result {
@@ -2715,20 +2705,16 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
 
                     // Call the Gemini API with context and pronouns
                     match gemini_client
-                        .generate_response_with_context_and_pronouns(
+                        .generate_best_response_with_context_and_pronouns(
                             &content,
                             &clean_display_name,
                             &context_for_api,
                             user_pronouns.as_deref(),
+                            true, // Always respond when directly addressed by name
                         )
                         .await
                     {
-                        Ok(response) => {
-                            // Filter out "pass" responses
-                            if response.trim().to_lowercase() == "pass" {
-                                return Ok(());
-                            }
-
+                        Ok(Some(response)) => {
                             // Apply realistic typing delay based on response length
                             apply_realistic_delay(&response, ctx, msg.channel_id).await;
 
@@ -2747,6 +2733,10 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                                     error!("Error sending fallback Gemini response: {:?}", e);
                                 }
                             }
+                        }
+                        Ok(None) => {
+                            // No response generated (all were "pass")
+                            return Ok(());
                         }
                         Err(e) => {
                             error!("Error calling Gemini API: {:?}", e);
@@ -2923,20 +2913,16 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                             .collect();
 
                     match gemini_client
-                        .generate_response_with_context_and_pronouns(
+                        .generate_best_response_with_context_and_pronouns(
                             &content,
                             &clean_display_name,
                             &context_for_api,
                             user_pronouns.as_deref(),
+                            true, // Always respond when directly mentioned
                         )
                         .await
                     {
-                        Ok(response) => {
-                            // Filter out "pass" responses
-                            if response.trim().to_lowercase() == "pass" {
-                                return Ok(());
-                            }
-
+                        Ok(Some(response)) => {
                             // Apply realistic typing delay based on response length
                             apply_realistic_delay(&response, ctx, msg.channel_id).await;
 
@@ -2955,6 +2941,10 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                                     error!("Error sending fallback Gemini response: {:?}", e);
                                 }
                             }
+                        }
+                        Ok(None) => {
+                            // No response generated (all were "pass")
+                            return Ok(());
                         }
                         Err(e) => {
                             error!("Error calling Gemini API: {:?}", e);

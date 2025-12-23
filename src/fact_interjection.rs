@@ -358,21 +358,16 @@ async fn handle_fact_interjection_common(
             .generate_best_response_with_context(&fact_prompt, &context_for_api)
             .await
     } else {
-        // Fallback to single response
-        match gemini_client
-            .generate_response_with_context_and_pronouns(&fact_prompt, "", &context_for_api, None)
+        // Use the new multi-response generation with decision logic
+        gemini_client
+            .generate_best_response_with_context_and_pronouns(
+                &fact_prompt,
+                "",
+                &context_for_api,
+                None,
+                false, // Let it decide whether to respond for fact interjections
+            )
             .await
-        {
-            Ok(response) => {
-                let response = response.trim();
-                if response.to_lowercase().starts_with("pass") {
-                    Ok(None)
-                } else {
-                    Ok(Some(response.to_string()))
-                }
-            }
-            Err(e) => Err(e),
-        }
     };
 
     match response_result {

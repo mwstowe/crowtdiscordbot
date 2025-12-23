@@ -3,6 +3,7 @@ use crate::rate_limiter::RateLimiter;
 use anyhow::Result;
 use base64::Engine;
 use chrono::{DateTime, Utc};
+use rand::Rng;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -191,6 +192,99 @@ impl GeminiClient {
             user_pronouns,
         )
         .await
+    }
+
+    // Generate multiple responses with context and select the best one
+    pub async fn generate_best_response_with_context_and_pronouns(
+        &self,
+        prompt: &str,
+        user_name: &str,
+        context_messages: &[(String, String, Option<String>, String)],
+        user_pronouns: Option<&str>,
+        should_respond: bool,
+    ) -> Result<Option<String>> {
+        // Generate 3-5 responses
+        let num_responses = rand::thread_rng().gen_range(3..=5);
+        let mut responses = Vec::new();
+
+        for i in 0..num_responses {
+            match self
+                .generate_response_with_context_and_pronouns(
+                    prompt,
+                    user_name,
+                    context_messages,
+                    user_pronouns,
+                )
+                .await
+            {
+                Ok(response) => {
+                    // Skip empty or "pass" responses
+                    let trimmed = response.trim();
+                    if !trimmed.is_empty() && trimmed.to_lowercase() != "pass" {
+                        responses.push(response);
+                    }
+                }
+                Err(e) => {
+                    // If we get an error on the first attempt, return it
+                    if i == 0 {
+                        return Err(e);
+                    }
+                    // Otherwise, continue with what we have
+                    break;
+                }
+            }
+        }
+
+        if responses.is_empty() {
+            return Ok(None);
+        }
+
+        // If we only have one response, use it
+        if responses.len() == 1 {
+            return if should_respond {
+                Ok(Some(responses[0].clone()))
+            } else {
+                Ok(None)
+            };
+        }
+
+        // Select the funniest/best response using AI
+        let selection_prompt = format!(
+            "You are selecting the funniest and most appropriate response from these options:\n\n{}\n\nRespond with ONLY the number (1-{}) of the best response. Consider humor, relevance, and naturalness.",
+            responses.iter().enumerate().map(|(i, r)| format!("{}. {}", i + 1, r)).collect::<Vec<_>>().join("\n\n"),
+            responses.len()
+        );
+
+        match self.generate_content(&selection_prompt).await {
+            Ok(selection) => {
+                if let Ok(index) = selection.trim().parse::<usize>() {
+                    if index > 0 && index <= responses.len() {
+                        let selected = responses[index - 1].clone();
+                        return if should_respond {
+                            Ok(Some(selected))
+                        } else {
+                            Ok(None)
+                        };
+                    }
+                }
+                // Fallback to random selection if parsing fails
+                let selected = responses[rand::thread_rng().gen_range(0..responses.len())].clone();
+                if should_respond {
+                    Ok(Some(selected))
+                } else {
+                    Ok(None)
+                }
+            }
+            Err(_) => {
+                // Fallback to random selection if selection fails
+                let selected = responses[rand::thread_rng().gen_range(0..responses.len())].clone();
+                if should_respond {
+                    Ok(Some(selected))
+                } else {
+                    Ok(None)
+                }
+            }
+        }
     }
 
     // New function that accepts context messages with pronouns
