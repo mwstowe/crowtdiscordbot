@@ -194,7 +194,7 @@ impl GeminiClient {
         .await
     }
 
-    // Generate multiple responses with context and select the best one
+    // Generate multiple responses with context and select one randomly
     pub async fn generate_best_response_with_context_and_pronouns(
         &self,
         prompt: &str,
@@ -203,87 +203,65 @@ impl GeminiClient {
         user_pronouns: Option<&str>,
         should_respond: bool,
     ) -> Result<Option<String>> {
-        // Generate 3-5 responses
-        let num_responses = rand::thread_rng().gen_range(3..=5);
-        let mut responses = Vec::new();
-
-        for i in 0..num_responses {
-            match self
-                .generate_response_with_context_and_pronouns(
-                    prompt,
-                    user_name,
-                    context_messages,
-                    user_pronouns,
-                )
-                .await
-            {
-                Ok(response) => {
-                    // Skip empty or "pass" responses
-                    let trimmed = response.trim();
-                    if !trimmed.is_empty() && trimmed.to_lowercase() != "pass" {
-                        responses.push(response);
-                    }
-                }
-                Err(e) => {
-                    // If we get an error on the first attempt, return it
-                    if i == 0 {
-                        return Err(e);
-                    }
-                    // Otherwise, continue with what we have
-                    break;
-                }
-            }
-        }
-
-        if responses.is_empty() {
-            return Ok(None);
-        }
-
-        // If we only have one response, use it
-        if responses.len() == 1 {
-            return if should_respond {
-                Ok(Some(responses[0].clone()))
-            } else {
-                Ok(None)
-            };
-        }
-
-        // Select the funniest/best response using AI
-        let selection_prompt = format!(
-            "You are selecting the funniest and most appropriate response from these options:\n\n{}\n\nRespond with ONLY the number (1-{}) of the best response. Consider humor, relevance, and naturalness.",
-            responses.iter().enumerate().map(|(i, r)| format!("{}. {}", i + 1, r)).collect::<Vec<_>>().join("\n\n"),
-            responses.len()
+        // Create a modified prompt that asks for multiple responses
+        let multi_response_prompt = format!(
+            "{}\n\nGenerate exactly 3-5 different response options, each on a separate line starting with 'OPTION:'. Make each response unique in tone and approach while staying in character. If you decide not to respond at all, just respond with 'PASS'.",
+            prompt
         );
 
-        match self.generate_content(&selection_prompt).await {
-            Ok(selection) => {
-                if let Ok(index) = selection.trim().parse::<usize>() {
-                    if index > 0 && index <= responses.len() {
-                        let selected = responses[index - 1].clone();
-                        return if should_respond {
-                            Ok(Some(selected))
+        match self
+            .generate_response_with_context_and_pronouns(
+                &multi_response_prompt,
+                user_name,
+                context_messages,
+                user_pronouns,
+            )
+            .await
+        {
+            Ok(response) => {
+                let trimmed = response.trim();
+
+                // Check if the AI decided to pass
+                if trimmed.to_lowercase() == "pass" {
+                    return Ok(None);
+                }
+
+                // Parse the response options
+                let options: Vec<String> = trimmed
+                    .lines()
+                    .filter_map(|line| {
+                        let line = line.trim();
+                        if line.starts_with("OPTION:") {
+                            let option = line.strip_prefix("OPTION:").unwrap_or(line).trim();
+                            if !option.is_empty() && option.to_lowercase() != "pass" {
+                                Some(option.to_string())
+                            } else {
+                                None
+                            }
                         } else {
-                            Ok(None)
-                        };
+                            None
+                        }
+                    })
+                    .collect();
+
+                if options.is_empty() {
+                    // Fallback: use the original response if no options were parsed
+                    if should_respond {
+                        Ok(Some(trimmed.to_string()))
+                    } else {
+                        Ok(None)
+                    }
+                } else {
+                    // Pick a random option
+                    let selected = &options[rand::thread_rng().gen_range(0..options.len())];
+                    if should_respond {
+                        Ok(Some(selected.clone()))
+                    } else {
+                        Ok(None)
                     }
                 }
-                // Fallback to random selection if parsing fails
-                let selected = responses[rand::thread_rng().gen_range(0..responses.len())].clone();
-                if should_respond {
-                    Ok(Some(selected))
-                } else {
-                    Ok(None)
-                }
             }
-            Err(_) => {
-                // Fallback to random selection if selection fails
-                let selected = responses[rand::thread_rng().gen_range(0..responses.len())].clone();
-                if should_respond {
-                    Ok(Some(selected))
-                } else {
-                    Ok(None)
-                }
-            }
+            Err(e) => Err(e),
         }
     }
 
