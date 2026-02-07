@@ -205,7 +205,7 @@ impl GeminiClient {
     ) -> Result<Option<String>> {
         // Create a modified prompt that asks for multiple responses
         let multi_response_prompt = format!(
-            "{}\n\nGenerate exactly 3-5 different response options, each on a separate line starting with 'OPTION:'. Make each response unique in tone and approach while staying in character. If you decide not to respond at all, just respond with 'PASS'.",
+            "{}\n\nIMPORTANT: You are responding to {user_name}. Do not address anyone else by name unless directly relevant to your response.\n\nGenerate exactly 3-5 different response options, each on a separate line starting with 'OPTION:'. Make each response unique in tone and approach while staying in character. Make your responses about 10% funnier than usual - add wit, unexpected turns, or clever observations. If you decide not to respond at all, just respond with 'PASS'.",
             prompt
         );
 
@@ -252,8 +252,27 @@ impl GeminiClient {
                         Ok(None)
                     }
                 } else {
-                    // Pick a random option
-                    let selected = &options[rand::thread_rng().gen_range(0..options.len())];
+                    // Weighted selection: option #2 = 75%, option #3 = 15%, rest split remaining 10%
+                    let rand_val = rand::thread_rng().gen_range(0.0..1.0);
+                    let selected_idx = if options.len() >= 2 && rand_val < 0.75 {
+                        // 75% chance: select option #2 (index 1)
+                        1
+                    } else if options.len() >= 3 && rand_val < 0.90 {
+                        // 15% chance: select option #3 (index 2)
+                        2
+                    } else {
+                        // 10% chance: select from remaining options (excluding #2 and #3)
+                        let remaining: Vec<usize> =
+                            (0..options.len()).filter(|&i| i != 1 && i != 2).collect();
+                        if remaining.is_empty() {
+                            // Fallback if only 1-2 options exist
+                            rand::thread_rng().gen_range(0..options.len())
+                        } else {
+                            remaining[rand::thread_rng().gen_range(0..remaining.len())]
+                        }
+                    };
+
+                    let selected = &options[selected_idx];
                     if should_respond {
                         Ok(Some(selected.clone()))
                     } else {

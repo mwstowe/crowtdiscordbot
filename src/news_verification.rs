@@ -9,24 +9,62 @@ pub async fn verify_news_article(
     article_url: &str,
     article_summary: &str,
 ) -> Result<bool> {
-    // Create a prompt for Gemini to verify the article
+    // First, fetch the actual page content
+    info!("Fetching page content from: {}", article_url);
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36")
+        .build()?;
+
+    let response = match client.get(article_url).send().await {
+        Ok(resp) => resp,
+        Err(e) => {
+            error!("Failed to fetch URL {}: {:?}", article_url, e);
+            return Ok(false);
+        }
+    };
+
+    // Check status code
+    if !response.status().is_success() {
+        error!("URL returned non-success status: {}", response.status());
+        return Ok(false);
+    }
+
+    // Get the page content
+    let page_content = match response.text().await {
+        Ok(content) => content,
+        Err(e) => {
+            error!("Failed to read page content: {:?}", e);
+            return Ok(false);
+        }
+    };
+
+    // Extract text from HTML (simple approach - just get text between tags)
+    let text_content = extract_text_from_html(&page_content);
+
+    // Take first 2000 characters of content for verification
+    let content_sample = if text_content.len() > 2000 {
+        &text_content[..2000]
+    } else {
+        &text_content
+    };
+
+    // Create a prompt for Gemini to verify the article against actual content
     let prompt = format!(
-        "You are a fact-checking assistant. Your task is to determine if the provided article title and summary match the content at the URL.\n\n\
+        "You are verifying if an article title and summary match the actual page content.\n\n\
         Article Title: {article_title}\n\
-        Article URL: {article_url}\n\
         Article Summary: {article_summary}\n\n\
-        Based on the URL and your knowledge, determine if the title and summary are likely to match the actual content at the URL.\n\
-        Consider the following:\n\
-        1. Does the URL domain match a reputable news source?\n\
-        2. Does the URL path contain keywords related to the title or summary?\n\
-        3. Does the title seem appropriate for the news source?\n\
-        4. Does the summary contain information that would likely be in an article with this title?\n\
-        5. Are there any obvious mismatches or inconsistencies?\n\n\
-        Respond with ONLY ONE of these exact words:\n\
-        - \"MATCH\" - if the title and summary likely match the URL\n\
-        - \"MISMATCH\" - if there's a clear mismatch between the title/summary and the URL\n\
-        - \"UNCERTAIN\" - if you cannot determine with confidence\n\
-        Do not include any other text in your response."
+        Actual Page Content (first 2000 chars):\n{content_sample}\n\n\
+        Does the title and summary accurately describe this page content?\n\
+        Consider:\n\
+        1. Is this actually a news article (not a 404, category page, or error page)?\n\
+        2. Does the title match the main topic of the content?\n\
+        3. Does the summary accurately reflect what's in the content?\n\
+        4. Is the content substantive (not just a stub or redirect)?\n\n\
+        Respond with ONLY ONE word:\n\
+        - \"MATCH\" - if title/summary accurately match the content\n\
+        - \"MISMATCH\" - if there's a clear mismatch or the page doesn't exist/is broken"
     );
 
     // Send the prompt to Gemini
@@ -37,27 +75,60 @@ pub async fn verify_news_article(
 
             match response.as_str() {
                 "MATCH" => Ok(true),
-                "MISMATCH" => {
-                    error!("News verification failed: Title/summary mismatch with URL");
-                    Ok(false)
-                }
-                "UNCERTAIN" => {
-                    error!(
-                        "News verification uncertain: Cannot determine if title/summary match URL"
-                    );
-                    Ok(false) // Treat uncertainty as a failure to be safe
-                }
                 _ => {
-                    error!("Unexpected news verification response: {}", response);
-                    Ok(false) // Treat unexpected responses as failures
+                    error!("News verification failed: {}", response);
+                    Ok(false)
                 }
             }
         }
         Err(e) => {
             error!("Error verifying news article: {:?}", e);
-            Ok(false) // Treat errors as failures
+            Ok(false)
         }
     }
+}
+
+/// Extract text content from HTML (simple tag stripping)
+fn extract_text_from_html(html: &str) -> String {
+    // Remove script and style tags and their content
+    let mut text = html.to_string();
+
+    // Remove script tags
+    while let Some(start) = text.find("<script") {
+        if let Some(end) = text[start..].find("</script>") {
+            text.replace_range(start..start + end + 9, " ");
+        } else {
+            break;
+        }
+    }
+
+    // Remove style tags
+    while let Some(start) = text.find("<style") {
+        if let Some(end) = text[start..].find("</style>") {
+            text.replace_range(start..start + end + 8, " ");
+        } else {
+            break;
+        }
+    }
+
+    // Remove all HTML tags
+    let mut result = String::new();
+    let mut in_tag = false;
+
+    for ch in text.chars() {
+        match ch {
+            '<' => in_tag = true,
+            '>' => {
+                in_tag = false;
+                result.push(' ');
+            }
+            _ if !in_tag => result.push(ch),
+            _ => {}
+        }
+    }
+
+    // Clean up whitespace
+    result.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// Verify that a URL is properly formatted for a news article
