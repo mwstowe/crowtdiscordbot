@@ -11,6 +11,18 @@ use std::time::Duration;
 use tokio_rusqlite::Connection;
 use tracing::{error, info};
 
+// Extract topic from response in "TOPIC: description" format
+fn extract_topic_from_response(response: &str) -> Option<String> {
+    if let Some(topic_start) = response.find("TOPIC:") {
+        let after_topic = &response[topic_start + 6..];
+        let topic = after_topic.lines().next()?.trim();
+        if !topic.is_empty() {
+            return Some(topic.to_string());
+        }
+    }
+    None
+}
+
 // Handle news interjection
 pub async fn handle_news_interjection(
     ctx: &Context,
@@ -91,245 +103,91 @@ pub async fn handle_news_interjection(
             if response.contains("{bot_name}")
                 || response.contains("{context}")
                 || response.contains("Guidelines:")
-                || response.contains("Example good response:")
             {
                 error!("News interjection error: API returned the prompt instead of a response");
                 return Ok(());
             }
 
-            // Validate the news article and reference with a second API call
-            let validation_prompt = format!(
-                "Validate this news article reference:\n\nArticle: {}\n\nCheck if:\n1. Any URLs mentioned exist and are accessible\n2. The article summary matches the actual content\n3. The source appears to be a legitimate news/tech website\n\nRespond with only: VALID or INVALID",
-                response.trim()
-            );
+            // Extract the topic from the response
+            if let Some(topic) = extract_topic_from_response(&response) {
+                info!("Extracted topic for search: {}", topic);
 
-            match gemini_client.generate_content(&validation_prompt).await {
-                Ok(validation_response) => {
-                    let validation = validation_response.trim().to_uppercase();
-                    if !validation.starts_with("VALID") {
-                        info!(
-                            "News interjection validation failed: {} - skipping interjection",
-                            validation
-                        );
-                        return Ok(());
-                    }
-                    info!("News interjection validation passed: {}", validation);
-                }
-                Err(e) => {
-                    error!("News interjection validation API call failed: {:?} - skipping interjection", e);
-                    return Ok(());
-                }
-            }
+                // Search for an article about this topic
+                if let Some(search_result) = try_search_for_article(&topic).await {
+                    // Validate the search result
+                    match news_verification::verify_news_article(
+                        gemini_client,
+                        &topic,
+                        &search_result.url,
+                        &response,
+                    )
+                    .await
+                    {
+                        Ok(true) => {
+                            info!(
+                                "Search result validated successfully: {}",
+                                search_result.url
+                            );
 
-            // Check for self-reference issues
-            if response.contains("I'm Crow")
-                || response.contains("As Crow")
-                || response.contains("handsome") && response.contains("modest")
-                || response.contains("Satellite of Love")
-            {
-                error!(
-                    "News interjection error: Response contains self-reference: {}",
-                    response
-                );
-                return Ok(());
-            }
+                            // Append the validated URL to the response
+                            let final_response =
+                                format!("{} Source: {}", response, search_result.url);
 
-            // Validate URL format using our new validator
-            if !news_verification::verify_url_format(&response) {
-                error!(
-                    "News interjection error: Invalid URL format in response: {}",
-                    response
-                );
-                return Ok(());
-            }
-
-            // Extract article title, URL, and summary
-            if let Some((title, url)) = news_verification::extract_article_info(&response) {
-                // Get the summary (everything after the URL)
-                let url_pos = response.find(&url).unwrap_or(0);
-                let summary = if url_pos + url.len() < response.len() {
-                    response[(url_pos + url.len())..].trim().to_string()
-                } else {
-                    String::new()
-                };
-
-                // Validate that the URL actually exists and follow redirects
-                match validate_url_exists(&url).await {
-                    Ok((true, Some(final_url))) => {
-                        // URL exists, now verify that the title and summary match the content
-                        match news_verification::verify_news_article(
-                            gemini_client,
-                            &title,
-                            &final_url,
-                            &summary,
-                        )
-                        .await
-                        {
-                            Ok(true) => {
-                                // Title and summary match the URL content
-                                info!("News verification successful: Title and summary match URL content");
-
-                                // Replace the original URL with the final URL if they're different
-                                let final_response = if url != final_url {
-                                    response.replace(&url, &final_url)
-                                } else {
-                                    response
-                                };
-
-                                // Start typing indicator now that we've decided to send a message
-                                if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
-                                    error!("Failed to send typing indicator for news interjection: {:?}", e);
-                                }
-
-                                // Apply realistic typing delay
-                                apply_realistic_delay(&final_response, ctx, msg.channel_id).await;
-
-                                // Send the response
-                                let response_text = final_response.clone(); // Clone for logging
-                                if let Err(e) = msg.channel_id.say(&ctx.http, final_response).await
-                                {
-                                    error!("Error sending news interjection: {:?}", e);
-                                } else {
-                                    info!("News interjection sent: {}", response_text);
-                                }
+                            if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
+                                error!("Failed to send typing indicator: {:?}", e);
                             }
-                            Ok(false) => {
-                                // Title and summary don't match - try searching for a real article
-                                info!("Original URL validation failed, attempting DuckDuckGo search for: {}", title);
 
-                                if let Some(search_result) = try_search_for_article(&title).await {
-                                    // Validate the search result
-                                    match news_verification::verify_news_article(
-                                        gemini_client,
-                                        &title,
-                                        &search_result.url,
-                                        &summary,
-                                    )
-                                    .await
-                                    {
-                                        Ok(true) => {
-                                            info!(
-                                                "Search result validated successfully: {}",
-                                                search_result.url
-                                            );
+                            apply_realistic_delay(&final_response, ctx, msg.channel_id).await;
 
-                                            // Replace the bad URL with the good one
-                                            let final_response =
-                                                response.replace(&url, &search_result.url);
-
-                                            if let Err(e) =
-                                                msg.channel_id.broadcast_typing(&ctx.http).await
-                                            {
-                                                error!("Failed to send typing indicator: {:?}", e);
-                                            }
-
-                                            apply_realistic_delay(
-                                                &final_response,
-                                                ctx,
-                                                msg.channel_id,
-                                            )
-                                            .await;
-
-                                            if let Err(e) = msg
-                                                .channel_id
-                                                .say(&ctx.http, final_response.clone())
-                                                .await
-                                            {
-                                                error!("Error sending news interjection: {:?}", e);
-                                            } else {
-                                                info!(
-                                                    "News interjection sent with search result: {}",
-                                                    final_response
-                                                );
-                                            }
-                                        }
-                                        Ok(false) => {
-                                            info!("Search result also failed validation - skipping interjection");
-                                        }
-                                        Err(e) => {
-                                            error!("Error verifying search result: {:?}", e);
-                                        }
-                                    }
-                                } else {
-                                    info!("No valid search results found - skipping interjection");
-                                }
-                            }
-                            Err(e) => {
-                                // Error verifying title and summary
-                                error!("Error verifying news article title/summary: {:?}", e);
-                            }
-                        }
-                    }
-                    Ok((true, None)) => {
-                        // URL exists but we couldn't get the final URL
-                        info!(
-                            "News interjection skipped: URL exists but couldn't get final URL: {}",
-                            url
-                        );
-                    }
-                    Ok((false, _)) => {
-                        // URL doesn't exist - try searching
-                        info!(
-                            "URL doesn't exist, attempting DuckDuckGo search for: {}",
-                            title
-                        );
-
-                        if let Some(search_result) = try_search_for_article(&title).await {
-                            match news_verification::verify_news_article(
-                                gemini_client,
-                                &title,
-                                &search_result.url,
-                                &summary,
-                            )
-                            .await
+                            if let Err(e) =
+                                msg.channel_id.say(&ctx.http, final_response.clone()).await
                             {
-                                Ok(true) => {
-                                    info!(
-                                        "Search result validated successfully: {}",
-                                        search_result.url
-                                    );
-
-                                    let final_response = response.replace(&url, &search_result.url);
-
-                                    if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await
-                                    {
-                                        error!("Failed to send typing indicator: {:?}", e);
-                                    }
-
-                                    apply_realistic_delay(&final_response, ctx, msg.channel_id)
-                                        .await;
-
-                                    if let Err(e) =
-                                        msg.channel_id.say(&ctx.http, final_response.clone()).await
-                                    {
-                                        error!("Error sending news interjection: {:?}", e);
-                                    } else {
-                                        info!(
-                                            "News interjection sent with search result: {}",
-                                            final_response
-                                        );
-                                    }
-                                }
-                                Ok(false) => {
-                                    info!(
-                                        "Search result failed validation - skipping interjection"
-                                    );
-                                }
-                                Err(e) => {
-                                    error!("Error verifying search result: {:?}", e);
-                                }
+                                error!("Error sending news interjection: {:?}", e);
+                            } else {
+                                info!(
+                                    "News interjection sent with validated URL: {}",
+                                    final_response
+                                );
                             }
-                        } else {
-                            info!("No valid search results found - skipping interjection");
+                        }
+                        Ok(false) => {
+                            info!("Search result failed validation - sending response without URL");
+
+                            // Send the response without a URL rather than skipping entirely
+                            if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
+                                error!("Failed to send typing indicator: {:?}", e);
+                            }
+
+                            apply_realistic_delay(&response, ctx, msg.channel_id).await;
+
+                            if let Err(e) = msg.channel_id.say(&ctx.http, response.clone()).await {
+                                error!("Error sending news interjection: {:?}", e);
+                            } else {
+                                info!("News interjection sent without URL: {}", response);
+                            }
+                        }
+                        Err(e) => {
+                            error!("Error verifying search result: {:?}", e);
                         }
                     }
-                    Err(e) => {
-                        // Error validating URL
-                        error!("Error validating URL {}: {:?}", url, e);
+                } else {
+                    info!("No search results found - sending response without URL");
+
+                    // Send the response without a URL
+                    if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
+                        error!("Failed to send typing indicator: {:?}", e);
+                    }
+
+                    apply_realistic_delay(&response, ctx, msg.channel_id).await;
+
+                    if let Err(e) = msg.channel_id.say(&ctx.http, response.clone()).await {
+                        error!("Error sending news interjection: {:?}", e);
+                    } else {
+                        info!("News interjection sent without URL: {}", response);
                     }
                 }
             } else {
-                info!("News interjection skipped: Couldn't extract article title and URL");
+                info!("Could not extract topic from response - skipping interjection");
             }
         }
         Ok(None) => {
