@@ -1,4 +1,5 @@
 use crate::db_utils;
+use crate::duckduckgo_search::DuckDuckGoSearchClient;
 use crate::gemini_api::GeminiClient;
 use crate::news_verification;
 use crate::response_timing::apply_realistic_delay;
@@ -193,8 +194,65 @@ pub async fn handle_news_interjection(
                                 }
                             }
                             Ok(false) => {
-                                // Title and summary don't match the URL content
-                                info!("News interjection skipped: Title/summary mismatch with URL content");
+                                // Title and summary don't match - try searching for a real article
+                                info!("Original URL validation failed, attempting DuckDuckGo search for: {}", title);
+
+                                if let Some(search_result) = try_search_for_article(&title).await {
+                                    // Validate the search result
+                                    match news_verification::verify_news_article(
+                                        gemini_client,
+                                        &title,
+                                        &search_result.url,
+                                        &summary,
+                                    )
+                                    .await
+                                    {
+                                        Ok(true) => {
+                                            info!(
+                                                "Search result validated successfully: {}",
+                                                search_result.url
+                                            );
+
+                                            // Replace the bad URL with the good one
+                                            let final_response =
+                                                response.replace(&url, &search_result.url);
+
+                                            if let Err(e) =
+                                                msg.channel_id.broadcast_typing(&ctx.http).await
+                                            {
+                                                error!("Failed to send typing indicator: {:?}", e);
+                                            }
+
+                                            apply_realistic_delay(
+                                                &final_response,
+                                                ctx,
+                                                msg.channel_id,
+                                            )
+                                            .await;
+
+                                            if let Err(e) = msg
+                                                .channel_id
+                                                .say(&ctx.http, final_response.clone())
+                                                .await
+                                            {
+                                                error!("Error sending news interjection: {:?}", e);
+                                            } else {
+                                                info!(
+                                                    "News interjection sent with search result: {}",
+                                                    final_response
+                                                );
+                                            }
+                                        }
+                                        Ok(false) => {
+                                            info!("Search result also failed validation - skipping interjection");
+                                        }
+                                        Err(e) => {
+                                            error!("Error verifying search result: {:?}", e);
+                                        }
+                                    }
+                                } else {
+                                    info!("No valid search results found - skipping interjection");
+                                }
                             }
                             Err(e) => {
                                 // Error verifying title and summary
@@ -210,11 +268,60 @@ pub async fn handle_news_interjection(
                         );
                     }
                     Ok((false, _)) => {
-                        // URL doesn't exist or isn't HTML
+                        // URL doesn't exist - try searching
                         info!(
-                            "News interjection skipped: URL doesn't exist or isn't HTML: {}",
-                            url
+                            "URL doesn't exist, attempting DuckDuckGo search for: {}",
+                            title
                         );
+
+                        if let Some(search_result) = try_search_for_article(&title).await {
+                            match news_verification::verify_news_article(
+                                gemini_client,
+                                &title,
+                                &search_result.url,
+                                &summary,
+                            )
+                            .await
+                            {
+                                Ok(true) => {
+                                    info!(
+                                        "Search result validated successfully: {}",
+                                        search_result.url
+                                    );
+
+                                    let final_response = response.replace(&url, &search_result.url);
+
+                                    if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await
+                                    {
+                                        error!("Failed to send typing indicator: {:?}", e);
+                                    }
+
+                                    apply_realistic_delay(&final_response, ctx, msg.channel_id)
+                                        .await;
+
+                                    if let Err(e) =
+                                        msg.channel_id.say(&ctx.http, final_response.clone()).await
+                                    {
+                                        error!("Error sending news interjection: {:?}", e);
+                                    } else {
+                                        info!(
+                                            "News interjection sent with search result: {}",
+                                            final_response
+                                        );
+                                    }
+                                }
+                                Ok(false) => {
+                                    info!(
+                                        "Search result failed validation - skipping interjection"
+                                    );
+                                }
+                                Err(e) => {
+                                    error!("Error verifying search result: {:?}", e);
+                                }
+                            }
+                        } else {
+                            info!("No valid search results found - skipping interjection");
+                        }
                     }
                     Err(e) => {
                         // Error validating URL
@@ -292,4 +399,31 @@ pub async fn validate_url_exists(url: &str) -> Result<(bool, Option<String>)> {
             Ok((false, None))
         }
     }
+}
+
+/// Try to search for a valid article using DuckDuckGo
+async fn try_search_for_article(query: &str) -> Option<SearchResult> {
+    info!("Searching DuckDuckGo for: {}", query);
+
+    let search_client = DuckDuckGoSearchClient::new();
+
+    match search_client.search(query).await {
+        Ok(Some(result)) => {
+            info!("Found search result: {} - {}", result.title, result.url);
+            Some(SearchResult { url: result.url })
+        }
+        Ok(None) => {
+            info!("No search results found for: {}", query);
+            None
+        }
+        Err(e) => {
+            error!("Error searching for article: {:?}", e);
+            None
+        }
+    }
+}
+
+/// Simple struct to hold search results
+struct SearchResult {
+    url: String,
 }

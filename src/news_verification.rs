@@ -15,6 +15,7 @@ pub async fn verify_news_article(
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(15))
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36")
+        .redirect(reqwest::redirect::Policy::limited(3))
         .build()?;
 
     let response = match client.get(article_url).send().await {
@@ -25,10 +26,25 @@ pub async fn verify_news_article(
         }
     };
 
-    // Check status code
-    if !response.status().is_success() {
-        error!("URL returned non-success status: {}", response.status());
+    // Check status code - only accept 200
+    let status = response.status();
+    if status != reqwest::StatusCode::OK {
+        error!("URL returned non-200 status: {}", status);
         return Ok(false);
+    }
+
+    // Check if we were redirected to a different domain (often indicates removed content)
+    let final_url = response.url().to_string();
+    if let (Ok(original), Ok(final_parsed)) =
+        (url::Url::parse(article_url), url::Url::parse(&final_url))
+    {
+        if original.domain() != final_parsed.domain() {
+            error!(
+                "URL redirected to different domain: {} -> {}",
+                article_url, final_url
+            );
+            return Ok(false);
+        }
     }
 
     // Get the page content
@@ -40,8 +56,44 @@ pub async fn verify_news_article(
         }
     };
 
+    // Check for soft 404 indicators in the raw HTML
+    let content_lower = page_content.to_lowercase();
+    let soft_404_indicators = [
+        "page not found",
+        "404 error",
+        "page doesn't exist",
+        "page does not exist",
+        "page you're looking for",
+        "page you are looking for",
+        "content not found",
+        "this page doesn't exist",
+        "this page does not exist",
+        "page has been removed",
+        "page has been deleted",
+        "no longer available",
+        "page cannot be found",
+        "sorry, we couldn't find",
+        "oops! that page can't be found",
+    ];
+
+    for indicator in &soft_404_indicators {
+        if content_lower.contains(indicator) {
+            error!("Soft 404 detected - page contains: '{}'", indicator);
+            return Ok(false);
+        }
+    }
+
     // Extract text from HTML (simple approach - just get text between tags)
     let text_content = extract_text_from_html(&page_content);
+
+    // Check if content is too short (likely an error page)
+    if text_content.len() < 200 {
+        error!(
+            "Page content too short ({} chars) - likely an error page",
+            text_content.len()
+        );
+        return Ok(false);
+    }
 
     // Take first 2000 characters of content for verification
     let content_sample = if text_content.len() > 2000 {
