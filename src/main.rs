@@ -3476,12 +3476,15 @@ async fn main() -> Result<()> {
 
 {context}
 
+IMPORTANT: Respond to the MOST RECENT message in the conversation (the last line above). Earlier messages are provided only for context to help you understand the conversation flow.
+
 Only respond if you can:
 1. Provide helpful clarification about the current topic
 2. Answer a question that was asked but not answered
-3. Add a brief, valuable comment to the conversation
+3. Add a brief, valuable comment to what was just said
 
 Requirements:
+- React to what was JUST said (the most recent message), not older messages
 - Be direct and concise (1-2 sentences maximum)
 - Don't introduce yourself or explain your reasoning
 - Don't use phrases like "I noticed" or "I see that"
