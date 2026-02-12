@@ -756,32 +756,15 @@ async fn search_celebrity_attempt(name: &str) -> Result<Option<String>> {
 
     // A person is considered dead if:
     // 1. We have a death date from parentheses, OR
-    // 2. The text uses past tense ("was") and not present tense ("is") and has parentheses (likely birth-death dates)
-    // 3. BUT we need to handle special cases where "was" is used in past events for living people
-    let is_dead = if let Some(death_year) = death_date
-        .as_ref()
-        .and_then(|d| {
-            // Extract year from death date
-            let year_regex = Regex::new(r"\b(\d{4})\b").ok()?;
-            year_regex
-                .captures(d)?
-                .get(1)
-                .map(|m| m.as_str().parse::<i32>().ok())
-        })
-        .flatten()
+    // 2. The text explicitly mentions they died
+    let is_dead = if death_date.is_some() {
+        // We have an explicit death date
+        true
+    } else if raw_extract.to_lowercase().contains(" died ")
+        || raw_extract.to_lowercase().contains(" death ")
     {
-        // Check if the death year is in the future (which would be an error)
-        let current_year = chrono::Local::now().year();
-        if death_year > current_year {
-            info!(
-                "Found death year {} which is in the future, ignoring",
-                death_year
-            );
-            false
-        } else {
-            info!("Found valid death year: {}", death_year);
-            true
-        }
+        // Text explicitly mentions death
+        true
     } else if contains_was && !contains_is && raw_extract.contains("(") && raw_extract.contains(")")
     {
         // Check for special cases where "was" might be used for living people
