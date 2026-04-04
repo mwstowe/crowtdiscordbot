@@ -1694,6 +1694,8 @@ impl Bot {
                         let query =
                             "SELECT content, author, display_name, timestamp FROM messages \
                         WHERE length(content) >= 20 \
+                        AND content NOT LIKE 'http://%' \
+                        AND content NOT LIKE 'https://%' \
                         ORDER BY (ABS(RANDOM()) / 9223372036854775807.0) * timestamp DESC \
                         LIMIT 1";
                         let mut stmt = conn.prepare(query)?;
@@ -1756,11 +1758,31 @@ impl Bot {
                     Ok(messages) => {
                         if let Some((content, _author, display_name, timestamp)) = messages.first()
                         {
-                            // Format the timestamp as a human-readable date
+                            // Format the timestamp with relative time for recent, absolute for older
                             let date_str = {
                                 let dt = chrono::DateTime::from_timestamp(*timestamp, 0)
                                     .unwrap_or_default();
-                                dt.format("%b %-d, %Y").to_string()
+                                let now = chrono::Utc::now();
+                                let age = now.signed_duration_since(dt);
+
+                                if age.num_hours() < 1 {
+                                    "just a bit ago".to_string()
+                                } else if age.num_hours() < 24 {
+                                    "earlier today".to_string()
+                                } else if age.num_hours() < 48 {
+                                    "yesterday".to_string()
+                                } else if age.num_days() < 7 {
+                                    format!("{} days ago", age.num_days())
+                                } else if age.num_days() < 30 {
+                                    let weeks = age.num_days() / 7;
+                                    if weeks == 1 {
+                                        "about a week ago".to_string()
+                                    } else {
+                                        format!("about {} weeks ago", weeks)
+                                    }
+                                } else {
+                                    dt.format("%b %-d, %Y at %-I:%M %p").to_string()
+                                }
                             };
 
                             let memory_prompt = format!(
