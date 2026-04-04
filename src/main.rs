@@ -1685,107 +1685,125 @@ impl Bot {
             if let (Some(db), Some(gemini_client)) = (&self.message_db, &self.gemini_client) {
                 let db_clone = Arc::clone(db);
 
-                // We'll start the typing indicator only after we decide to send a message
+                // Query for a random message, weighted toward more recent ones
+                // Uses sqrt(RANDOM()) * timestamp to bias toward newer messages
+                let result = db_clone
+                    .lock()
+                    .await
+                    .call(|conn| {
+                        let query =
+                            "SELECT content, author, display_name, timestamp FROM messages \
+                        WHERE length(content) >= 20 \
+                        ORDER BY (ABS(RANDOM()) / 9223372036854775807.0) * timestamp DESC \
+                        LIMIT 1";
+                        let mut stmt = conn.prepare(query)?;
 
-                // Query the database for a random message with minimum length of 20 characters
-                let result = db_clone.lock().await.call(|conn| {
-                    let query = "SELECT content, author, display_name FROM messages WHERE length(content) >= 20 ORDER BY RANDOM() LIMIT 1";
-                    let mut stmt = conn.prepare(query)?;
+                        let rows = stmt.query_map([], |row| {
+                            Ok((
+                                row.get::<_, String>(0)?,
+                                row.get::<_, String>(1)?,
+                                row.get::<_, String>(2)?,
+                                row.get::<_, i64>(3)?,
+                            ))
+                        })?;
 
-                    let rows = stmt.query_map([], |row| {
-                        Ok((
-                            row.get::<_, String>(0)?,
-                            row.get::<_, String>(1)?,
-                            row.get::<_, String>(2)?
-                        ))
-                    })?;
+                        let mut result = Vec::new();
+                        for row in rows {
+                            result.push(row?);
+                        }
 
-                    let mut result = Vec::new();
-                    for row in rows {
-                        result.push(row?);
+                        Ok::<_, rusqlite::Error>(result)
+                    })
+                    .await;
+
+                // Get recent context from the channel (10 messages for better context)
+                let context_messages = if let Some(db2) = &self.message_db {
+                    match db_utils::get_recent_messages_with_reply_context(
+                        db2.clone(),
+                        10,
+                        Some(msg.channel_id.to_string().as_str()),
+                    )
+                    .await
+                    {
+                        Ok(messages) => messages,
+                        Err(e) => {
+                            error!(
+                                "Error retrieving recent messages for memory context: {:?}",
+                                e
+                            );
+                            Vec::new()
+                        }
                     }
-
-                    Ok::<_, rusqlite::Error>(result)
-                }).await;
-
-                // Get recent context from the channel
-                let builder = serenity::builder::GetMessages::default().limit(3);
-                let context = match msg.channel_id.messages(&ctx.http, builder).await {
-                    Ok(messages) => messages,
-                    Err(e) => {
-                        error!(
-                            "Error retrieving recent messages for memory context: {:?}",
-                            e
-                        );
-                        Vec::new()
-                    }
+                } else {
+                    Vec::new()
                 };
 
-                let context_text = context
-                    .iter()
-                    .map(|m| {
-                        // Use display name if available, otherwise fall back to username
-                        let name = if let Some(member) = &m.member {
-                            member.nick.as_ref().unwrap_or(&m.author.name).clone()
-                        } else if let Some(global_name) = &m.author.global_name {
-                            global_name.clone()
-                        } else {
-                            m.author.name.clone()
-                        };
-                        format!("{}: {}", name, m.content)
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n");
+                let context_text = if !context_messages.is_empty() {
+                    let mut chronological = context_messages.clone();
+                    chronological.reverse();
+                    chronological
+                        .iter()
+                        .map(|(_author, display_name, _pronouns, content, _reply)| {
+                            format!("{}: {}", display_name, content)
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                } else {
+                    "".to_string()
+                };
 
                 match result {
                     Ok(messages) => {
-                        if let Some((content, _, _)) = messages.first() {
+                        if let Some((content, _author, display_name, timestamp)) = messages.first()
+                        {
+                            // Format the timestamp as a human-readable date
+                            let date_str = {
+                                let dt = chrono::DateTime::from_timestamp(*timestamp, 0)
+                                    .unwrap_or_default();
+                                dt.format("%b %-d, %Y").to_string()
+                            };
+
                             let memory_prompt = format!(
-                                "You are {}, a witty Discord bot. You've found this message in your memory: \"{}\". \
+                                "You are {}, a witty Discord bot. You've found this message in your memory:\n\
+                                Date: {}\n\
+                                Author: {}\n\
+                                Message: \"{}\"\n\n\
                                 Here's what's currently being discussed:\n{}\n\n\
-                                Please contribute to the conversation:\n\
-                                1. Keep it short and natural\n\
-                                2. Don't quote or reference the memory - just say what you want to say\n\
-                                3. Don't identify yourself or explain what you're doing\n\
-                                4. If you can't make it work naturally, respond with 'pass'\n\
-                                5. Correct any obvious typos but preserve the message's character\n\
+                                Your response MUST start by quoting the memory, like:\n\
+                                \"Remember {} when {} said: '{}'? ...\"\n\
+                                Then add a brief, witty comment connecting it to the current conversation.\n\n\
+                                Rules:\n\
+                                1. ALWAYS start by quoting the date, who said it, and what they said\n\
+                                2. Keep the follow-up comment short (1-2 sentences)\n\
+                                3. Try to connect the memory to what's currently being discussed\n\
+                                4. If you can't make it work naturally, respond with ONLY the word \"pass\"\n\
+                                5. NEVER make jokes about dating, relationships, or sexual topics\n\
                                 6. NEVER reference the movie \"Manos: The Hands of Fate\"\n\
-                                7. NEVER make jokes about dating, relationships, or sexual topics\n\
-                                8. ALWAYS use a person's correct pronouns when addressing or referring to them. If someone has specified their pronouns \
-                                (e.g., in their username like \"name (she/her)\"), ALWAYS use those pronouns. If pronouns aren't specified, take cues from \
-                                the conversation context or use gender-neutral language (they/them) to avoid misgendering.\n\
-                                9. NEVER use gendered terms like \"sir\", \"ma'am\", \"dude\", \"guy\", \"girl\", etc. unless you are 100% certain of the person's gender. \
-                                When in doubt, use gender-neutral language and address people by their username instead.\n\
-                                10. ONLY use MST3K quotes when they directly relate to the conversation topic - NEVER use them as standalone responses. AVOID using \"Watch out for snakes!\" as it's become overused - instead, try other MST3K quotes like \"Huge slam on [category] out of nowhere!\", \"Normal view! Normal view! NORMAL VIEW!\", \"This is where the fish lives\", \"I calculated the odds of this succeeding versus the odds I was doing something incredibly stupid... and I went ahead anyway\", or \"It's the 80's, do a lot of coke and vote for Ronald Reagan!\"\n\
-                                11. If you're unsure if a response is appropriate, respond with ONLY the word \"pass\"\n\n\
-                                Remember: Be natural and direct - no meta-commentary. \
-                                If you can't make it feel natural, just pass.",
-                                self.bot_name, content, context_text
+                                7. Use gender-neutral language unless you're certain of someone's gender\n\
+                                8. If you're unsure if a response is appropriate, respond with ONLY the word \"pass\"",
+                                self.bot_name, date_str, display_name, content, context_text,
+                                date_str, display_name, content
                             );
 
-                            // Process with Gemini API
                             match gemini_client.generate_content(&memory_prompt).await {
                                 Ok(response) => {
                                     let response = response.trim();
 
-                                    // Check if we should skip this one
                                     if response.to_lowercase() == "pass" {
                                         info!("Memory interjection evaluation: decided to PASS");
                                         return Ok(());
                                     }
 
-                                    // Start typing indicator now that we've decided to send a message
                                     if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await
                                     {
                                         error!("Failed to send typing indicator for memory interjection: {:?}", e);
                                     }
 
-                                    // Send the processed memory
+                                    // Apply realistic typing delay
+                                    apply_realistic_delay(response, ctx, msg.channel_id).await;
+
                                     if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
-                                        error!(
-                                            "Error sending enhanced memory interjection: {:?}",
-                                            e
-                                        );
+                                        error!("Error sending memory interjection: {:?}", e);
                                     } else {
                                         info!("Memory interjection sent: {}", response);
                                     }
