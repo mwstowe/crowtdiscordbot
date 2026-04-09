@@ -123,20 +123,82 @@ pub fn extract_youtube_urls(text: &str) -> Vec<YouTubeUrl> {
         .collect()
 }
 
-/// Describe attachments as text tags for context storage
+/// Describe attachments as text tags for context storage (includes URL for later retrieval)
 pub fn describe_attachments(msg: &Message) -> String {
     let mut tags = Vec::new();
     for attachment in &msg.attachments {
         let content_type = attachment.content_type.as_deref().unwrap_or("unknown");
         if IMAGE_TYPES.iter().any(|t| content_type.starts_with(t)) {
-            tags.push(format!("[Image: {}]", attachment.filename));
+            tags.push(format!(
+                "[Image: {} | {} | {}]",
+                attachment.filename, content_type, attachment.url
+            ));
         } else if VIDEO_TYPES.iter().any(|t| content_type.starts_with(t)) {
-            tags.push(format!("[Video: {}]", attachment.filename));
+            tags.push(format!(
+                "[Video: {} | {} | {}]",
+                attachment.filename, content_type, attachment.url
+            ));
         } else {
             tags.push(format!("[File: {}]", attachment.filename));
         }
     }
     tags.join(" ")
+}
+
+/// Extract image/video URLs from context text, returning media metadata.
+/// Returns up to `max_items` most recent items (from end of text).
+pub fn extract_media_urls_from_context(text: &str, max_items: usize) -> Vec<(String, String)> {
+    // Match [Image: name | mime | url] and [Video: name | mime | url]
+    let re = Regex::new(r"\[(Image|Video): [^|]+ \| ([^|]+) \| (https?://[^\]]+)\]").unwrap();
+    let mut items: Vec<(String, String)> = re
+        .captures_iter(text)
+        .map(|cap| {
+            let mime = cap[2].trim().to_string();
+            let url = cap[3].trim().to_string();
+            (mime, url)
+        })
+        .collect();
+    // Keep only the most recent items
+    if items.len() > max_items {
+        items = items.split_off(items.len() - max_items);
+    }
+    items
+}
+
+/// Strip media URLs from context text for display (keep just filename)
+pub fn strip_media_urls_from_context(text: &str) -> String {
+    let re = Regex::new(r"\[(Image|Video): ([^|]+) \| [^|]+ \| https?://[^\]]+\]").unwrap();
+    re.replace_all(text, |caps: &regex::Captures| {
+        let kind = &caps[1];
+        let name = caps[2].trim();
+        format!("[{kind}: {name}]")
+    })
+    .to_string()
+}
+
+/// Download media items from URLs found in context text.
+/// Returns up to max_items MediaItems, silently skipping failures.
+pub async fn fetch_media_from_context(text: &str, max_items: usize) -> Vec<MediaItem> {
+    let urls = extract_media_urls_from_context(text, max_items);
+    let mut items = Vec::new();
+    for (mime, url) in urls {
+        match download_and_encode(&url).await {
+            Ok(data) => {
+                info!("Fetched context media: {} ({})", url, mime);
+                items.push(MediaItem {
+                    mime_type: mime,
+                    data,
+                });
+            }
+            Err(e) => {
+                info!(
+                    "Failed to fetch context media {}: {:?} (may be expired)",
+                    url, e
+                );
+            }
+        }
+    }
+    items
 }
 
 /// Download a URL and return base64-encoded content
@@ -146,6 +208,12 @@ async fn download_and_encode(url: &str) -> Result<String> {
         .build()?;
 
     let response = client.get(url).send().await?;
+    if !response.status().is_success() {
+        return Err(anyhow::anyhow!("HTTP {}", response.status()));
+    }
     let bytes = response.bytes().await?;
+    if bytes.len() > MAX_INLINE_SIZE {
+        return Err(anyhow::anyhow!("Too large: {} bytes", bytes.len()));
+    }
     Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
 }

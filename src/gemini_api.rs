@@ -356,8 +356,28 @@ impl GeminiClient {
         self.generate_content(&formatted_prompt).await
     }
 
-    // Generate content with a raw prompt and retry on overload errors
+    // Generate content with a raw prompt and retry on overload errors.
+    // Automatically detects image/video URLs in context and upgrades to multimodal.
     pub async fn generate_content(&self, prompt: &str) -> Result<String> {
+        // Check if the prompt contains embedded media URLs from context
+        let context_media = crate::media_utils::fetch_media_from_context(prompt, 3).await;
+
+        if !context_media.is_empty() {
+            info!(
+                "Auto-upgrading to multimodal: found {} media items in context",
+                context_media.len()
+            );
+            let clean_prompt = crate::media_utils::strip_media_urls_from_context(prompt);
+            return self
+                .generate_content_with_media(&clean_prompt, &context_media, &[])
+                .await;
+        }
+
+        self.generate_content_text_only(prompt).await
+    }
+
+    // Text-only content generation with retry on overload errors
+    async fn generate_content_text_only(&self, prompt: &str) -> Result<String> {
         // Maximum number of retries
         const MAX_RETRIES: usize = 5;
 
@@ -541,7 +561,7 @@ impl GeminiClient {
         youtube_urls: &[crate::media_utils::YouTubeUrl],
     ) -> Result<String> {
         if media.is_empty() && youtube_urls.is_empty() {
-            return self.generate_content(prompt).await;
+            return self.generate_content_text_only(prompt).await;
         }
 
         self.rate_limiter.acquire().await?;
