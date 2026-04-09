@@ -46,7 +46,6 @@ mod screenshot_search_common;
 mod screenshot_search_utils;
 mod text_formatting;
 mod trump_insult;
-mod url_validator;
 mod utils;
 
 // Helper function to check if a response looks like a prompt
