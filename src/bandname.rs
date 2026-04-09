@@ -1,5 +1,5 @@
-use rand::seq::SliceRandom;
-use rand::Rng;
+use rand::seq::IndexedRandom;
+use rand::RngExt;
 
 pub struct BandGenreGenerator {
     adjectives: Vec<String>,
@@ -96,17 +96,17 @@ impl BandGenreGenerator {
     }
 
     pub fn generate_genre(&self, band_name: &str) -> String {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         // 20% chance of using an absurd genre
-        let genre = if rng.gen_bool(0.2) {
+        let genre = if rng.random_bool(0.2) {
             self.absurd_genres.choose(&mut rng).unwrap().clone()
         } else {
             // Build a compound genre
             let mut parts = Vec::new();
 
             // 80% chance of adding an adjective
-            if rng.gen_bool(0.8) {
+            if rng.random_bool(0.8) {
                 parts.push(self.adjectives.choose(&mut rng).unwrap().clone());
             }
 
@@ -114,12 +114,12 @@ impl BandGenreGenerator {
             parts.push(self.genres.choose(&mut rng).unwrap().clone());
 
             // 50% chance of adding a modifier
-            if rng.gen_bool(0.5) {
+            if rng.random_bool(0.5) {
                 parts.push(self.modifiers.choose(&mut rng).unwrap().clone());
             }
 
             // 30% chance of adding another genre for fusion
-            if rng.gen_bool(0.3) {
+            if rng.random_bool(0.3) {
                 parts.push("-".to_string());
                 parts.push(self.genres.choose(&mut rng).unwrap().clone());
             }

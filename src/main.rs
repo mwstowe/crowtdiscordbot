@@ -1,5 +1,5 @@
 use anyhow::Result;
-use rand::Rng;
+use rand::RngExt;
 use serenity::all::*;
 use serenity::async_trait;
 use serenity::builder::{CreateMessage, GetMessages};
@@ -1653,7 +1653,7 @@ impl Bot {
 
         // MST3K Quote interjection
         let adjusted_mst3k_probability = self.interjection_mst3k_probability * silence_multiplier;
-        if rand::thread_rng().gen_bool(adjusted_mst3k_probability) {
+        if rand::rng().random_bool(adjusted_mst3k_probability) {
             let probability_percent = self.interjection_mst3k_probability * 100.0;
             let adjusted_percent = adjusted_mst3k_probability * 100.0;
             let odds = if self.interjection_mst3k_probability > 0.0 {
@@ -1695,7 +1695,7 @@ impl Bot {
         }
         // Memory interjection
         let adjusted_memory_probability = self.interjection_memory_probability * silence_multiplier;
-        if rand::thread_rng().gen_bool(adjusted_memory_probability) {
+        if rand::rng().random_bool(adjusted_memory_probability) {
             let probability_percent = self.interjection_memory_probability * 100.0;
             let adjusted_percent = adjusted_memory_probability * 100.0;
             let odds = if self.interjection_memory_probability > 0.0 {
@@ -1871,7 +1871,7 @@ impl Bot {
         // Pondering interjection
         let adjusted_pondering_probability =
             self.interjection_pondering_probability * silence_multiplier;
-        if rand::thread_rng().gen_bool(adjusted_pondering_probability) {
+        if rand::rng().random_bool(adjusted_pondering_probability) {
             let probability_percent = self.interjection_pondering_probability * 100.0;
             let adjusted_percent = adjusted_pondering_probability * 100.0;
             let odds = if self.interjection_pondering_probability > 0.0 {
@@ -2030,7 +2030,7 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
 
         // AI interjection
         let adjusted_ai_probability = self.interjection_ai_probability * silence_multiplier;
-        if rand::thread_rng().gen_bool(adjusted_ai_probability) {
+        if rand::rng().random_bool(adjusted_ai_probability) {
             let probability_percent = self.interjection_ai_probability * 100.0;
             let adjusted_percent = adjusted_ai_probability * 100.0;
             let odds = if self.interjection_ai_probability > 0.0 {
@@ -2203,7 +2203,7 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
 
         // Fact interjection
         let adjusted_fact_probability = self.interjection_fact_probability * silence_multiplier;
-        if rand::thread_rng().gen_bool(adjusted_fact_probability) {
+        if rand::rng().random_bool(adjusted_fact_probability) {
             let probability_percent = self.interjection_fact_probability * 100.0;
             let adjusted_percent = adjusted_fact_probability * 100.0;
             let odds = if self.interjection_fact_probability > 0.0 {
@@ -2238,7 +2238,7 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
 
         // News interjection
         let adjusted_news_probability = self.interjection_news_probability * silence_multiplier;
-        if rand::thread_rng().gen_bool(adjusted_news_probability) {
+        if rand::rng().random_bool(adjusted_news_probability) {
             let probability_percent = self.interjection_news_probability * 100.0;
             let adjusted_percent = adjusted_news_probability * 100.0;
             let odds = if self.interjection_news_probability > 0.0 {
@@ -4027,7 +4027,7 @@ Keep it brief and natural, as if you're just another participant in the conversa
                         .await
                     {
                         // Get a random interjection type (skipping type 2 - Message Pondering)
-                        let mut interjection_type = rand::thread_rng().gen_range(0..=4);
+                        let mut interjection_type = rand::rng().random_range(0..=4);
 
                         // Adjust the type number to skip over type 2
                         if interjection_type >= 2 {

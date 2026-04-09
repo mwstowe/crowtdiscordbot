@@ -1,5 +1,5 @@
 use anyhow::Result;
-use rand::seq::SliceRandom;
+use rand::seq::IndexedRandom;
 use serenity::all::Message;
 use tracing::error;
 
@@ -11,7 +11,7 @@ impl BuzzGenerator {
     }
 
     pub fn generate_buzzword(&self) -> String {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         // First part of the buzzword phrase - adjectives
         let first_words = [

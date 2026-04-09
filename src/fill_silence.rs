@@ -1,4 +1,4 @@
-use rand::Rng;
+use rand::RngExt;
 use serenity::model::id::{ChannelId, UserId};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -227,7 +227,7 @@ impl FillSilenceManager {
                 let minutes_since_check = last_check_time.elapsed().as_secs() / 60;
 
                 // Random interval between 1 and 15 minutes
-                let random_interval = rand::thread_rng().gen_range(1..=15);
+                let random_interval = rand::rng().random_range(1..=15);
 
                 if minutes_since_check >= random_interval as u64 {
                     should_check = true;

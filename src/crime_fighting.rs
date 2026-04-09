@@ -1,6 +1,6 @@
 use anyhow::Result;
-use rand::seq::SliceRandom;
-use rand::Rng;
+use rand::seq::IndexedRandom;
+use rand::RngExt;
 
 pub struct CrimeFightingGenerator;
 
@@ -11,7 +11,7 @@ impl CrimeFightingGenerator {
 
     pub fn generate_duo(&self, speaker1: &str, speaker2: &str) -> Result<String> {
         // Generate random descriptions
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         // Male descriptors (he1)
         let descriptions1 = [
@@ -393,7 +393,7 @@ impl CrimeFightingGenerator {
         ];
 
         // Choose a random template format (like the original gbot)
-        let frame = rng.gen_range(0..10);
+        let frame = rng.random_range(0..10);
 
         // Select random elements from each array
         let desc1 = descriptions1.choose(&mut rng).unwrap();

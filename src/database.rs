@@ -1,6 +1,6 @@
 use anyhow::Result;
 use mysql::{prelude::*, OptsBuilder, Pool};
-use rand::Rng;
+use rand::RngExt;
 use serenity::all::Http;
 use serenity::model::channel::Message;
 use tracing::{error, info};
@@ -237,7 +237,7 @@ impl DatabaseManager {
                 }
 
                 // Get a random quote
-                let random_index = rand::thread_rng().gen_range(0..total_entries);
+                let random_index = rand::rng().random_range(0..total_entries);
                 info!(
                     "Selected random index {} of {} for quotes",
                     random_index, total_entries
@@ -325,7 +325,7 @@ impl DatabaseManager {
                 }
 
                 // Get a random slogan
-                let random_index = rand::thread_rng().gen_range(0..total_entries);
+                let random_index = rand::rng().random_range(0..total_entries);
                 info!(
                     "Selected random index {} of {} for slogans",
                     random_index, total_entries

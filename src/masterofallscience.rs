@@ -1,7 +1,7 @@
 use crate::gemini_api::GeminiClient;
 use crate::text_formatting;
 use anyhow::{anyhow, Result};
-use rand::seq::SliceRandom;
+use rand::seq::IndexedRandom;
 use reqwest::Client as HttpClient;
 use serde::Deserialize;
 use serenity::all::Http;
@@ -286,7 +286,7 @@ impl MasterOfAllScienceClient {
 
         // Choose a random search term
         let random_term = RANDOM_SEARCH_TERMS
-            .choose(&mut rand::thread_rng())
+            .choose(&mut rand::rng())
             .ok_or_else(|| anyhow!("Failed to choose random search term"))?;
 
         info!("Using random search term: {}", random_term);
@@ -296,7 +296,7 @@ impl MasterOfAllScienceClient {
         if !results.is_empty() {
             // Choose a random result
             let random_result = results
-                .choose(&mut rand::thread_rng())
+                .choose(&mut rand::rng())
                 .ok_or_else(|| anyhow!("Failed to choose random result"))?;
 
             return self

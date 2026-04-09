@@ -1,5 +1,5 @@
-use rand::seq::SliceRandom;
-use rand::Rng;
+use rand::seq::IndexedRandom;
+use rand::RngExt;
 
 pub struct TrumpInsultGenerator {
     adjectives: Vec<String>,
@@ -228,11 +228,11 @@ impl TrumpInsultGenerator {
     }
 
     pub fn generate_insult(&self) -> String {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         // 50% chance to use a real insult from the internet
         // 50% chance to generate a random adjective-noun combination
-        if rng.gen_bool(0.5) {
+        if rng.random_bool(0.5) {
             // Use a real insult
             self.real_insults
                 .choose(&mut rng)

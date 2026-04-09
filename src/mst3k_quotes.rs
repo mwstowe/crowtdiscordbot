@@ -1,5 +1,5 @@
 use mysql::prelude::Queryable;
-use rand::seq::SliceRandom;
+use rand::seq::IndexedRandom;
 use regex::Regex;
 use tracing::{error, info};
 
@@ -125,7 +125,7 @@ fn extract_speaker_lines(quote: &str) -> Option<String> {
 
     // If we found any lines, pick one randomly
     if !lines.is_empty() {
-        lines.choose(&mut rand::thread_rng()).cloned()
+        lines.choose(&mut rand::rng()).cloned()
     } else {
         None
     }

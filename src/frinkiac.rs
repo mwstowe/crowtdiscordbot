@@ -1,7 +1,7 @@
 use crate::gemini_api::GeminiClient;
 use crate::text_formatting;
 use anyhow::{anyhow, Result};
-use rand::seq::SliceRandom;
+use rand::seq::IndexedRandom;
 use reqwest::Client as HttpClient;
 use serenity::all::Http;
 use serenity::model::channel::Message;
@@ -148,7 +148,7 @@ impl FrinkiacClient {
         // Fallback: Use a random search term from our list
         // Select a random term before the async operation to avoid Send issues
         let random_term = {
-            let mut rng = rand::thread_rng();
+            let mut rng = rand::rng();
             RANDOM_SEARCH_TERMS
                 .choose(&mut rng)
                 .ok_or_else(|| anyhow!("Failed to select random search term"))?

@@ -3,7 +3,7 @@ use crate::rate_limiter::RateLimiter;
 use anyhow::Result;
 use base64::Engine;
 use chrono::{DateTime, Utc};
-use rand::Rng;
+use rand::RngExt;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -253,7 +253,7 @@ impl GeminiClient {
                     }
                 } else {
                     // Weighted selection: option #2 = 75%, option #3 = 15%, rest split remaining 10%
-                    let rand_val = rand::thread_rng().gen_range(0.0..1.0);
+                    let rand_val = rand::rng().random_range(0.0..1.0);
                     let selected_idx = if options.len() >= 2 && rand_val < 0.75 {
                         // 75% chance: select option #2 (index 1)
                         1
@@ -266,9 +266,9 @@ impl GeminiClient {
                             (0..options.len()).filter(|&i| i != 1 && i != 2).collect();
                         if remaining.is_empty() {
                             // Fallback if only 1-2 options exist
-                            rand::thread_rng().gen_range(0..options.len())
+                            rand::rng().random_range(0..options.len())
                         } else {
-                            remaining[rand::thread_rng().gen_range(0..remaining.len())]
+                            remaining[rand::rng().random_range(0..remaining.len())]
                         }
                     };
 
