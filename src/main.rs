@@ -33,6 +33,7 @@ mod gemini_api;
 mod image_generation;
 mod lastseen;
 mod masterofallscience;
+mod media_utils;
 mod morbotron;
 mod multi_response_generator;
 mod news_interjection;
@@ -1536,16 +1537,41 @@ impl Bot {
                             )
                             .collect();
 
-                    match gemini_client
-                        .generate_best_response_with_context_and_pronouns(
+                    // Extract media (images/video) from the message and any replied-to message
+                    let media_items = media_utils::extract_media_from_message(msg).await;
+                    let youtube_urls = media_utils::extract_youtube_urls(&content);
+                    let has_media = !media_items.is_empty() || !youtube_urls.is_empty();
+
+                    // Use multimodal path if media is present, otherwise standard text path
+                    let response_result = if has_media {
+                        info!(
+                            "Using multimodal path: {} media items, {} YouTube URLs",
+                            media_items.len(),
+                            youtube_urls.len()
+                        );
+                        // Build the full prompt with personality and context
+                        let prompt = gemini_client.prompt_templates().format_general_response(
                             &content,
                             &clean_display_name,
-                            &context_for_api,
-                            user_pronouns.as_deref(),
-                            true, // Always respond when directly addressed by name
-                        )
-                        .await
-                    {
+                            "",
+                        );
+                        gemini_client
+                            .generate_content_with_media(&prompt, &media_items, &youtube_urls)
+                            .await
+                            .map(Some)
+                    } else {
+                        gemini_client
+                            .generate_best_response_with_context_and_pronouns(
+                                &content,
+                                &clean_display_name,
+                                &context_for_api,
+                                user_pronouns.as_deref(),
+                                true, // Always respond when directly addressed by name
+                            )
+                            .await
+                    };
+
+                    match response_result {
                         Ok(Some(response)) => {
                             // Apply realistic typing delay based on response length
                             apply_realistic_delay(&response, ctx, msg.channel_id).await;
@@ -2743,17 +2769,41 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                             )
                             .collect();
 
-                    // Call the Gemini API with context and pronouns
-                    match gemini_client
-                        .generate_best_response_with_context_and_pronouns(
+                    // Extract media (images/video) from the message and any replied-to message
+                    let media_items = media_utils::extract_media_from_message(msg).await;
+                    let youtube_urls = media_utils::extract_youtube_urls(&content);
+                    let has_media = !media_items.is_empty() || !youtube_urls.is_empty();
+
+                    // Use multimodal path if media is present, otherwise standard text path
+                    let response_result = if has_media {
+                        info!(
+                            "Using multimodal path: {} media items, {} YouTube URLs",
+                            media_items.len(),
+                            youtube_urls.len()
+                        );
+                        let prompt = gemini_client.prompt_templates().format_general_response(
                             &content,
                             &clean_display_name,
-                            &context_for_api,
-                            user_pronouns.as_deref(),
-                            true, // Always respond when directly addressed by name
-                        )
-                        .await
-                    {
+                            "",
+                        );
+                        gemini_client
+                            .generate_content_with_media(&prompt, &media_items, &youtube_urls)
+                            .await
+                            .map(Some)
+                    } else {
+                        gemini_client
+                            .generate_best_response_with_context_and_pronouns(
+                                &content,
+                                &clean_display_name,
+                                &context_for_api,
+                                user_pronouns.as_deref(),
+                                true, // Always respond when directly addressed by name
+                            )
+                            .await
+                    };
+
+                    // Handle the response
+                    match response_result {
                         Ok(Some(response)) => {
                             // Apply realistic typing delay based on response length
                             apply_realistic_delay(&response, ctx, msg.channel_id).await;
@@ -3097,12 +3147,19 @@ impl EventHandler for Bot {
                 (msg.author.name.clone(), display_name)
             };
 
-            // Save the message to the database
+            // Save the message to the database (include attachment metadata)
+            let attachment_tags = media_utils::describe_attachments(&msg);
+            let stored_content = if attachment_tags.is_empty() {
+                msg.content.clone()
+            } else {
+                format!("{} {}", msg.content, attachment_tags)
+            };
+
             if let Err(e) = db_utils::save_message(
                 db.clone(),
                 &author_name,
                 &final_display_name,
-                &msg.content,
+                &stored_content,
                 Some(&msg),
                 None,
             )

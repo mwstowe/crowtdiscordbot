@@ -533,6 +533,95 @@ impl GeminiClient {
         Err(anyhow::anyhow!("Maximum retry attempts exceeded"))
     }
 
+    /// Generate content with text and media (images/video) using multimodal input
+    pub async fn generate_content_with_media(
+        &self,
+        prompt: &str,
+        media: &[crate::media_utils::MediaItem],
+        youtube_urls: &[crate::media_utils::YouTubeUrl],
+    ) -> Result<String> {
+        if media.is_empty() && youtube_urls.is_empty() {
+            return self.generate_content(prompt).await;
+        }
+
+        self.rate_limiter.acquire().await?;
+
+        if self.log_prompts {
+            info!(
+                "Gemini API Multimodal Prompt: {} ({} media items, {} YouTube URLs)",
+                prompt,
+                media.len(),
+                youtube_urls.len()
+            );
+        }
+
+        // Build parts array: media first, then text
+        let mut parts = Vec::new();
+
+        for item in media {
+            parts.push(serde_json::json!({
+                "inline_data": {
+                    "mime_type": item.mime_type,
+                    "data": item.data
+                }
+            }));
+        }
+
+        for yt in youtube_urls {
+            parts.push(serde_json::json!({
+                "file_data": {
+                    "mime_type": "video/*",
+                    "file_uri": yt.url
+                }
+            }));
+        }
+
+        parts.push(serde_json::json!({"text": prompt}));
+
+        let request_body = serde_json::json!({
+            "contents": [{"parts": parts}]
+        });
+
+        let url = format!("{}?key={}", self.api_endpoint, self.api_key);
+        let client = reqwest::Client::new();
+        let response = client
+            .post(&url)
+            .json(&request_body)
+            .timeout(Duration::from_secs(60)) // longer timeout for media
+            .send()
+            .await?;
+
+        let response_json: serde_json::Value = response.json().await?;
+
+        if self.log_prompts {
+            if let Ok(pretty) = serde_json::to_string_pretty(&response_json) {
+                info!("Gemini API Multimodal Response: {}", pretty);
+            }
+        }
+
+        // Check for errors
+        if let Some(error) = response_json.get("error") {
+            let msg = error
+                .get("message")
+                .and_then(|m| m.as_str())
+                .unwrap_or("Unknown API error");
+            error!("Gemini multimodal API error: {}", msg);
+            return Err(anyhow::anyhow!("Gemini API error: {}", msg));
+        }
+
+        // Extract text from response
+        if let Some(text) = response_json
+            .pointer("/candidates/0/content/parts/0/text")
+            .and_then(|t| t.as_str())
+        {
+            Ok(text.to_string())
+        } else {
+            Err(anyhow::anyhow!(
+                "Failed to extract text from multimodal response"
+            ))
+        }
+    }
+
     // Generate an image from a text prompt
     pub async fn generate_image(&self, prompt: &str) -> Result<(Vec<u8>, String)> {
         // Check if image generation is currently blocked due to quota exhaustion
