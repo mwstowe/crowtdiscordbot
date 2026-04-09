@@ -797,7 +797,7 @@ pub async fn update_message(
                 [&new_content, &message_id],
             )?;
 
-            Ok(())
+            Ok::<_, rusqlite::Error>(())
         })
         .await?;
 
