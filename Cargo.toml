@@ -20,7 +20,7 @@ toml = "0.8.10"
 regex = "1.11.1"
 url = "2.5.0"
 lazy_static = "1.4.0"
-mysql = "24.0.0"
+mysql = "28.0.0"
 rustc_version_runtime = "0.3.0"
 chrono = { version = "0.4", features = ["serde"] }
 scraper = "0.26.0"
