@@ -1712,20 +1712,22 @@ impl Bot {
 
                 // Query for a random message, weighted toward more recent ones
                 // Uses sqrt(RANDOM()) * timestamp to bias toward newer messages
+                let bot_name_for_query = self.bot_name.clone();
                 let result = db_clone
                     .lock()
                     .await
-                    .call(|conn| {
+                    .call(move |conn| {
                         let query =
                             "SELECT content, author, display_name, timestamp FROM messages \
                         WHERE length(content) >= 20 \
                         AND content NOT LIKE 'http://%' \
                         AND content NOT LIKE 'https://%' \
+                        AND author != ?1 AND display_name != ?1 \
                         ORDER BY (ABS(RANDOM()) / 9223372036854775807.0) * timestamp DESC \
                         LIMIT 1";
                         let mut stmt = conn.prepare(query)?;
 
-                        let rows = stmt.query_map([], |row| {
+                        let rows = stmt.query_map([&bot_name_for_query], |row| {
                             Ok((
                                 row.get::<_, String>(0)?,
                                 row.get::<_, String>(1)?,
