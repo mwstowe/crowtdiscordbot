@@ -181,6 +181,35 @@ impl FillSilenceManager {
         final_multiplier
     }
 
+    /// Calculate the minimum quality threshold (1-10) for spontaneous interjections.
+    /// Starts at 10 (very high bar) at start_hours and linearly decreases to 5 at max_hours.
+    pub async fn get_quality_threshold(&self, channel_id: ChannelId, bot_id: UserId) -> u8 {
+        if !self.enabled {
+            return 10;
+        }
+
+        let last_activity = self.last_activity.read().await;
+        let hours_elapsed = match last_activity.get(&channel_id) {
+            Some((last_time, last_user_id)) => {
+                if *last_user_id == bot_id {
+                    return 10;
+                }
+                last_time.elapsed().as_secs_f64() / 3600.0
+            }
+            None => return 10,
+        };
+
+        if hours_elapsed < self.start_hours {
+            return 10;
+        }
+
+        // Linear interpolation: 10 at start_hours, 5 at max_hours
+        let progress = ((hours_elapsed - self.start_hours) / (self.max_hours - self.start_hours))
+            .clamp(0.0, 1.0);
+        let threshold = 10.0 - (progress * 5.0);
+        threshold.round() as u8
+    }
+
     /// Check if we should make a spontaneous interjection
     /// Returns true if enough time has passed since the last check and the channel has been inactive
     pub async fn should_check_spontaneous_interjection(

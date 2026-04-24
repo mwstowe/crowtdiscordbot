@@ -4538,9 +4538,47 @@ Be creative but realistic with your article title and URL."#)
                             }
                         };
 
-                        // Only send the message if it's not empty
+                        // Only send the message if it's not empty and meets quality threshold
                         if !message.trim().is_empty() {
-                            if let Err(e) = channel_id.say(&http, message.clone()).await {
+                            // Get the quality threshold based on how long the channel has been quiet
+                            let threshold = fill_silence_manager
+                                .get_quality_threshold(*channel_id, bot_id)
+                                .await;
+
+                            // Ask Gemini to self-rate the response
+                            let should_send = if let Some(gemini) = &task_gemini_client {
+                                let rating_prompt = format!(
+                                    "Rate the following spontaneous comment on a scale of 1-10 for humor, relevance, and naturalness. \
+                                    A 10 is laugh-out-loud funny and perfectly relevant. A 1 is awkward and forced.\n\n\
+                                    Comment: \"{}\"\n\n\
+                                    Respond with ONLY a single number from 1 to 10.",
+                                    message.trim()
+                                );
+                                match gemini.generate_content(&rating_prompt).await {
+                                    Ok(rating_response) => {
+                                        let rating =
+                                            rating_response.trim().parse::<u8>().unwrap_or(5);
+                                        info!(
+                                            "Spontaneous interjection self-rated {}/10 (threshold: {})",
+                                            rating, threshold
+                                        );
+                                        rating >= threshold
+                                    }
+                                    Err(e) => {
+                                        error!("Error self-rating interjection: {:?}", e);
+                                        false // Don't send if we can't rate
+                                    }
+                                }
+                            } else {
+                                true // No Gemini client, send anyway
+                            };
+
+                            if !should_send {
+                                info!(
+                                    "Spontaneous interjection suppressed (below threshold {}): {}",
+                                    threshold, message
+                                );
+                            } else if let Err(e) = channel_id.say(&http, message.clone()).await {
                                 error!("Failed to send spontaneous interjection: {:?}", e);
                             } else {
                                 info!(
