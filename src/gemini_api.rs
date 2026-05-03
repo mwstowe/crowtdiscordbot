@@ -13,6 +13,7 @@ use tracing::{error, info};
 pub struct GeminiClient {
     api_key: String,
     api_endpoint: String,
+    http_client: reqwest::Client,
     prompt_templates: PromptTemplates,
     rate_limiter: RateLimiter,
     image_rate_limiter: RateLimiter,
@@ -72,6 +73,7 @@ impl GeminiClient {
         Self {
             api_key: config.api_key,
             api_endpoint: config.api_endpoint.unwrap_or(default_endpoint),
+            http_client: reqwest::Client::new(),
             prompt_templates,
             rate_limiter,
             image_rate_limiter,
@@ -363,8 +365,8 @@ impl GeminiClient {
 
         // Try up to MAX_RETRIES times
         for attempt in 1..=MAX_RETRIES {
-            // Use acquire() which includes retry logic and request recording
-            self.rate_limiter.acquire().await?;
+            // Check rate limits but don't record yet — only record after successful send
+            self.rate_limiter.check().await?;
 
             // Log the prompt if enabled
             if self.log_prompts {
@@ -380,17 +382,17 @@ impl GeminiClient {
                 }]
             });
 
-            // Build the URL with API key
-            let url = format!("{}?key={}", self.api_endpoint, self.api_key);
-
             // Make the API call
-            let client = reqwest::Client::new();
-            let response = client
-                .post(&url)
+            let response = self.http_client
+                .post(&self.api_endpoint)
+                .header("x-goog-api-key", &self.api_key)
                 .json(&request_body)
                 .timeout(Duration::from_secs(30))
                 .send()
                 .await?;
+
+            // Request was sent successfully — record it for rate limiting
+            self.rate_limiter.record_request().await;
 
             // Parse the response
             let response_json: serde_json::Value = response.json().await?;
@@ -592,10 +594,9 @@ impl GeminiClient {
             "contents": [{"parts": parts}]
         });
 
-        let url = format!("{}?key={}", self.api_endpoint, self.api_key);
-        let client = reqwest::Client::new();
-        let response = client
-            .post(&url)
+        let response = self.http_client
+            .post(&self.api_endpoint)
+            .header("x-goog-api-key", &self.api_key)
             .json(&request_body)
             .timeout(Duration::from_secs(60)) // longer timeout for media
             .send()

@@ -1,3 +1,4 @@
+use crate::rate_limiter::RateLimiter;
 use anyhow::Result;
 use serenity::all::{Channel, CreateMessage};
 use serenity::builder::CreateAttachment;
@@ -11,6 +12,9 @@ pub async fn handle_imagine_command(
     msg: &Message,
     prompt: &str,
     imagine_channels: &[String],
+    pollinations_api_key: Option<&str>,
+    rate_limiter: &RateLimiter,
+    http_client: &reqwest::Client,
 ) -> Result<()> {
     // Check if the command is being used in an allowed channel
     let channel_name = match msg.channel_id.to_channel(&ctx.http).await {
@@ -50,45 +54,55 @@ pub async fn handle_imagine_command(
 
     info!("Generating image via Pollinations for prompt: {}", prompt);
 
-    let encoded_prompt = urlencoding::encode(prompt);
-    let url = format!(
-        "https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true"
-    );
+    // Check rate limits before making the request
+    if let Err(e) = rate_limiter.acquire().await {
+        error!("Image generation rate limited: {:?}", e);
+        msg.reply(
+            &ctx.http,
+            "Image generation is currently rate limited. Please try again in a moment.",
+        )
+        .await?;
+        return Ok(());
+    }
 
-    let client = reqwest::Client::new();
-    let response = client
+    let encoded_prompt = urlencoding::encode(prompt);
+    let (url, has_auth) = if let Some(key) = pollinations_api_key {
+        (
+            format!("https://gen.pollinations.ai/image/{encoded_prompt}?model=zimage&width=1024&height=1024&nologo=true"),
+            Some(key),
+        )
+    } else {
+        info!("No Pollinations API key configured, using legacy endpoint");
+        (
+            format!("https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true"),
+            None,
+        )
+    };
+
+    let mut request = http_client
         .get(&url)
-        .timeout(Duration::from_secs(60))
-        .send()
-        .await;
+        .timeout(Duration::from_secs(60));
+
+    if let Some(key) = has_auth {
+        request = request.header("Authorization", format!("Bearer {key}"));
+    }
+
+    let response = request.send().await;
 
     match response {
         Ok(resp) if resp.status().is_success() => {
             let image_bytes = resp.bytes().await?;
 
-            let temp_dir = std::env::temp_dir();
-            let file_path = temp_dir.join(format!(
-                "pollinations_image_{}.png",
-                chrono::Utc::now().timestamp()
-            ));
-            std::fs::write(&file_path, &image_bytes)?;
-
-            let files = vec![CreateAttachment::path(&file_path).await?];
+            let attachment = CreateAttachment::bytes(image_bytes, "imagine.jpg");
             let message_content = format!("Here's what I imagine for: {prompt}");
-            let builder = files
-                .into_iter()
-                .fold(CreateMessage::default().content(message_content), |b, f| {
-                    b.add_file(f)
-                });
+            let builder = CreateMessage::default()
+                .content(message_content)
+                .add_file(attachment);
 
             if let Err(e) = msg.channel_id.send_message(&ctx.http, builder).await {
                 error!("Failed to send generated image: {:?}", e);
                 msg.reply(&ctx.http, "Sorry, I couldn't send the generated image.")
                     .await?;
-            }
-
-            if let Err(e) = std::fs::remove_file(file_path) {
-                error!("Failed to clean up temporary image file: {:?}", e);
             }
         }
         Ok(resp) => {

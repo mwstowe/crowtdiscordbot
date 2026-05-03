@@ -1,9 +1,19 @@
 use crate::gemini_api::GeminiClient;
-use crate::is_prompt_echo;
 use anyhow::Result;
 use serenity::all::Http;
 use serenity::model::channel::Message;
 use tracing::error;
+
+fn is_prompt_echo(response: &str) -> bool {
+    response.contains("{bot_name}")
+        || response.contains("{user}")
+        || response.contains("{message}")
+        || response.contains("{context}")
+        || response.contains("You should ONLY respond with an interjection if")
+        || response.contains("For criterion #2")
+        || response.contains("Guidelines for your fact")
+        || response.contains("If you can't think of a good fact")
+}
 
 pub async fn handle_unknown_command(
     http: &Http,

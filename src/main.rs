@@ -23,9 +23,6 @@ mod database;
 mod db_utils;
 mod display_name;
 mod duckduckgo_search;
-mod enhanced_frinkiac_search;
-mod enhanced_masterofallscience_search;
-mod enhanced_morbotron_search;
 mod fact_interjection;
 mod fill_silence;
 mod frinkiac;
@@ -37,28 +34,15 @@ mod media_utils;
 mod morbotron;
 mod multi_response_generator;
 mod news_interjection;
-mod news_search;
 mod news_verification;
 mod prompt_templates;
 mod rate_limiter;
 mod response_timing;
-mod screenshot_search_common;
-mod screenshot_search_utils;
 mod text_formatting;
 mod trump_insult;
 mod utils;
 
 // Helper function to check if a response looks like a prompt
-fn is_prompt_echo(response: &str) -> bool {
-    response.contains("{bot_name}")
-        || response.contains("{user}")
-        || response.contains("{message}")
-        || response.contains("{context}")
-        || response.contains("You should ONLY respond with an interjection if")
-        || response.contains("For criterion #2")
-        || response.contains("Guidelines for your fact")
-        || response.contains("If you can't think of a good fact")
-}
 mod bandname;
 mod celebrity_status;
 mod mst3k_quotes;
@@ -96,7 +80,62 @@ impl TypeMapKey for MessageHistoryKey {
     type Value = Arc<RwLock<VecDeque<Message>>>;
 }
 
+/// Pre-compiled regex patterns for is_bot_addressed
+struct BotAddressPatterns {
+    name_boundary: regex::Regex,
+    negative: Vec<regex::Regex>,
+    positive: Vec<regex::Regex>,
+}
+
+impl BotAddressPatterns {
+    fn new(bot_name: &str) -> Self {
+        let name = bot_name.to_lowercase();
+        let escaped = regex::escape(&name);
+
+        let name_boundary = regex::Regex::new(&format!(r"\b{escaped}\b")).unwrap();
+
+        let neg_strs = [
+            format!(r"than {escaped}\b"), format!(r"like {escaped}\b"),
+            format!(r"about {escaped}\b"), format!(r"with {escaped}\b"),
+            format!(r"and {escaped}\b"), format!(r"or {escaped}\b"),
+            format!(r"for {escaped}\b"), format!(r"the {escaped}\b"),
+            format!(r"a {escaped}\b"), format!(r"an {escaped}\b"),
+            format!(r"this {escaped}\b"), format!(r"that {escaped}\b"),
+            format!(r"my {escaped}\b"), format!(r"your {escaped}\b"),
+            format!(r"our {escaped}\b"), format!(r"their {escaped}\b"),
+            format!(r"his {escaped}\b"), format!(r"her {escaped}\b"),
+            format!(r"its {escaped}\b"), format!(r"picked {escaped}\b"),
+            format!(r"chose {escaped}\b"), format!(r"selected {escaped}\b"),
+            format!(r"named {escaped}\b"), format!(r"called {escaped}\b"),
+            format!(r"{escaped} is\b"), format!(r"{escaped} was\b"),
+            format!(r"{escaped} has\b"), format!(r"{escaped} isn't\b"),
+            format!(r"{escaped} doesn't\b"), format!(r"{escaped} didn't\b"),
+            format!(r"{escaped} won't\b"), format!(r"{escaped} can't\b"),
+            format!(r"{escaped} rhymes"), format!(r"rhymes with {escaped}"),
+            format!(r"{escaped} and"), format!(r"more of a {escaped}"),
+            format!(r"less of a {escaped}"), format!(r"kind of {escaped}"),
+            format!(r"sort of {escaped}"), format!(r"type of {escaped}"),
+        ];
+        let negative = neg_strs.iter().filter_map(|p| regex::Regex::new(p).ok()).collect();
+
+        let pos_strs = [
+            format!(r"{escaped}\?"), format!(r"{escaped}!"),
+            format!(r"{escaped},"), format!(r"{escaped}:"),
+            format!(r"{escaped} can you"), format!(r"{escaped} could you"),
+            format!(r"{escaped} will you"), format!(r"{escaped} would you"),
+            format!(r"{escaped} please"), format!(r"ask {escaped}"),
+            format!(r"tell {escaped}"), format!(r", {escaped}"),
+            format!(r" {escaped}\."),
+        ];
+        let positive = pos_strs.iter().filter_map(|p| regex::Regex::new(&format!(r"\b{p}\b")).ok()).collect();
+
+        Self { name_boundary, negative, positive }
+    }
+}
+
 struct Bot {
+    bot_user_id: Arc<RwLock<Option<UserId>>>,
+    address_patterns: BotAddressPatterns,
     followed_channels: Vec<ChannelId>,
     db_manager: DatabaseManager,
     search_client: Option<DuckDuckGoSearchClient>,
@@ -117,16 +156,14 @@ struct Bot {
     duckduckgo_search_enabled: bool,
     gemini_interjection_prompt: Option<String>,
     imagine_channels: Vec<String>,
+    pollinations_api_key: Option<String>,
+    image_rate_limiter: rate_limiter::RateLimiter,
+    http_client: reqwest::Client,
     start_time: Instant,
-    #[allow(dead_code)]
     gemini_context_messages: usize,
-    #[allow(dead_code)]
     interjection_mst3k_probability: f64,
-    #[allow(dead_code)]
     interjection_memory_probability: f64,
-    #[allow(dead_code)]
     interjection_pondering_probability: f64,
-    #[allow(dead_code)]
     interjection_ai_probability: f64,
     interjection_fact_probability: f64,
     interjection_news_probability: f64,
@@ -152,6 +189,7 @@ pub struct BotConfig {
     pub log_prompts: bool,
     pub interjection_fact_probability: f64,
     pub gemini_personality_description: Option<String>,
+    pub pollinations_api_key: Option<String>,
 }
 
 impl Bot {
@@ -188,12 +226,7 @@ impl Bot {
                             for msg in messages.iter().rev() {
                                 // Skip our own messages
                                 if msg.author.id
-                                    == ctx
-                                        .http
-                                        .get_current_user()
-                                        .await
-                                        .map(|u| u.id)
-                                        .unwrap_or_default()
+                                    == self.get_bot_user_id(ctx).await
                                 {
                                     continue;
                                 }
@@ -234,32 +267,19 @@ impl Bot {
         }
     }
 
-    // Helper function to mark the bot as the last speaker in a channel
-    // NOTE: This method is currently unused but kept for future reference
-    async fn _mark_as_last_speaker(&self, channel_id: ChannelId) {
-        self.fill_silence_manager
-            .mark_bot_as_last_speaker(channel_id)
-            .await;
-    }
-
-    // Helper function to save bot's own response to the database
-    #[allow(dead_code)]
-    async fn save_bot_response(&self, response: &str) {
-        if let Some(db) = &self.message_db {
-            if let Err(e) = db_utils::save_message(
-                db.clone(),
-                &self.bot_name,
-                &self.bot_name,
-                response,
-                None, // No Message object for our own response
-                None, // No operation ID
-            )
-            .await
-            {
-                error!("Error saving bot response to database: {:?}", e);
-            } else {
-                debug!("Saved bot response to database for context");
+    /// Get the cached bot user ID, falling back to an HTTP call if not yet cached
+    async fn get_bot_user_id(&self, ctx: &Context) -> UserId {
+        if let Some(id) = *self.bot_user_id.read().await {
+            return id;
+        }
+        // Fallback: fetch and cache
+        match ctx.http.get_current_user().await {
+            Ok(user) => {
+                let mut cached = self.bot_user_id.write().await;
+                *cached = Some(user.id);
+                user.id
             }
+            Err(_) => UserId::new(0),
         }
     }
 
@@ -370,6 +390,8 @@ impl Bot {
         ));
 
         Self {
+            bot_user_id: Arc::new(RwLock::new(None)),
+            address_patterns: BotAddressPatterns::new(&parsed_config.bot_name),
             followed_channels: config.followed_channels,
             db_manager,
             search_client,
@@ -390,6 +412,13 @@ impl Bot {
             duckduckgo_search_enabled: parsed_config.duckduckgo_search_enabled,
             gemini_interjection_prompt: config.gemini_interjection_prompt,
             imagine_channels: parsed_config.imagine_channels,
+            pollinations_api_key: config.pollinations_api_key,
+            image_rate_limiter: rate_limiter::RateLimiter::new_with_persistence(
+                parsed_config.gemini_image_rate_limit_minute,
+                parsed_config.gemini_image_rate_limit_day,
+                "pollinations_image_quota.json".to_string(),
+            ),
+            http_client: reqwest::Client::new(),
             start_time: Instant::now(),
             gemini_context_messages: parsed_config.gemini_context_messages,
             interjection_mst3k_probability: parsed_config.interjection_mst3k_probability,
@@ -528,11 +557,19 @@ impl Bot {
 
         // Add API quota information if Gemini client is available
         if let Some(gemini_client) = &self.gemini_client {
-            let (text_quota, image_quota, image_status) = gemini_client.get_quota_stats().await;
+            let (text_quota, _image_quota, _image_status) = gemini_client.get_quota_stats().await;
             info.push_str("\n**API Quotas:**\n");
             info.push_str(&format!("- Text API: {}\n", text_quota));
-            info.push_str(&format!("- Image API: {}\n", image_quota));
-            info.push_str(&format!("- Image Status: {}\n", image_status));
+        }
+
+        // Add Pollinations image quota
+        if !self.imagine_channels.is_empty() {
+            let (img_min_used, img_min_limit, img_day_used, img_day_limit) =
+                self.image_rate_limiter.get_usage_stats().await;
+            info.push_str(&format!(
+                "- Image API (Pollinations): {}/{} per minute, {}/{} per day\n",
+                img_min_used, img_min_limit, img_day_used, img_day_limit
+            ));
         }
 
         // Send the info message
@@ -926,107 +963,34 @@ impl Bot {
         // where we check if the bot is mentioned in the message.
 
         // Use regex with word boundaries to avoid false positives
-        // This prevents matching when the bot name is part of another word
-        let name_with_word_boundary = format!(r"\b{}\b", regex::escape(bot_name));
-        if let Ok(re) = regex::Regex::new(&name_with_word_boundary) {
-            if re.is_match(&content_lower) {
-                // The bot name appears as a complete word
-
-                // Check for negative patterns - these are phrases where the bot name appears
-                // but is not being directly addressed
-                let negative_patterns = [
-                    format!(r"than {bot_name}\b"),     // "other than Crow"
-                    format!(r"like {bot_name}\b"),     // "like Crow"
-                    format!(r"about {bot_name}\b"),    // "about Crow"
-                    format!(r"with {bot_name}\b"),     // "with Crow"
-                    format!(r"and {bot_name}\b"),      // "and Crow"
-                    format!(r"or {bot_name}\b"),       // "or Crow"
-                    format!(r"for {bot_name}\b"),      // "for Crow"
-                    format!(r"the {bot_name}\b"),      // "the Crow"
-                    format!(r"a {bot_name}\b"),        // "a Crow"
-                    format!(r"an {bot_name}\b"),       // "an Crow"
-                    format!(r"this {bot_name}\b"),     // "this Crow"
-                    format!(r"that {bot_name}\b"),     // "that Crow"
-                    format!(r"my {bot_name}\b"),       // "my Crow"
-                    format!(r"your {bot_name}\b"),     // "your Crow"
-                    format!(r"our {bot_name}\b"),      // "our Crow"
-                    format!(r"their {bot_name}\b"),    // "their Crow"
-                    format!(r"his {bot_name}\b"),      // "his Crow"
-                    format!(r"her {bot_name}\b"),      // "her Crow"
-                    format!(r"its {bot_name}\b"),      // "its Crow"
-                    format!(r"picked {bot_name}\b"),   // "picked Crow"
-                    format!(r"chose {bot_name}\b"),    // "chose Crow"
-                    format!(r"selected {bot_name}\b"), // "selected Crow"
-                    format!(r"named {bot_name}\b"),    // "named Crow"
-                    format!(r"called {bot_name}\b"),   // "called Crow"
-                    format!(r"{bot_name} is\b"),       // "Crow is"
-                    format!(r"{bot_name} was\b"),      // "Crow was"
-                    format!(r"{bot_name} has\b"),      // "Crow has"
-                    format!(r"{bot_name} isn't\b"),    // "Crow isn't"
-                    format!(r"{bot_name} doesn't\b"),  // "Crow doesn't"
-                    format!(r"{bot_name} didn't\b"),   // "Crow didn't"
-                    format!(r"{bot_name} won't\b"),    // "Crow won't"
-                    format!(r"{bot_name} can't\b"),    // "Crow can't"
-                    // Additional negative patterns for rhyming and comparison cases
-                    format!(r"{bot_name} rhymes"),      // "Crow rhymes"
-                    format!(r"rhymes with {bot_name}"), // "rhymes with Crow"
-                    format!(r"{bot_name} and"),         // "Crow and"
-                    format!(r"more of a {bot_name}"),   // "more of a Crow"
-                    format!(r"less of a {bot_name}"),   // "less of a Crow"
-                    format!(r"kind of {bot_name}"),     // "kind of Crow"
-                    format!(r"sort of {bot_name}"),     // "sort of Crow"
-                    format!(r"type of {bot_name}"),     // "type of Crow"
-                ];
-
-                for pattern in &negative_patterns {
-                    if let Ok(re) = regex::Regex::new(pattern) {
-                        if re.is_match(&content_lower) {
-                            info!("Bot NOT addressed: matched negative pattern '{}'", pattern);
-                            return false;
-                        }
-                    }
+        if self.address_patterns.name_boundary.is_match(&content_lower) {
+            // Check for negative patterns first
+            for re in &self.address_patterns.negative {
+                if re.is_match(&content_lower) {
+                    info!("Bot NOT addressed: matched negative pattern '{}'", re.as_str());
+                    return false;
                 }
+            }
 
-                // Check for positive patterns - these are phrases that directly address the bot
-                let positive_patterns = [
-                    format!(r"{bot_name}\?"),         // "Crow?"
-                    format!(r"{bot_name}!"),          // "Crow!"
-                    format!(r"{bot_name},"),          // "Crow,"
-                    format!(r"{bot_name}:"),          // "Crow:"
-                    format!(r"{bot_name} can you"),   // "Crow can you"
-                    format!(r"{bot_name} could you"), // "Crow could you"
-                    format!(r"{bot_name} will you"),  // "Crow will you"
-                    format!(r"{bot_name} would you"), // "Crow would you"
-                    format!(r"{bot_name} please"),    // "Crow please"
-                    format!(r"ask {bot_name}"),       // "ask Crow"
-                    format!(r"tell {bot_name}"),      // "tell Crow"
-                    format!(r", {bot_name}"), // ", Crow" - for cases like "No you weren't, Crow"
-                    format!(r" {bot_name}\."), // " Crow." - for cases ending with the bot's name
-                ];
-
-                for pattern in &positive_patterns {
-                    if let Ok(re) = regex::Regex::new(&format!(r"\b{pattern}\b")) {
-                        if re.is_match(&content_lower) {
-                            info!("Bot addressed: matched positive pattern '{}'", pattern);
-                            return true;
-                        }
-                    }
-                }
-
-                // If the bot name is at the beginning or end of the message, it's likely being addressed
-                if content_lower.trim().starts_with(bot_name)
-                    || content_lower.trim().ends_with(bot_name)
-                {
-                    info!("Bot addressed: name at beginning or end of trimmed message");
+            // Check for positive patterns
+            for re in &self.address_patterns.positive {
+                if re.is_match(&content_lower) {
+                    info!("Bot addressed: matched positive pattern '{}'", re.as_str());
                     return true;
                 }
-
-                // If we've made it this far, the bot name is used as a standalone word
-                // but doesn't match our positive or negative patterns
-                // We'll be conservative and assume it's NOT being addressed
-                info!("Bot name found as standalone word, but not clearly addressed");
-                return false;
             }
+
+            // If the bot name is at the beginning or end of the message, it's likely being addressed
+            if content_lower.trim().starts_with(bot_name)
+                || content_lower.trim().ends_with(bot_name)
+            {
+                info!("Bot addressed: name at beginning or end of trimmed message");
+                return true;
+            }
+
+            // Bot name found but not clearly addressed
+            info!("Bot name found as standalone word, but not clearly addressed");
+            return false;
         }
 
         false
@@ -1055,10 +1019,7 @@ impl Bot {
         let content_lower = msg.content.to_lowercase();
 
         // Check for direct mention
-        let current_user_id = match ctx.http.get_current_user().await {
-            Ok(user) => user.id,
-            Err(_) => return true, // If we can't get current user, allow response
-        };
+        let current_user_id = self.get_bot_user_id(ctx).await;
 
         if msg.mentions.iter().any(|user| user.id == current_user_id) {
             return true;
@@ -1135,7 +1096,7 @@ impl Bot {
                     if parts.len() > 1 {
                         let prompt = parts[1..].join(" ");
                         if let Err(e) =
-                            handle_imagine_command(ctx, msg, &prompt, &self.imagine_channels).await
+                            handle_imagine_command(ctx, msg, &prompt, &self.imagine_channels, self.pollinations_api_key.as_deref(), &self.image_rate_limiter, &self.http_client).await
                         {
                             error!("Error handling imagine command: {:?}", e);
                         }
@@ -1637,13 +1598,36 @@ impl Bot {
 
         // Now process random interjections only if no explicit triggers were matched
 
+        // Update recent speakers list
+        {
+            let data = ctx.data.read().await;
+            if let Some(recent_speakers) = data.get::<RecentSpeakersKey>() {
+                let mut speakers = recent_speakers.write().await;
+                let username = msg.author.name.clone();
+                let display_name = get_best_display_name(ctx, msg).await;
+                let display_name = display_name::clean_display_name(&display_name);
+
+                if let Some(pos) = speakers.iter().position(|(name, _)| name == &username) {
+                    speakers.remove(pos);
+                }
+
+                if speakers.len() >= 5 {
+                    speakers.pop_front();
+                }
+                speakers.push_back((username, display_name));
+
+                if tracing::level_enabled!(tracing::Level::DEBUG) {
+                    let speakers_list: Vec<String> = speakers
+                        .iter()
+                        .map(|(_, display)| display.clone())
+                        .collect();
+                    debug!("Current speakers list: {:?}", speakers_list);
+                }
+            }
+        }
+
         // Get the current user (bot) ID
-        let current_user_id = ctx
-            .http
-            .get_current_user()
-            .await
-            .map(|user| user.id)
-            .unwrap_or_else(|_| UserId::new(0));
+        let current_user_id = self.get_bot_user_id(ctx).await;
 
         // Get the probability multiplier based on channel inactivity
         let silence_multiplier = self
@@ -2272,612 +2256,6 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
             }
         }
 
-        // Note: Message is already stored in the database in the message() event handler
-        // No need to store it again here
-
-        // Update recent speakers list
-        {
-            let data = ctx.data.read().await;
-            if let Some(recent_speakers) = data.get::<RecentSpeakersKey>() {
-                let mut speakers = recent_speakers.write().await;
-                let username = msg.author.name.clone();
-                // Use the best display name available
-                let display_name = get_best_display_name(ctx, msg).await;
-
-                // Clean up display name - remove <> brackets and [irc] tag
-                let display_name = display_name::clean_display_name(&display_name);
-
-                // Always update the list with the current speaker
-                // Remove the user if they're already in the list
-                if let Some(pos) = speakers.iter().position(|(name, _)| name == &username) {
-                    speakers.remove(pos);
-                }
-
-                // Add the user to the end (most recent position)
-                if speakers.len() >= 5 {
-                    speakers.pop_front();
-                }
-                speakers.push_back((username, display_name));
-
-                // Only log speakers list at debug level
-                if tracing::level_enabled!(tracing::Level::DEBUG) {
-                    let speakers_list: Vec<String> = speakers
-                        .iter()
-                        .map(|(_, display)| display.clone())
-                        .collect();
-                    debug!("Current speakers list: {:?}", speakers_list);
-                }
-            }
-        }
-
-        // Update message history
-        {
-            let data = ctx.data.read().await;
-            if let Some(message_history) = data.get::<MessageHistoryKey>() {
-                let mut history = message_history.write().await;
-                if history.len() >= self.message_history_limit {
-                    history.pop_front();
-                }
-                history.push_back(msg.clone());
-            }
-        }
-
-        // Check for commands (messages starting with !)
-        if msg.content.starts_with('!') {
-            let parts: Vec<&str> = msg.content[1..].split_whitespace().collect();
-            if !parts.is_empty() {
-                let command = parts[0].to_lowercase();
-
-                if command == "hello" {
-                    // Simple hello command
-                    if let Err(e) = msg.channel_id.say(&ctx.http, "world!").await {
-                        error!("Error sending hello response: {:?}", e);
-                    }
-                } else if command == "trump" {
-                    // Generate a Trump insult
-                    let insult = self.trump_insult_generator.generate_insult();
-                    if let Err(e) = msg.channel_id.say(&ctx.http, insult).await {
-                        error!("Error sending Trump insult: {:?}", e);
-                    }
-                } else if command == "bandname" {
-                    // Generate a band genre
-                    if parts.len() > 1 {
-                        let band_name = parts[1..].join(" ");
-                        let genre = self.band_genre_generator.generate_genre(&band_name);
-                        if let Err(e) = msg.channel_id.say(&ctx.http, genre).await {
-                            error!("Error sending band genre: {:?}", e);
-                        }
-                    } else if let Err(e) = msg.reply(&ctx.http, "Please provide a band name.").await
-                    {
-                        error!("Error sending usage message: {:?}", e);
-                    }
-                } else if command == "imagine" && !self.imagine_channels.is_empty() {
-                    // Extract the image prompt
-                    if parts.len() > 1 {
-                        let prompt = parts[1..].join(" ");
-                        if let Err(e) =
-                            handle_imagine_command(ctx, msg, &prompt, &self.imagine_channels).await
-                        {
-                            error!("Error handling imagine command: {:?}", e);
-                        }
-                    } else if let Err(e) = msg
-                        .reply(
-                            &ctx.http,
-                            "Please provide a description of what you want me to show you.",
-                        )
-                        .await
-                    {
-                        error!("Error sending usage message: {:?}", e);
-                    }
-                } else if command == "alive" {
-                    // Check if a celebrity name was provided
-                    if parts.len() > 1 {
-                        let celebrity_name = parts[1..].join(" ");
-                        if let Err(e) =
-                            handle_aliveordead_command(&ctx.http, msg, &celebrity_name).await
-                        {
-                            error!("Error handling alive command: {:?}", e);
-                            if let Err(e) = msg
-                                .channel_id
-                                .say(&ctx.http, "Error checking celebrity status")
-                                .await
-                            {
-                                error!("Error sending error message: {:?}", e);
-                            }
-                        }
-                    } else if let Err(e) = msg
-                        .reply(&ctx.http, "Please provide a celebrity name.")
-                        .await
-                    {
-                        error!("Error sending usage message: {:?}", e);
-                    }
-                } else if command == "help" {
-                    // Help command - use the help message from our commands HashMap
-                    if let Some(help_text) = self.commands.get("help") {
-                        if let Err(e) = msg.channel_id.say(&ctx.http, help_text).await {
-                            error!("Error sending help message: {:?}", e);
-                        }
-                    }
-                } else if command == "info" {
-                    // Handle the info command
-                    if let Err(e) = self.handle_info_command(ctx, msg).await {
-                        error!("Error handling info command: {:?}", e);
-                    }
-                } else if command == "slogan" {
-                    // Extract search term if provided
-                    let search_term = if parts.len() > 1 {
-                        Some(parts[1..].join(" "))
-                    } else {
-                        None
-                    };
-
-                    // Generate a slogan response
-                    if let Err(e) = self
-                        .handle_slogan_command(&ctx.http, msg, search_term)
-                        .await
-                    {
-                        error!("Error handling slogan command: {:?}", e);
-                        if let Err(e) = msg
-                            .channel_id
-                            .say(&ctx.http, "Error accessing slogan database")
-                            .await
-                        {
-                            error!("Error sending error message: {:?}", e);
-                        }
-                    }
-                } else if command == "quote" {
-                    // Extract all arguments after the command
-                    let args: Vec<&str> = if parts.len() > 1 {
-                        parts[1..].to_vec()
-                    } else {
-                        Vec::new()
-                    };
-
-                    // Check if this is a -dud request (quote a user)
-                    if args.contains(&"-dud") {
-                        let username_index = args.iter().position(|&r| r == "-dud").unwrap() + 1;
-                        let username = if username_index < args.len() {
-                            Some(args[username_index].to_string())
-                        } else {
-                            None
-                        };
-
-                        if let Err(e) = self
-                            .handle_quote_dud_command(&ctx.http, msg, username)
-                            .await
-                        {
-                            error!("Error handling quote -dud command: {:?}", e);
-                            if let Err(e) = msg
-                                .channel_id
-                                .say(&ctx.http, "Error retrieving user quotes")
-                                .await
-                            {
-                                error!("Error sending error message: {:?}", e);
-                            }
-                        }
-                    } else {
-                        // Regular quote command with possible -show flag
-                        if let Err(e) = self.handle_quote_command(&ctx.http, msg, args).await {
-                            error!("Error handling quote command: {:?}", e);
-                            if let Err(e) = msg
-                                .channel_id
-                                .say(&ctx.http, "Error accessing quote database")
-                                .await
-                            {
-                                error!("Error sending error message: {:?}", e);
-                            }
-                        }
-                    }
-                } else if command == "fightcrime" {
-                    match self.generate_crime_fighting_duo(ctx, msg).await {
-                        Ok(duo) => {
-                            if let Err(e) = msg.channel_id.say(&ctx.http, duo).await {
-                                error!("Error sending crime fighting duo: {:?}", e);
-                            }
-                        }
-                        Err(e) => {
-                            error!("Error handling fightcrime command: {:?}", e);
-                            if let Err(e) = msg
-                                .channel_id
-                                .say(&ctx.http, "Error generating crime fighting duo")
-                                .await
-                            {
-                                error!("Error sending error message: {:?}", e);
-                            }
-                        }
-                    }
-                } else if command == "buzz" {
-                    // Handle the buzz command
-                    if let Err(e) = handle_buzz_command(&ctx.http, msg).await {
-                        error!("Error handling buzz command: {:?}", e);
-                        if let Err(e) = msg
-                            .channel_id
-                            .say(&ctx.http, "Error generating buzzword")
-                            .await
-                        {
-                            error!("Error sending error message: {:?}", e);
-                        }
-                    }
-                } else if command == "lastseen" {
-                    // Extract name to search for
-                    let name = if parts.len() > 1 {
-                        parts[1..].join(" ")
-                    } else {
-                        String::new()
-                    };
-
-                    // Handle the lastseen command
-                    if let Err(e) =
-                        handle_lastseen_command(&ctx.http, msg, &name, &self.message_db).await
-                    {
-                        error!("Error handling lastseen command: {:?}", e);
-                        if let Err(e) = msg
-                            .channel_id
-                            .say(&ctx.http, "Error searching message history")
-                            .await
-                        {
-                            error!("Error sending error message: {:?}", e);
-                        }
-                    }
-                } else if command == "frinkiac" {
-                    // Extract args if provided
-                    let args = if parts.len() > 1 {
-                        Some(parts[1..].join(" "))
-                    } else {
-                        None
-                    };
-
-                    // Handle the frinkiac command
-                    if let Err(e) = handle_frinkiac_command(
-                        &ctx.http,
-                        msg,
-                        args,
-                        &self.frinkiac_client,
-                        self.gemini_client.as_ref(),
-                    )
-                    .await
-                    {
-                        error!("Error handling frinkiac command: {:?}", e);
-                        if let Err(e) = msg
-                            .channel_id
-                            .say(&ctx.http, "Error searching Frinkiac")
-                            .await
-                        {
-                            error!("Error sending error message: {:?}", e);
-                        }
-                    }
-                } else if command == "morbotron" {
-                    // Extract search term if provided
-                    let search_term = if parts.len() > 1 {
-                        Some(parts[1..].join(" "))
-                    } else {
-                        None
-                    };
-
-                    // Handle the morbotron command
-                    if let Err(e) = handle_morbotron_command(
-                        &ctx.http,
-                        msg,
-                        search_term,
-                        &self.morbotron_client,
-                        self.gemini_client.as_ref(),
-                    )
-                    .await
-                    {
-                        error!("Error handling morbotron command: {:?}", e);
-                        if let Err(e) = msg
-                            .channel_id
-                            .say(&ctx.http, "Error searching Morbotron")
-                            .await
-                        {
-                            error!("Error sending error message: {:?}", e);
-                        }
-                    }
-                } else if command == "masterofallscience" {
-                    // Extract search term if provided
-                    let search_term = if parts.len() > 1 {
-                        Some(parts[1..].join(" "))
-                    } else {
-                        None
-                    };
-
-                    // Handle the masterofallscience command
-                    if let Err(e) = handle_masterofallscience_command(
-                        &ctx.http,
-                        msg,
-                        search_term,
-                        &self.masterofallscience_client,
-                        self.gemini_client.as_ref(),
-                    )
-                    .await
-                    {
-                        error!("Error handling masterofallscience command: {:?}", e);
-                        if let Err(e) = msg
-                            .channel_id
-                            .say(&ctx.http, "Error searching Master of All Science")
-                            .await
-                        {
-                            error!("Error sending error message: {:?}", e);
-                        }
-                    }
-                } else if let Some(response) = self.commands.get(&command) {
-                    if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
-                        error!("Error sending command response: {:?}", e);
-                    }
-                }
-            }
-            return Ok(());
-        }
-
-        // Check for DuckDuckGo search (messages starting with "search" or "google")
-        if self.duckduckgo_search_enabled
-            && msg.content.to_lowercase().starts_with("search ")
-            && msg.content.len() > 7
-        {
-            let query = &msg.content[7..];
-
-            if let Some(search_client) = &self.search_client {
-                if let Err(e) = msg
-                    .channel_id
-                    .say(&ctx.http, format!("Searching for: {query}"))
-                    .await
-                {
-                    error!("Error sending search confirmation: {:?}", e);
-                }
-
-                // Perform the search
-                match search_client.search(query).await {
-                    Ok(Some(result)) => {
-                        // Clean up the title by removing extra whitespace
-                        let title = result.title.trim().replace("\n", " ").replace("  ", " ");
-
-                        // Format and send the result
-                        let response = format!("**{}**\n{}\n{}", title, result.url, result.snippet);
-                        if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
-                            error!("Error sending search result: {:?}", e);
-                        }
-                    }
-                    Ok(None) => {
-                        if let Err(e) = msg
-                            .channel_id
-                            .say(&ctx.http, "No search results found.")
-                            .await
-                        {
-                            error!("Error sending no results message: {:?}", e);
-                        }
-                    }
-                    Err(e) => {
-                        error!("Error performing search: {:?}", e);
-                        if let Err(e) = msg
-                            .channel_id
-                            .say(&ctx.http, "Error performing search.")
-                            .await
-                        {
-                            error!("Error sending error message: {:?}", e);
-                        }
-                    }
-                }
-            } else if let Err(e) = msg
-                .channel_id
-                .say(&ctx.http, "Search is not configured.")
-                .await
-            {
-                error!("Error sending search error: {:?}", e);
-            }
-            return Ok(());
-        }
-
-        // Check if the bot is being addressed using our new function
-        if self.is_bot_addressed(&msg.content) {
-            // Use the full message content including the bot's name
-            let content = msg.content.trim().to_string();
-            let content_lower = content.to_lowercase();
-
-            // Check if the message contains "who fights crime" when the bot is addressed
-            if content_lower.contains("who fights crime") {
-                info!("Bot addressed with 'who fights crime' question");
-                match self.generate_crime_fighting_duo(ctx, msg).await {
-                    Ok(duo) => {
-                        if let Err(e) = msg.channel_id.say(&ctx.http, duo).await {
-                            error!("Error sending crime fighting duo: {:?}", e);
-                        }
-                        return Ok(());
-                    }
-                    Err(e) => {
-                        error!("Error generating crime fighting duo: {:?}", e);
-                        // Continue with normal response if crime fighting duo generation fails
-                    }
-                }
-            }
-
-            if !content.is_empty() {
-                if let Some(gemini_client) = &self.gemini_client {
-                    // Get and clean the display name
-                    let display_name = get_best_display_name(ctx, msg).await;
-                    let clean_display_name = clean_display_name(&display_name);
-
-                    // Extract pronouns from the same display name
-                    let user_pronouns = crate::display_name::extract_pronouns(&display_name);
-
-                    // Start typing indicator before making API call
-                    if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
-                        error!("Failed to send typing indicator: {:?}", e);
-                    }
-
-                    // Get recent messages for context
-                    let context_messages = if let Some(db) = &self.message_db {
-                        // Debug: Log the channel ID we are using
-                        info!(
-                            "Requesting context messages for channel ID: {}",
-                            msg.channel_id
-                        );
-
-                        // Get the last self.gemini_context_messages messages from the database
-                        match db_utils::get_recent_messages_with_reply_context(
-                            db.clone(),
-                            self.gemini_context_messages,
-                            Some(msg.channel_id.to_string().as_str()),
-                        )
-                        .await
-                        {
-                            Ok(messages) => {
-                                if messages.is_empty() {
-                                    info!(
-                                        "No context messages found for channel {}",
-                                        msg.channel_id
-                                    );
-                                } else {
-                                    info!(
-                                        "Found {} context messages for channel {}",
-                                        messages.len(),
-                                        msg.channel_id
-                                    );
-                                }
-                                messages
-                            }
-                            Err(e) => {
-                                error!("Error retrieving recent messages: {:?}", e);
-                                Vec::new()
-                            }
-                        }
-                    } else {
-                        Vec::new()
-                    };
-
-                    // Convert to the format expected by generate_response_with_context_and_pronouns
-                    let context_for_api: Vec<(String, String, Option<String>, String)> =
-                        context_messages
-                            .iter()
-                            .map(
-                                |(author, display_name, pronouns, content, _reply_context)| {
-                                    (
-                                        author.clone(),
-                                        display_name.clone(),
-                                        pronouns.clone(),
-                                        content.clone(),
-                                    )
-                                },
-                            )
-                            .collect();
-
-                    // Extract media (images/video) from the message and any replied-to message
-                    let media_items = media_utils::extract_media_from_message(msg).await;
-                    let youtube_urls = media_utils::extract_youtube_urls(&content);
-                    let has_media = !media_items.is_empty() || !youtube_urls.is_empty();
-
-                    // Use multimodal path if media is present, otherwise standard text path
-                    let response_result = if has_media {
-                        info!(
-                            "Using multimodal path: {} media items, {} YouTube URLs",
-                            media_items.len(),
-                            youtube_urls.len()
-                        );
-                        let prompt = gemini_client.prompt_templates().format_general_response(
-                            &content,
-                            &clean_display_name,
-                            "",
-                        );
-                        gemini_client
-                            .generate_content_with_media(&prompt, &media_items, &youtube_urls)
-                            .await
-                            .map(Some)
-                    } else {
-                        gemini_client
-                            .generate_best_response_with_context_and_pronouns(
-                                &content,
-                                &clean_display_name,
-                                &context_for_api,
-                                user_pronouns.as_deref(),
-                                true, // Always respond when directly addressed by name
-                            )
-                            .await
-                    };
-
-                    // Handle the response
-                    match response_result {
-                        Ok(Some(response)) => {
-                            // Apply realistic typing delay based on response length
-                            apply_realistic_delay(&response, ctx, msg.channel_id).await;
-
-                            // Create a message reference for replying
-                            let message_reference = MessageReference::from(msg);
-                            let create_message = CreateMessage::new()
-                                .content(response.clone())
-                                .reference_message(message_reference);
-
-                            if let Err(e) =
-                                msg.channel_id.send_message(&ctx.http, create_message).await
-                            {
-                                error!("Error sending Gemini response as reply: {:?}", e);
-                                // Fallback to regular message if reply fails
-                                if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
-                                    error!("Error sending fallback Gemini response: {:?}", e);
-                                }
-                            }
-                        }
-                        Ok(None) => {
-                            // No response generated (all were "pass")
-                            return Ok(());
-                        }
-                        Err(e) => {
-                            error!("Error calling Gemini API: {:?}", e);
-
-                            let error_string = e.to_string();
-
-                            // Don't show silent errors to users
-                            if error_string.contains("SILENT_ERROR") {
-                                return Ok(());
-                            }
-
-                            // Show a friendly message for billing errors
-                            let user_message = if error_string.contains("BILLING_ERROR") {
-                                "The Gemini API quota or billing limit has been reached. I'll be back once the limit resets!".to_string()
-                            } else {
-                                format!("Sorry, I encountered an error: {e}")
-                            };
-
-                            // Create a message reference for replying
-                            let message_reference = MessageReference::from(msg);
-                            let create_message = CreateMessage::new()
-                                .content(&user_message)
-                                .reference_message(message_reference);
-
-                            if let Err(e) =
-                                msg.channel_id.send_message(&ctx.http, create_message).await
-                            {
-                                error!("Error sending error message as reply: {:?}", e);
-                                // Fallback to regular message if reply fails
-                                if let Err(e) = msg.channel_id.say(&ctx.http, &user_message).await {
-                                    error!("Error sending fallback error message: {:?}", e);
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    // Fallback if Gemini API is not configured
-                    let display_name = get_best_display_name(ctx, msg).await;
-
-                    // Extract pronouns from the display name if present
-                    let pronouns_info = if let Some(pronouns) =
-                        crate::display_name::extract_pronouns(&display_name)
-                    {
-                        format!(" (I see you use {pronouns} pronouns)")
-                    } else {
-                        String::new()
-                    };
-
-                    if let Err(e) = msg.channel_id.say(&ctx.http, format!("Hello {}, you called my name! I'm {}!{} (Gemini API is not configured)",
-                        clean_display_name(&display_name),
-                        self.bot_name,
-                        pronouns_info
-                    )).await {
-                        error!("Error sending name response: {:?}", e);
-                    }
-                }
-                return Ok(());
-            }
-        }
-
         // Check for keyword triggers
         let content_lower = msg.content.to_lowercase();
 
@@ -2940,12 +2318,7 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
         }
 
         // Check for direct mentions of the bot
-        let current_user_id = ctx
-            .http
-            .get_current_user()
-            .await
-            .map(|u| u.id)
-            .unwrap_or_default();
+        let current_user_id = self.get_bot_user_id(ctx).await;
         if msg.mentions_user_id(current_user_id) {
             // Extract the message content without the mention
             let content = msg
@@ -3088,17 +2461,8 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
 #[async_trait]
 impl EventHandler for Bot {
     async fn message(&self, ctx: Context, msg: Message) {
-        // Get the bot ID
-        let bot_id = match ctx.http.get_current_user().await {
-            Ok(user) => user.id,
-            Err(_) => {
-                // Fallback to old method if we can't get bot ID
-                self.fill_silence_manager
-                    .update_activity(msg.channel_id, msg.author.id)
-                    .await;
-                return;
-            }
-        };
+        // Get the bot ID (cached from ready handler)
+        let bot_id = self.get_bot_user_id(&ctx).await;
 
         // Update the last activity time and message count for this channel
         self.fill_silence_manager
@@ -3183,12 +2547,7 @@ impl EventHandler for Bot {
         // Check if the message is from a bot
         if msg.author.bot {
             // Get the current bot's user ID
-            let current_user_id = ctx
-                .http
-                .get_current_user()
-                .await
-                .map(|u| u.id)
-                .unwrap_or_default();
+            let current_user_id = self.get_bot_user_id(&ctx).await;
             let bot_id = msg.author.id.get();
 
             // Check if this message is from the bot itself
@@ -3309,6 +2668,12 @@ impl EventHandler for Bot {
     }
 
     async fn ready(&self, ctx: Context, ready: Ready) {
+        // Cache the bot's user ID for use throughout the session
+        {
+            let mut bot_id = self.bot_user_id.write().await;
+            *bot_id = Some(ready.user.id);
+        }
+
         info!(
             "✅ {} ({}) is connected and following {} channels!",
             self.bot_name,
@@ -3875,6 +3240,7 @@ Keep it brief and natural, as if you're just another participant in the conversa
             log_prompts: gemini_log_prompts,
             interjection_fact_probability,
             gemini_personality_description: gemini_personality_description_for_bot,
+            pollinations_api_key: config.pollinations_api_key.clone(),
         },
         parsed_config.clone(),
     );

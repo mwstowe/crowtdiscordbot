@@ -79,6 +79,7 @@ pub struct Config {
     pub db_password: Option<String>,
     pub gateway_bot_ids: Option<String>,
     pub imagine_channels: Option<String>,
+    pub pollinations_api_key: Option<String>,
     pub quiet_channel_name: Option<String>,
     pub quiet_channel_id: Option<String>,
     pub quiet_channel_names: Option<String>,

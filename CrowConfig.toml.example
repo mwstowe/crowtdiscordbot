@@ -58,10 +58,6 @@ IMPORTANT BEHAVIORAL RULES:
    When in doubt, use gender-neutral language and address people by their username instead.
 10. If you're unsure if a response is appropriate, respond with ONLY the word "pass" instead.
 """
-GEMINI_RATE_LIMIT_MINUTE = "15"
-GEMINI_RATE_LIMIT_DAY = "500"
-GEMINI_CONTEXT_MESSAGES = "5"
-GEMINI_LOG_PROMPTS = "false"  # Set to "true" to log complete prompts and responses
 
 # Optional: Custom Gemini API endpoint (defaults to gemini-3.1-flash-lite-preview)
 # GEMINI_API_ENDPOINT = "gemini-2.5-flash"
@@ -132,6 +128,8 @@ DUCKDUCKGO_SEARCH_ENABLED = "true"
 # Image Generation Configuration
 # Comma-separated list of channels where !imagine command is allowed
 # IMAGINE_CHANNELS = "bot-testing,ai-images"
+# Pollinations API key (get one free at https://enter.pollinations.ai)
+# POLLINATIONS_API_KEY = "your_pollinations_api_key_here"
 
 # Gateway Bot IDs (comma-separated list of bot IDs to ignore)
 # GATEWAY_BOT_IDS = "123456789012345678,234567890123456789"
