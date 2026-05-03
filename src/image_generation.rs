@@ -140,7 +140,7 @@ pub async fn handle_imagine_command(
                         error!("Legacy endpoint failed: HTTP {}", resp.status());
                         break;
                     }
-                    Err(e) if attempt < 3 => {
+                    Err(_) if attempt < 3 => {
                         info!("Legacy endpoint timed out, retry {}/3 after {}s", attempt, attempt * 10);
                         tokio::time::sleep(Duration::from_secs(attempt as u64 * 10)).await;
                         let _ = msg.channel_id.broadcast_typing(&ctx.http).await;
