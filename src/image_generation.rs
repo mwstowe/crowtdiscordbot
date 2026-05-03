@@ -124,12 +124,33 @@ pub async fn handle_imagine_command(
             let url = format!(
                 "https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true"
             );
-            match http_client.get(&url).timeout(timeout).send().await {
-                Ok(resp) if resp.status().is_success() => {
-                    result = Some(resp.bytes().await?);
+            for attempt in 1..=3 {
+                match http_client.get(&url).timeout(timeout).send().await {
+                    Ok(resp) if resp.status().is_success() => {
+                        result = Some(resp.bytes().await?);
+                        break;
+                    }
+                    Ok(resp) if resp.status().as_u16() == 429 => {
+                        info!("Legacy endpoint returned 429, retry {}/3 after {}s", attempt, attempt * 10);
+                        tokio::time::sleep(Duration::from_secs(attempt as u64 * 10)).await;
+                        let _ = msg.channel_id.broadcast_typing(&ctx.http).await;
+                        continue;
+                    }
+                    Ok(resp) => {
+                        error!("Legacy endpoint failed: HTTP {}", resp.status());
+                        break;
+                    }
+                    Err(e) if attempt < 3 => {
+                        info!("Legacy endpoint timed out, retry {}/3 after {}s", attempt, attempt * 10);
+                        tokio::time::sleep(Duration::from_secs(attempt as u64 * 10)).await;
+                        let _ = msg.channel_id.broadcast_typing(&ctx.http).await;
+                        continue;
+                    }
+                    Err(e) => {
+                        error!("Legacy endpoint request failed after retries: {:?}", e);
+                        break;
+                    }
                 }
-                Ok(resp) => error!("Legacy endpoint also failed: HTTP {}", resp.status()),
-                Err(e) => error!("Legacy endpoint request failed: {:?}", e),
             }
         }
 
