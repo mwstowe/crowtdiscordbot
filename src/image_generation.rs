@@ -65,7 +65,17 @@ pub async fn handle_imagine_command(
         return Ok(());
     }
 
-    let encoded_prompt = urlencoding::encode(prompt);
+    // Truncate very long prompts — image models don't benefit from extremely detailed text
+    // and long URL-encoded prompts can cause timeouts
+    let truncated_prompt = if prompt.len() > 500 {
+        info!("Truncating image prompt from {} to 500 chars", prompt.len());
+        &prompt[..prompt.rfind(' ').unwrap_or(500).min(500)]
+    } else {
+        prompt
+    };
+
+    let encoded_prompt = urlencoding::encode(truncated_prompt);
+    let timeout = Duration::from_secs(90);
 
     let image_bytes = if let Some(key) = pollinations_api_key {
         // Try models in order of quality, falling back on 402 (payment required)
@@ -80,7 +90,7 @@ pub async fn handle_imagine_command(
             let resp = http_client
                 .get(&url)
                 .header("Authorization", format!("Bearer {key}"))
-                .timeout(Duration::from_secs(60))
+                .timeout(timeout)
                 .send()
                 .await;
 
@@ -114,7 +124,7 @@ pub async fn handle_imagine_command(
             let url = format!(
                 "https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true"
             );
-            match http_client.get(&url).timeout(Duration::from_secs(60)).send().await {
+            match http_client.get(&url).timeout(timeout).send().await {
                 Ok(resp) if resp.status().is_success() => {
                     result = Some(resp.bytes().await?);
                 }
@@ -129,7 +139,7 @@ pub async fn handle_imagine_command(
         let url = format!(
             "https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true"
         );
-        match http_client.get(&url).timeout(Duration::from_secs(60)).send().await {
+        match http_client.get(&url).timeout(timeout).send().await {
             Ok(resp) if resp.status().is_success() => Some(resp.bytes().await?),
             Ok(resp) => {
                 error!("Pollinations legacy API error: HTTP {}", resp.status());
