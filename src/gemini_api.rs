@@ -435,6 +435,20 @@ impl GeminiClient {
                     .unwrap_or("Unknown API error");
                 let error_code = error.get("code").and_then(|c| c.as_u64()).unwrap_or(0);
 
+                // Check for billing/spending cap errors - return a friendly message
+                if error_message.contains("spending cap")
+                    || error_message.contains("billing")
+                    || error_message.contains("BillingHardLimit")
+                {
+                    error!(
+                        "Gemini API billing error (code {}): {}",
+                        error_code, error_message
+                    );
+                    return Err(anyhow::anyhow!(
+                        "BILLING_ERROR: The Gemini API quota or billing limit has been reached. The bot will continue working once the limit resets."
+                    ));
+                }
+
                 // Check if this is a retryable error
                 if error_message.contains("overloaded")
                     || error_message.contains("try again later")
@@ -625,6 +639,16 @@ impl GeminiClient {
                 .get("message")
                 .and_then(|m| m.as_str())
                 .unwrap_or("Unknown API error");
+            // Check for billing/spending cap errors
+            if msg.contains("spending cap")
+                || msg.contains("billing")
+                || msg.contains("BillingHardLimit")
+            {
+                error!("Gemini multimodal API billing error: {}", msg);
+                return Err(anyhow::anyhow!(
+                    "BILLING_ERROR: The Gemini API quota or billing limit has been reached. The bot will continue working once the limit resets."
+                ));
+            }
             error!("Gemini multimodal API error: {}", msg);
             return Err(anyhow::anyhow!("Gemini API error: {}", msg));
         }
@@ -734,6 +758,16 @@ impl GeminiClient {
                     "Received HTTP 429 from image generation API: {}",
                     response_text
                 );
+
+                // Check for billing/spending cap errors first
+                if response_text.contains("spending cap")
+                    || response_text.contains("billing")
+                    || response_text.contains("BillingHardLimit")
+                {
+                    return Err(anyhow::anyhow!(
+                        "BILLING_ERROR: The Gemini API quota or billing limit has been reached. The bot will continue working once the limit resets."
+                    ));
+                }
 
                 // Try to parse the retry delay from the response
                 if let Ok(json) = serde_json::from_str::<serde_json::Value>(&response_text) {

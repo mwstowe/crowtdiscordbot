@@ -1598,10 +1598,24 @@ impl Bot {
                         Err(e) => {
                             error!("Error calling Gemini API: {:?}", e);
 
+                            let error_string = e.to_string();
+
+                            // Don't show silent errors to users
+                            if error_string.contains("SILENT_ERROR") {
+                                return Ok(());
+                            }
+
+                            // Show a friendly message for billing errors
+                            let user_message = if error_string.contains("BILLING_ERROR") {
+                                "The Gemini API quota or billing limit has been reached. I'll be back once the limit resets!".to_string()
+                            } else {
+                                format!("Sorry, I encountered an error: {e}")
+                            };
+
                             // Create a message reference for replying
                             let message_reference = MessageReference::from(msg);
                             let create_message = CreateMessage::new()
-                                .content(format!("Sorry, I encountered an error: {e}"))
+                                .content(&user_message)
                                 .reference_message(message_reference);
 
                             if let Err(e) =
@@ -1609,11 +1623,7 @@ impl Bot {
                             {
                                 error!("Error sending error message as reply: {:?}", e);
                                 // Fallback to regular message if reply fails
-                                if let Err(e) = msg
-                                    .channel_id
-                                    .say(&ctx.http, format!("Sorry, I encountered an error: {e}"))
-                                    .await
-                                {
+                                if let Err(e) = msg.channel_id.say(&ctx.http, &user_message).await {
                                     error!("Error sending fallback error message: {:?}", e);
                                 }
                             }
@@ -2832,10 +2842,24 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                         Err(e) => {
                             error!("Error calling Gemini API: {:?}", e);
 
+                            let error_string = e.to_string();
+
+                            // Don't show silent errors to users
+                            if error_string.contains("SILENT_ERROR") {
+                                return Ok(());
+                            }
+
+                            // Show a friendly message for billing errors
+                            let user_message = if error_string.contains("BILLING_ERROR") {
+                                "The Gemini API quota or billing limit has been reached. I'll be back once the limit resets!".to_string()
+                            } else {
+                                format!("Sorry, I encountered an error: {e}")
+                            };
+
                             // Create a message reference for replying
                             let message_reference = MessageReference::from(msg);
                             let create_message = CreateMessage::new()
-                                .content(format!("Sorry, I encountered an error: {e}"))
+                                .content(&user_message)
                                 .reference_message(message_reference);
 
                             if let Err(e) =
@@ -2843,11 +2867,7 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                             {
                                 error!("Error sending error message as reply: {:?}", e);
                                 // Fallback to regular message if reply fails
-                                if let Err(e) = msg
-                                    .channel_id
-                                    .say(&ctx.http, format!("Sorry, I encountered an error: {e}"))
-                                    .await
-                                {
+                                if let Err(e) = msg.channel_id.say(&ctx.http, &user_message).await {
                                     error!("Error sending fallback error message: {:?}", e);
                                 }
                             }
@@ -3040,10 +3060,24 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                         Err(e) => {
                             error!("Error calling Gemini API: {:?}", e);
 
+                            let error_string = e.to_string();
+
+                            // Don't show silent errors to users
+                            if error_string.contains("SILENT_ERROR") {
+                                return Ok(());
+                            }
+
+                            // Show a friendly message for billing errors
+                            let user_message = if error_string.contains("BILLING_ERROR") {
+                                "The Gemini API quota or billing limit has been reached. I'll be back once the limit resets!".to_string()
+                            } else {
+                                format!("Sorry, I encountered an error: {e}")
+                            };
+
                             // Create a message reference for replying
                             let message_reference = MessageReference::from(msg);
                             let create_message = CreateMessage::new()
-                                .content(format!("Sorry, I encountered an error: {e}"))
+                                .content(&user_message)
                                 .reference_message(message_reference);
 
                             if let Err(e) =
@@ -3051,11 +3085,7 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                             {
                                 error!("Error sending error message as reply: {:?}", e);
                                 // Fallback to regular message if reply fails
-                                if let Err(e) = msg
-                                    .channel_id
-                                    .say(&ctx.http, format!("Sorry, I encountered an error: {e}"))
-                                    .await
-                                {
+                                if let Err(e) = msg.channel_id.say(&ctx.http, &user_message).await {
                                     error!("Error sending fallback error message: {:?}", e);
                                 }
                             }

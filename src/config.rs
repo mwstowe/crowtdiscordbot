@@ -197,13 +197,13 @@ pub fn parse_config(config: &Config) -> ParsedConfig {
         .gemini_rate_limit_minute
         .as_ref()
         .and_then(|limit| limit.parse::<u32>().ok())
-        .unwrap_or(15); // Default: 15 calls per minute
+        .unwrap_or(10); // Default: 10 calls per minute (Gemini 2.5 Flash free tier)
 
     let gemini_rate_limit_day = config
         .gemini_rate_limit_day
         .as_ref()
         .and_then(|limit| limit.parse::<u32>().ok())
-        .unwrap_or(1500); // Default: 1500 calls per day
+        .unwrap_or(250); // Default: 250 calls per day (Gemini 2.5 Flash free tier)
 
     info!(
         "Gemini API rate limits set to {} calls per minute and {} calls per day",

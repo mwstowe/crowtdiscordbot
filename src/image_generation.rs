@@ -136,6 +136,12 @@ pub async fn handle_imagine_command(
                             attempt, max_attempts, e
                         );
 
+                        // Check if this is a billing/spending cap error
+                        if error_string.contains("BILLING_ERROR") {
+                            msg.reply(&ctx.http, "The Gemini API quota or billing limit has been reached. I'll be back once the limit resets!").await?;
+                            break;
+                        }
+
                         // Check if this is a quota exhaustion error (daily limit)
                         if error_string.contains("IMAGE_QUOTA_EXHAUSTED") {
                             // Extract the message after the colon, or use a default message
