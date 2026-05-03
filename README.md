@@ -110,7 +110,7 @@ The prompt sent to Gemini can be customized by setting the `GEMINI_PROMPT_WRAPPE
 - `{user}` - The user's display name
 - `{context}` - Recent conversation history (last 5 messages)
 
-You can also configure which Gemini model to use by setting the `GEMINI_API_ENDPOINT` in your `CrowConfig.toml` file. This allows you to switch between different models like `gemini-1.0-pro`, `gemini-1.5-pro`, `gemini-1.5-flash` or `gemini-2.0-flash`.
+You can also configure which Gemini model to use by setting the `GEMINI_API_ENDPOINT` in your `CrowConfig.toml` file. This allows you to switch between different models like `gemini-3.1-flash-lite-preview`, `gemini-2.5-flash` or `gemini-2.5-pro`.
 
 ## Quiet Channels
 
