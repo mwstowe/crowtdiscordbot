@@ -284,8 +284,8 @@ The bot can be configured through the `CrowConfig.toml` file:
 - `BOT_NAME` - Name of the bot (defaults to "Crow")
 - `MESSAGE_HISTORY_LIMIT` - Maximum number of messages to store (defaults to 10000)
 - `DB_TRIM_INTERVAL_SECS` - How often to trim the database (defaults to 3600 seconds)
-- `GEMINI_RATE_LIMIT_MINUTE` - Maximum Gemini API calls per minute (defaults to 10)
-- `GEMINI_RATE_LIMIT_DAY` - Maximum Gemini API calls per day (defaults to 250)
+- `GEMINI_RATE_LIMIT_MINUTE` - Maximum Gemini API calls per minute (defaults to 15)
+- `GEMINI_RATE_LIMIT_DAY` - Maximum Gemini API calls per day (defaults to 500)
 - `GEMINI_IMAGE_RATE_LIMIT_MINUTE` - Maximum Gemini image generation calls per minute (defaults to 2)
 - `GEMINI_IMAGE_RATE_LIMIT_DAY` - Maximum Gemini image generation calls per day (defaults to 50)
 - `GEMINI_API_KEY` - Your Gemini API key
