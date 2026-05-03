@@ -66,34 +66,66 @@ pub async fn handle_imagine_command(
     }
 
     let encoded_prompt = urlencoding::encode(prompt);
-    let (url, has_auth) = if let Some(key) = pollinations_api_key {
-        (
-            format!("https://gen.pollinations.ai/image/{encoded_prompt}?model=zimage&width=1024&height=1024&nologo=true"),
-            Some(key),
-        )
+
+    let image_bytes = if let Some(key) = pollinations_api_key {
+        // Try models in order of quality, falling back on 402 (payment required)
+        let models = ["zimage", "flux"];
+        let mut result = None;
+
+        for model in models {
+            let url = format!(
+                "https://gen.pollinations.ai/image/{encoded_prompt}?model={model}&width=1024&height=1024&nologo=true"
+            );
+            let resp = http_client
+                .get(&url)
+                .header("Authorization", format!("Bearer {key}"))
+                .timeout(Duration::from_secs(60))
+                .send()
+                .await;
+
+            match resp {
+                Ok(r) if r.status().is_success() => {
+                    info!("Image generated successfully with model: {}", model);
+                    result = Some(r.bytes().await?);
+                    break;
+                }
+                Ok(r) if r.status().as_u16() == 402 => {
+                    info!("Model {} returned 402, trying next model", model);
+                    continue;
+                }
+                Ok(r) => {
+                    error!("Pollinations API error with model {}: HTTP {}", model, r.status());
+                    break;
+                }
+                Err(e) => {
+                    error!("Pollinations API request failed: {:?}", e);
+                    break;
+                }
+            }
+        }
+
+        result
     } else {
         info!("No Pollinations API key configured, using legacy endpoint");
-        (
-            format!("https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true"),
-            None,
-        )
+        let url = format!(
+            "https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true"
+        );
+        match http_client.get(&url).timeout(Duration::from_secs(60)).send().await {
+            Ok(resp) if resp.status().is_success() => Some(resp.bytes().await?),
+            Ok(resp) => {
+                error!("Pollinations legacy API error: HTTP {}", resp.status());
+                None
+            }
+            Err(e) => {
+                error!("Pollinations legacy API request failed: {:?}", e);
+                None
+            }
+        }
     };
 
-    let mut request = http_client
-        .get(&url)
-        .timeout(Duration::from_secs(60));
-
-    if let Some(key) = has_auth {
-        request = request.header("Authorization", format!("Bearer {key}"));
-    }
-
-    let response = request.send().await;
-
-    match response {
-        Ok(resp) if resp.status().is_success() => {
-            let image_bytes = resp.bytes().await?;
-
-            let attachment = CreateAttachment::bytes(image_bytes, "imagine.jpg");
+    match image_bytes {
+        Some(bytes) => {
+            let attachment = CreateAttachment::bytes(bytes, "imagine.jpg");
             let message_content = format!("Here's what I imagine for: {prompt}");
             let builder = CreateMessage::default()
                 .content(message_content)
@@ -105,19 +137,10 @@ pub async fn handle_imagine_command(
                     .await?;
             }
         }
-        Ok(resp) => {
-            error!("Pollinations API error: HTTP {}", resp.status());
+        None => {
             msg.reply(
                 &ctx.http,
                 "Sorry, I couldn't generate that image. Please try again.",
-            )
-            .await?;
-        }
-        Err(e) => {
-            error!("Pollinations API request failed: {:?}", e);
-            msg.reply(
-                &ctx.http,
-                "Sorry, image generation timed out. Please try again.",
             )
             .await?;
         }
