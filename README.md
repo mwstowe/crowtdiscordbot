@@ -286,8 +286,8 @@ The bot can be configured through the `CrowConfig.toml` file:
 - `DB_TRIM_INTERVAL_SECS` - How often to trim the database (defaults to 3600 seconds)
 - `GEMINI_RATE_LIMIT_MINUTE` - Maximum Gemini API calls per minute (defaults to 15)
 - `GEMINI_RATE_LIMIT_DAY` - Maximum Gemini API calls per day (defaults to 500)
-- `GEMINI_IMAGE_RATE_LIMIT_MINUTE` - Maximum Gemini image generation calls per minute (defaults to 2)
-- `GEMINI_IMAGE_RATE_LIMIT_DAY` - Maximum Gemini image generation calls per day (defaults to 50)
+- `GEMINI_IMAGE_RATE_LIMIT_MINUTE` - Maximum Gemini image generation calls per minute (defaults to 5)
+- `GEMINI_IMAGE_RATE_LIMIT_DAY` - Maximum Gemini image generation calls per day (defaults to 25)
 - `GEMINI_API_KEY` - Your Gemini API key
 - `GEMINI_API_ENDPOINT` - Custom Gemini API endpoint
 - `GEMINI_PROMPT_WRAPPER` - Custom prompt wrapper for Gemini API calls
@@ -304,7 +304,7 @@ The bot supports AI-powered image generation using Google's Gemini API. When use
 - Set `IMAGINE_CHANNELS` in your config to restrict image generation to specific channels
 - Requires `GEMINI_API_KEY` to be configured
 - Uses separate rate limiting from text generation via `GEMINI_IMAGE_RATE_LIMIT_MINUTE` and `GEMINI_IMAGE_RATE_LIMIT_DAY`
-- Default image generation limits are more conservative: 2 calls per minute, 50 calls per day
+- Default image generation limits are more conservative: 5 calls per minute, 25 calls per day
 
 ### Rate Limiting
 
