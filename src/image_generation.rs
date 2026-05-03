@@ -71,6 +71,7 @@ pub async fn handle_imagine_command(
         // Try models in order of quality, falling back on 402 (payment required)
         let models = ["zimage", "flux"];
         let mut result = None;
+        let mut all_402 = true;
 
         for model in models {
             let url = format!(
@@ -86,6 +87,7 @@ pub async fn handle_imagine_command(
             match resp {
                 Ok(r) if r.status().is_success() => {
                     info!("Image generated successfully with model: {}", model);
+                    all_402 = false;
                     result = Some(r.bytes().await?);
                     break;
                 }
@@ -95,12 +97,29 @@ pub async fn handle_imagine_command(
                 }
                 Ok(r) => {
                     error!("Pollinations API error with model {}: HTTP {}", model, r.status());
+                    all_402 = false;
                     break;
                 }
                 Err(e) => {
                     error!("Pollinations API request failed: {:?}", e);
+                    all_402 = false;
                     break;
                 }
+            }
+        }
+
+        // If all models returned 402, fall back to legacy endpoint (no auth, no pollen cost)
+        if result.is_none() && all_402 {
+            info!("All models returned 402, falling back to legacy endpoint");
+            let url = format!(
+                "https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true"
+            );
+            match http_client.get(&url).timeout(Duration::from_secs(60)).send().await {
+                Ok(resp) if resp.status().is_success() => {
+                    result = Some(resp.bytes().await?);
+                }
+                Ok(resp) => error!("Legacy endpoint also failed: HTTP {}", resp.status()),
+                Err(e) => error!("Legacy endpoint request failed: {:?}", e),
             }
         }
 
