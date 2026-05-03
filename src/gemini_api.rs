@@ -437,7 +437,6 @@ impl GeminiClient {
 
                 // Check for billing/spending cap errors - return a friendly message
                 if error_message.contains("spending cap")
-                    || error_message.contains("billing")
                     || error_message.contains("BillingHardLimit")
                 {
                     error!(
@@ -640,10 +639,7 @@ impl GeminiClient {
                 .and_then(|m| m.as_str())
                 .unwrap_or("Unknown API error");
             // Check for billing/spending cap errors
-            if msg.contains("spending cap")
-                || msg.contains("billing")
-                || msg.contains("BillingHardLimit")
-            {
+            if msg.contains("spending cap") || msg.contains("BillingHardLimit") {
                 error!("Gemini multimodal API billing error: {}", msg);
                 return Err(anyhow::anyhow!(
                     "BILLING_ERROR: The Gemini API quota or billing limit has been reached. The bot will continue working once the limit resets."
@@ -761,7 +757,6 @@ impl GeminiClient {
 
                 // Check for billing/spending cap errors first
                 if response_text.contains("spending cap")
-                    || response_text.contains("billing")
                     || response_text.contains("BillingHardLimit")
                 {
                     return Err(anyhow::anyhow!(
