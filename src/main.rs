@@ -1134,20 +1134,10 @@ impl Bot {
                     // Extract the image prompt
                     if parts.len() > 1 {
                         let prompt = parts[1..].join(" ");
-                        if let Some(gemini_client) = &self.gemini_client {
-                            if let Err(e) = handle_imagine_command(
-                                ctx,
-                                msg,
-                                gemini_client,
-                                &prompt,
-                                &self.imagine_channels,
-                            )
-                            .await
-                            {
-                                error!("Error handling imagine command: {:?}", e);
-                            }
-                        } else if let Err(e) = msg.reply(&ctx.http, "Sorry, image generation is not available (Gemini API not configured).").await {
-                            error!("Error sending API not configured message: {:?}", e);
+                        if let Err(e) =
+                            handle_imagine_command(ctx, msg, &prompt, &self.imagine_channels).await
+                        {
+                            error!("Error handling imagine command: {:?}", e);
                         }
                     } else if let Err(e) = msg
                         .reply(
@@ -2365,20 +2355,10 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                     // Extract the image prompt
                     if parts.len() > 1 {
                         let prompt = parts[1..].join(" ");
-                        if let Some(gemini_client) = &self.gemini_client {
-                            if let Err(e) = handle_imagine_command(
-                                ctx,
-                                msg,
-                                gemini_client,
-                                &prompt,
-                                &self.imagine_channels,
-                            )
-                            .await
-                            {
-                                error!("Error handling imagine command: {:?}", e);
-                            }
-                        } else if let Err(e) = msg.reply(&ctx.http, "Sorry, image generation is not available (Gemini API not configured).").await {
-                            error!("Error sending API not configured message: {:?}", e);
+                        if let Err(e) =
+                            handle_imagine_command(ctx, msg, &prompt, &self.imagine_channels).await
+                        {
+                            error!("Error handling imagine command: {:?}", e);
                         }
                     } else if let Err(e) = msg
                         .reply(

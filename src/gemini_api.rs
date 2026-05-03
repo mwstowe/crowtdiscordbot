@@ -1,7 +1,6 @@
 use crate::prompt_templates::PromptTemplates;
 use crate::rate_limiter::RateLimiter;
 use anyhow::Result;
-use base64::Engine;
 use chrono::{DateTime, Utc};
 use rand::RngExt;
 use std::collections::HashMap;
@@ -14,7 +13,6 @@ use tracing::{error, info};
 pub struct GeminiClient {
     api_key: String,
     api_endpoint: String,
-    image_endpoint: String,
     prompt_templates: PromptTemplates,
     rate_limiter: RateLimiter,
     image_rate_limiter: RateLimiter,
@@ -45,7 +43,6 @@ impl GeminiClient {
     pub fn new(config: GeminiConfig) -> Self {
         // Default endpoint for Gemini API
         let default_endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent".to_string();
-        let image_endpoint = "https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict".to_string();
 
         // Create prompt templates with custom personality if provided
         let mut prompt_templates = PromptTemplates::new_with_custom_personality(
@@ -75,7 +72,6 @@ impl GeminiClient {
         Self {
             api_key: config.api_key,
             api_endpoint: config.api_endpoint.unwrap_or(default_endpoint),
-            image_endpoint,
             prompt_templates,
             rate_limiter,
             image_rate_limiter,
@@ -131,25 +127,6 @@ impl GeminiClient {
             }
         }
         false
-    }
-
-    // Mark image generation as quota exhausted until tomorrow
-    async fn mark_image_quota_exhausted(&self) {
-        let tomorrow = Utc::now() + chrono::Duration::days(1);
-        // Reset at midnight UTC
-        let tomorrow_midnight = tomorrow
-            .date_naive()
-            .and_hms_opt(0, 0, 0)
-            .map(|dt| dt.and_utc())
-            .unwrap_or(tomorrow);
-
-        let mut quota_lock = self.image_quota_exhausted_until.lock().await;
-        *quota_lock = Some(tomorrow_midnight);
-
-        info!(
-            "Image generation quota exhausted. Feature disabled until {}",
-            tomorrow_midnight
-        );
     }
 
     // Get a reference to the prompt templates
@@ -661,115 +638,6 @@ impl GeminiClient {
             ))
         }
     }
-
-    // Generate an image from a text prompt using Imagen 4
-    pub async fn generate_image(&self, prompt: &str) -> Result<(Vec<u8>, String)> {
-        // Check if image generation is currently blocked due to quota exhaustion
-        if self.is_image_quota_exhausted().await {
-            return Err(anyhow::anyhow!("IMAGE_QUOTA_EXHAUSTED: Image generation quota has been exceeded for today. This feature will be available again tomorrow."));
-        }
-
-        // Check image rate limits
-        match self.image_rate_limiter.check().await {
-            Ok(()) => {
-                self.image_rate_limiter.record_request().await;
-            }
-            Err(e) => {
-                let error_msg = e.to_string();
-                if error_msg.contains("Daily rate limit reached") {
-                    self.mark_image_quota_exhausted().await;
-                    return Err(anyhow::anyhow!("IMAGE_QUOTA_EXHAUSTED: Daily image generation limit reached. This feature will be available again tomorrow."));
-                }
-                return Err(e);
-            }
-        }
-
-        // Imagen 4 predict API request
-        let request_body = serde_json::json!({
-            "instances": [{"prompt": prompt}],
-            "parameters": {"sampleCount": 1}
-        });
-
-        let url = format!("{}?key={}", self.image_endpoint, self.api_key);
-
-        let client = reqwest::Client::new();
-        let response = client
-            .post(&url)
-            .json(&request_body)
-            .timeout(Duration::from_secs(60))
-            .send()
-            .await?;
-
-        let status = response.status();
-
-        if status == 429 {
-            let response_text = response.text().await.unwrap_or_default();
-            error!("Received HTTP 429 from Imagen API: {}", response_text);
-
-            if response_text.contains("spending cap") || response_text.contains("BillingHardLimit")
-            {
-                return Err(anyhow::anyhow!(
-                    "BILLING_ERROR: The Gemini API quota or billing limit has been reached."
-                ));
-            }
-
-            if response_text.to_lowercase().contains("quota")
-                || response_text.to_lowercase().contains("resource_exhausted")
-            {
-                self.mark_image_quota_exhausted().await;
-                return Err(anyhow::anyhow!("IMAGE_QUOTA_EXHAUSTED: Image generation quota has been exceeded for today. This feature will be available again tomorrow."));
-            }
-
-            return Err(anyhow::anyhow!(
-                "Rate limit exceeded. Please try again later."
-            ));
-        }
-
-        if !status.is_success() {
-            let response_text = response.text().await.unwrap_or_default();
-            error!("Imagen API error (HTTP {}): {}", status, response_text);
-
-            // Check for safety/policy blocks
-            if response_text.contains("SAFETY")
-                || response_text.contains("policy")
-                || response_text.contains("blocked")
-            {
-                return Err(anyhow::anyhow!("SAFETY_BLOCKED: \"I'm unable to generate that image due to content policy restrictions.\""));
-            }
-
-            return Err(anyhow::anyhow!(
-                "Image generation API error (HTTP {})",
-                status
-            ));
-        }
-
-        let response_json: serde_json::Value = response.json().await?;
-
-        // Extract base64 image data from Imagen predict response
-        if let Some(image_b64) = response_json
-            .get("predictions")
-            .and_then(|p| p.get(0))
-            .and_then(|p| p.get("bytesBase64Encoded"))
-            .and_then(|b| b.as_str())
-        {
-            info!("Successfully generated image from Imagen 4 API");
-            match base64::engine::general_purpose::STANDARD.decode(image_b64) {
-                Ok(bytes) => Ok((bytes, String::new())),
-                Err(e) => {
-                    error!("Failed to decode base64 image data: {:?}", e);
-                    Err(anyhow::anyhow!("Failed to decode base64 image data"))
-                }
-            }
-        } else {
-            error!(
-                "Failed to extract image data from Imagen API response: {}",
-                response_json
-            );
-            Err(anyhow::anyhow!(
-                "Failed to extract image data from API response"
-            ))
-        }
-    }
 }
 
 #[cfg(test)]
@@ -778,7 +646,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_image_quota_exhaustion() {
-        // Create a test GeminiClient
         let client = GeminiClient::new(GeminiConfig {
             api_key: "test_key".to_string(),
             api_endpoint: None,
@@ -795,24 +662,10 @@ mod tests {
 
         // Initially, quota should not be exhausted
         assert!(!client.is_image_quota_exhausted().await);
-
-        // Mark quota as exhausted
-        client.mark_image_quota_exhausted().await;
-
-        // Now quota should be exhausted
-        assert!(client.is_image_quota_exhausted().await);
-
-        // Test that generate_image returns the correct error when quota is exhausted
-        let result = client.generate_image("test prompt").await;
-        assert!(result.is_err());
-        let error_msg = result.unwrap_err().to_string();
-        assert!(error_msg.contains("IMAGE_QUOTA_EXHAUSTED"));
-        assert!(error_msg.contains("quota has been exceeded for today"));
     }
 
     #[tokio::test]
     async fn test_image_quota_reset_logic() {
-        // Create a test GeminiClient
         let client = GeminiClient::new(GeminiConfig {
             api_key: "test_key".to_string(),
             api_endpoint: None,
@@ -827,45 +680,32 @@ mod tests {
             personality_description: None,
         });
 
-        // Mark quota as exhausted
-        client.mark_image_quota_exhausted().await;
-
-        // Verify it's marked as exhausted
-        assert!(client.is_image_quota_exhausted().await);
-
         // Manually set the exhaustion time to yesterday (simulating time passage)
         {
             let mut quota_lock = client.image_quota_exhausted_until.lock().await;
             *quota_lock = Some(Utc::now() - chrono::Duration::days(1));
         }
 
-        // Now quota should not be exhausted (time has passed)
+        // Quota should not be exhausted (time has passed)
         assert!(!client.is_image_quota_exhausted().await);
     }
 
     #[tokio::test]
     async fn test_separate_rate_limiters() {
-        // Create a test GeminiClient with different rate limits for text and image
         let client = GeminiClient::new(GeminiConfig {
             api_key: "test_key".to_string(),
             api_endpoint: None,
             prompt_wrapper: None,
             bot_name: "TestBot".to_string(),
-            rate_limit_minute: 10,      // text: 10 per minute
-            rate_limit_day: 1000,       // text: 1000 per day
-            image_rate_limit_minute: 2, // image: 2 per minute
-            image_rate_limit_day: 50,   // image: 50 per day
+            rate_limit_minute: 10,
+            rate_limit_day: 1000,
+            image_rate_limit_minute: 2,
+            image_rate_limit_day: 50,
             context_messages: 5,
             log_prompts: false,
             personality_description: None,
         });
 
-        // Verify that the rate limiters are separate by checking their internal state
-        // We can't directly test the rate limiting without making actual API calls,
-        // but we can verify that the client has separate rate limiters
-
-        // The fact that the client was created successfully with different limits
-        // indicates that the separate rate limiters are working
         assert!(!client.is_image_quota_exhausted().await);
     }
 }
