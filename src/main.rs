@@ -95,41 +95,77 @@ impl BotAddressPatterns {
         let name_boundary = regex::Regex::new(&format!(r"\b{escaped}\b")).unwrap();
 
         let neg_strs = [
-            format!(r"than {escaped}\b"), format!(r"like {escaped}\b"),
-            format!(r"about {escaped}\b"), format!(r"with {escaped}\b"),
-            format!(r"and {escaped}\b"), format!(r"or {escaped}\b"),
-            format!(r"for {escaped}\b"), format!(r"the {escaped}\b"),
-            format!(r"a {escaped}\b"), format!(r"an {escaped}\b"),
-            format!(r"this {escaped}\b"), format!(r"that {escaped}\b"),
-            format!(r"my {escaped}\b"), format!(r"your {escaped}\b"),
-            format!(r"our {escaped}\b"), format!(r"their {escaped}\b"),
-            format!(r"his {escaped}\b"), format!(r"her {escaped}\b"),
-            format!(r"its {escaped}\b"), format!(r"picked {escaped}\b"),
-            format!(r"chose {escaped}\b"), format!(r"selected {escaped}\b"),
-            format!(r"named {escaped}\b"), format!(r"called {escaped}\b"),
-            format!(r"{escaped} is\b"), format!(r"{escaped} was\b"),
-            format!(r"{escaped} has\b"), format!(r"{escaped} isn't\b"),
-            format!(r"{escaped} doesn't\b"), format!(r"{escaped} didn't\b"),
-            format!(r"{escaped} won't\b"), format!(r"{escaped} can't\b"),
-            format!(r"{escaped} rhymes"), format!(r"rhymes with {escaped}"),
-            format!(r"{escaped} and"), format!(r"more of a {escaped}"),
-            format!(r"less of a {escaped}"), format!(r"kind of {escaped}"),
-            format!(r"sort of {escaped}"), format!(r"type of {escaped}"),
+            format!(r"than {escaped}\b"),
+            format!(r"like {escaped}\b"),
+            format!(r"about {escaped}\b"),
+            format!(r"with {escaped}\b"),
+            format!(r"and {escaped}\b"),
+            format!(r"or {escaped}\b"),
+            format!(r"for {escaped}\b"),
+            format!(r"the {escaped}\b"),
+            format!(r"a {escaped}\b"),
+            format!(r"an {escaped}\b"),
+            format!(r"this {escaped}\b"),
+            format!(r"that {escaped}\b"),
+            format!(r"my {escaped}\b"),
+            format!(r"your {escaped}\b"),
+            format!(r"our {escaped}\b"),
+            format!(r"their {escaped}\b"),
+            format!(r"his {escaped}\b"),
+            format!(r"her {escaped}\b"),
+            format!(r"its {escaped}\b"),
+            format!(r"picked {escaped}\b"),
+            format!(r"chose {escaped}\b"),
+            format!(r"selected {escaped}\b"),
+            format!(r"named {escaped}\b"),
+            format!(r"called {escaped}\b"),
+            format!(r"{escaped} is\b"),
+            format!(r"{escaped} was\b"),
+            format!(r"{escaped} has\b"),
+            format!(r"{escaped} isn't\b"),
+            format!(r"{escaped} doesn't\b"),
+            format!(r"{escaped} didn't\b"),
+            format!(r"{escaped} won't\b"),
+            format!(r"{escaped} can't\b"),
+            format!(r"{escaped} rhymes"),
+            format!(r"rhymes with {escaped}"),
+            format!(r"{escaped} and"),
+            format!(r"more of a {escaped}"),
+            format!(r"less of a {escaped}"),
+            format!(r"kind of {escaped}"),
+            format!(r"sort of {escaped}"),
+            format!(r"type of {escaped}"),
         ];
-        let negative = neg_strs.iter().filter_map(|p| regex::Regex::new(p).ok()).collect();
+        let negative = neg_strs
+            .iter()
+            .filter_map(|p| regex::Regex::new(p).ok())
+            .collect();
 
         let pos_strs = [
-            format!(r"{escaped}\?"), format!(r"{escaped}!"),
-            format!(r"{escaped},"), format!(r"{escaped}:"),
-            format!(r"{escaped} can you"), format!(r"{escaped} could you"),
-            format!(r"{escaped} will you"), format!(r"{escaped} would you"),
-            format!(r"{escaped} please"), format!(r"ask {escaped}"),
-            format!(r"tell {escaped}"), format!(r", {escaped}"),
+            format!(r"{escaped}\?"),
+            format!(r"{escaped}!"),
+            format!(r"{escaped},"),
+            format!(r"{escaped}:"),
+            format!(r"{escaped} can you"),
+            format!(r"{escaped} could you"),
+            format!(r"{escaped} will you"),
+            format!(r"{escaped} would you"),
+            format!(r"{escaped} please"),
+            format!(r"ask {escaped}"),
+            format!(r"tell {escaped}"),
+            format!(r", {escaped}"),
             format!(r" {escaped}\."),
         ];
-        let positive = pos_strs.iter().filter_map(|p| regex::Regex::new(&format!(r"\b{p}\b")).ok()).collect();
+        let positive = pos_strs
+            .iter()
+            .filter_map(|p| regex::Regex::new(&format!(r"\b{p}\b")).ok())
+            .collect();
 
-        Self { name_boundary, negative, positive }
+        Self {
+            name_boundary,
+            negative,
+            positive,
+        }
     }
 }
 
@@ -225,9 +261,7 @@ impl Bot {
                             // Process each missed message in chronological order (oldest first)
                             for msg in messages.iter().rev() {
                                 // Skip our own messages
-                                if msg.author.id
-                                    == self.get_bot_user_id(ctx).await
-                                {
+                                if msg.author.id == self.get_bot_user_id(ctx).await {
                                     continue;
                                 }
 
@@ -967,7 +1001,10 @@ impl Bot {
             // Check for negative patterns first
             for re in &self.address_patterns.negative {
                 if re.is_match(&content_lower) {
-                    info!("Bot NOT addressed: matched negative pattern '{}'", re.as_str());
+                    info!(
+                        "Bot NOT addressed: matched negative pattern '{}'",
+                        re.as_str()
+                    );
                     return false;
                 }
             }
@@ -1095,8 +1132,16 @@ impl Bot {
                     // Extract the image prompt
                     if parts.len() > 1 {
                         let prompt = parts[1..].join(" ");
-                        if let Err(e) =
-                            handle_imagine_command(ctx, msg, &prompt, &self.imagine_channels, self.pollinations_api_key.as_deref(), &self.image_rate_limiter, &self.http_client).await
+                        if let Err(e) = handle_imagine_command(
+                            ctx,
+                            msg,
+                            &prompt,
+                            &self.imagine_channels,
+                            self.pollinations_api_key.as_deref(),
+                            &self.image_rate_limiter,
+                            &self.http_client,
+                        )
+                        .await
                         {
                             error!("Error handling imagine command: {:?}", e);
                         }
@@ -1556,11 +1601,12 @@ impl Bot {
                                 return Ok(());
                             }
 
-                            // Show a friendly message for billing errors
+                            // Show a friendly message without raw error details
                             let user_message = if error_string.contains("BILLING_ERROR") {
                                 "The Gemini API quota or billing limit has been reached. I'll be back once the limit resets!".to_string()
                             } else {
-                                format!("Sorry, I encountered an error: {e}")
+                                "I'm having trouble thinking right now. Try again in a bit!"
+                                    .to_string()
                             };
 
                             // Create a message reference for replying
@@ -2420,11 +2466,12 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                                 return Ok(());
                             }
 
-                            // Show a friendly message for billing errors
+                            // Show a friendly message without raw error details
                             let user_message = if error_string.contains("BILLING_ERROR") {
                                 "The Gemini API quota or billing limit has been reached. I'll be back once the limit resets!".to_string()
                             } else {
-                                format!("Sorry, I encountered an error: {e}")
+                                "I'm having trouble thinking right now. Try again in a bit!"
+                                    .to_string()
                             };
 
                             // Create a message reference for replying

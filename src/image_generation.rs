@@ -106,7 +106,11 @@ pub async fn handle_imagine_command(
                     continue;
                 }
                 Ok(r) => {
-                    error!("Pollinations API error with model {}: HTTP {}", model, r.status());
+                    error!(
+                        "Pollinations API error with model {}: HTTP {}",
+                        model,
+                        r.status()
+                    );
                     all_402 = false;
                     break;
                 }
@@ -131,7 +135,11 @@ pub async fn handle_imagine_command(
                         break;
                     }
                     Ok(resp) if resp.status().as_u16() == 429 => {
-                        info!("Legacy endpoint returned 429, retry {}/3 after {}s", attempt, attempt * 10);
+                        info!(
+                            "Legacy endpoint returned 429, retry {}/3 after {}s",
+                            attempt,
+                            attempt * 10
+                        );
                         tokio::time::sleep(Duration::from_secs(attempt as u64 * 10)).await;
                         let _ = msg.channel_id.broadcast_typing(&ctx.http).await;
                         continue;
@@ -141,7 +149,11 @@ pub async fn handle_imagine_command(
                         break;
                     }
                     Err(_) if attempt < 3 => {
-                        info!("Legacy endpoint timed out, retry {}/3 after {}s", attempt, attempt * 10);
+                        info!(
+                            "Legacy endpoint timed out, retry {}/3 after {}s",
+                            attempt,
+                            attempt * 10
+                        );
                         tokio::time::sleep(Duration::from_secs(attempt as u64 * 10)).await;
                         let _ = msg.channel_id.broadcast_typing(&ctx.http).await;
                         continue;

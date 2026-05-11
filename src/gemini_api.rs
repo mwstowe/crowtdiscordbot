@@ -43,7 +43,7 @@ pub struct GeminiConfig {
 impl GeminiClient {
     pub fn new(config: GeminiConfig) -> Self {
         // Default endpoint for Gemini API
-        let default_endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent".to_string();
+        let default_endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent".to_string();
 
         // Create prompt templates with custom personality if provided
         let mut prompt_templates = PromptTemplates::new_with_custom_personality(
@@ -383,7 +383,8 @@ impl GeminiClient {
             });
 
             // Make the API call
-            let response = self.http_client
+            let response = self
+                .http_client
                 .post(&self.api_endpoint)
                 .header("x-goog-api-key", &self.api_key)
                 .json(&request_body)
@@ -594,7 +595,8 @@ impl GeminiClient {
             "contents": [{"parts": parts}]
         });
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .post(&self.api_endpoint)
             .header("x-goog-api-key", &self.api_key)
             .json(&request_body)
