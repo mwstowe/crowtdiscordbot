@@ -1284,9 +1284,30 @@ impl Bot {
                         }
                     }
                 } else if command == "lastseen" || command == "seen" {
-                    // Extract name to search for, stripping @ prefix if present
+                    // Extract name to search for
                     let name = if parts.len() > 1 {
-                        parts[1..].join(" ").trim_start_matches('@').to_string()
+                        let raw = parts[1..].join(" ");
+                        // Handle Discord mention format <@123456> or <@!123456>
+                        if raw.starts_with("<@") && raw.ends_with('>') {
+                            let id_str = raw
+                                .trim_start_matches("<@")
+                                .trim_start_matches('!')
+                                .trim_end_matches('>');
+                            if let Ok(user_id) = id_str.parse::<u64>() {
+                                // Resolve user ID to their name
+                                match serenity::model::id::UserId::new(user_id)
+                                    .to_user(&ctx.http)
+                                    .await
+                                {
+                                    Ok(user) => user.global_name.unwrap_or(user.name),
+                                    Err(_) => raw,
+                                }
+                            } else {
+                                raw
+                            }
+                        } else {
+                            raw.trim_start_matches('@').to_string()
+                        }
                     } else {
                         String::new()
                     };
