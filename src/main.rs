@@ -1154,7 +1154,7 @@ impl Bot {
                     {
                         error!("Error sending usage message: {:?}", e);
                     }
-                } else if command == "alive" {
+                } else if command == "alive" || command == "dead" {
                     // Check if a celebrity name was provided
                     if parts.len() > 1 {
                         let celebrity_name = parts[1..].join(" ");
