@@ -1284,8 +1284,8 @@ impl Bot {
                         }
                     }
                 } else if command == "lastseen" || command == "seen" {
-                    // Extract name to search for
-                    let name = if parts.len() > 1 {
+                    // Extract name or user ID to search for
+                    let (name, user_id) = if parts.len() > 1 {
                         let raw = parts[1..].join(" ");
                         // Handle Discord mention format <@123456> or <@!123456>
                         if raw.starts_with("<@") && raw.ends_with('>') {
@@ -1293,28 +1293,34 @@ impl Bot {
                                 .trim_start_matches("<@")
                                 .trim_start_matches('!')
                                 .trim_end_matches('>');
-                            if let Ok(user_id) = id_str.parse::<u64>() {
-                                // Resolve user ID to their name
-                                match serenity::model::id::UserId::new(user_id)
-                                    .to_user(&ctx.http)
-                                    .await
-                                {
-                                    Ok(user) => user.global_name.unwrap_or(user.name),
-                                    Err(_) => raw,
-                                }
+                            if let Ok(uid) = id_str.parse::<u64>() {
+                                (String::new(), Some(uid.to_string()))
                             } else {
-                                raw
+                                (raw, None)
                             }
                         } else {
-                            raw.trim_start_matches('@').to_string()
+                            (raw.trim_start_matches('@').to_string(), None)
                         }
                     } else {
-                        String::new()
+                        (String::new(), None)
+                    };
+
+                    // Determine search term: use author_id if we have a mention, otherwise name
+                    let search_name = if let Some(ref uid) = user_id {
+                        uid.clone()
+                    } else {
+                        name.clone()
                     };
 
                     // Handle the lastseen command
-                    if let Err(e) =
-                        handle_lastseen_command(&ctx.http, msg, &name, &self.message_db).await
+                    if let Err(e) = handle_lastseen_command(
+                        &ctx.http,
+                        msg,
+                        &search_name,
+                        user_id.as_deref(),
+                        &self.message_db,
+                    )
+                    .await
                     {
                         error!("Error handling lastseen command: {:?}", e);
                         if let Err(e) = msg

@@ -14,6 +14,41 @@ impl LastSeenFinder {
         Self {}
     }
 
+    // Find the last message from a user by author_id
+    pub async fn find_last_message_by_id(
+        &self,
+        conn: Arc<Mutex<SqliteConnection>>,
+        author_id: &str,
+    ) -> Result<Option<(String, String, String, u64)>, anyhow::Error> {
+        let author_id = author_id.to_string();
+        let conn_guard = conn.lock().await;
+
+        let result = conn_guard
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT author, display_name, content, timestamp FROM messages
+                 WHERE author_id = ?1
+                 ORDER BY timestamp DESC LIMIT 1",
+                )?;
+
+                let rows = stmt.query_map([&author_id], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1).unwrap_or_else(|_| "".to_string()),
+                        row.get::<_, String>(2)?,
+                        row.get::<_, u64>(3)?,
+                    ))
+                })?;
+
+                let result = rows.flatten().next();
+
+                Ok::<_, rusqlite::Error>(result)
+            })
+            .await?;
+
+        Ok(result)
+    }
+
     // Find the last message from a user by name (nickname, display name, or username)
     pub async fn find_last_message(
         &self,
@@ -72,9 +107,10 @@ pub async fn handle_lastseen_command(
     http: &serenity::http::Http,
     msg: &Message,
     name: &str,
+    user_id: Option<&str>,
     db_conn: &Option<Arc<Mutex<SqliteConnection>>>,
 ) -> Result<()> {
-    if name.is_empty() {
+    if name.is_empty() && user_id.is_none() {
         if let Err(e) = msg.channel_id.say(http, "Usage: !lastseen [name]").await {
             error!("Error sending usage message: {:?}", e);
         }
@@ -132,7 +168,13 @@ pub async fn handle_lastseen_command(
     if let Some(conn) = db_conn {
         let finder = LastSeenFinder::new();
 
-        match finder.find_last_message(conn.clone(), name).await {
+        let result = if let Some(uid) = user_id {
+            finder.find_last_message_by_id(conn.clone(), uid).await
+        } else {
+            finder.find_last_message(conn.clone(), name).await
+        };
+
+        match result {
             Ok(Some((author, display_name, content, timestamp))) => {
                 // Use display name if available, otherwise use author
                 let user_name = if !display_name.is_empty() {
