@@ -188,9 +188,13 @@ fn is_fictional_character(text: &str, title: &str) -> bool {
 
     for indicator in &real_person_indicators {
         if text_lower.contains(indicator) {
-            // If we find a real person indicator, check if there's also a fictional indicator
-            // Only return false if we don't find any fictional indicators
-            break;
+            // If we find a real person indicator, this is likely a real person
+            // even if the text also mentions fictional characters they created
+            info!(
+                "Real person indicator found: '{}', not a fictional character",
+                indicator
+            );
+            return false;
         }
     }
 
