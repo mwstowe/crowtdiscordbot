@@ -797,14 +797,12 @@ async fn search_celebrity_attempt(name: &str) -> Result<Option<String>> {
         birth_date, death_date
     );
 
-    // Get a short description (first sentence or two)
-    let description = cleaned_extract
-        .split('.')
-        .take(2)
-        .collect::<Vec<&str>>()
-        .join(".")
-        .trim()
-        .to_string();
+    // Get a short description (first two sentences)
+    // Use regex to split on sentence boundaries (period followed by space and uppercase)
+    // to avoid splitting on initials like "H. P. Lovecraft"
+    let sentence_re = Regex::new(r"\.\s+(?=[A-Z])").unwrap();
+    let sentences: Vec<&str> = sentence_re.split(&cleaned_extract).take(2).collect();
+    let description = sentences.join(". ").trim().to_string();
 
     // Build the response
     let mut response = format!("**{page_title}**: {description}");
