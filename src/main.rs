@@ -1283,10 +1283,10 @@ impl Bot {
                             error!("Error sending error message: {:?}", e);
                         }
                     }
-                } else if command == "lastseen" {
-                    // Extract name to search for
+                } else if command == "lastseen" || command == "seen" {
+                    // Extract name to search for, stripping @ prefix if present
                     let name = if parts.len() > 1 {
-                        parts[1..].join(" ")
+                        parts[1..].join(" ").trim_start_matches('@').to_string()
                     } else {
                         String::new()
                     };
