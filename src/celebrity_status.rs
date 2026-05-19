@@ -798,11 +798,47 @@ async fn search_celebrity_attempt(name: &str) -> Result<Option<String>> {
     );
 
     // Get a short description (first two sentences)
-    // Use regex to split on sentence boundaries (period followed by space and uppercase)
-    // to avoid splitting on initials like "H. P. Lovecraft"
-    let sentence_re = Regex::new(r"\.\s+(?=[A-Z])").unwrap();
-    let sentences: Vec<&str> = sentence_re.split(&cleaned_extract).take(2).collect();
-    let description = sentences.join(". ").trim().to_string();
+    // Split on '.' then reassemble, treating a period as a sentence boundary only
+    // when the preceding segment ends with a word of 2+ lowercase letters
+    // (not an initial like "H" or "P")
+    let raw_parts: Vec<&str> = cleaned_extract.split('.').collect();
+    let mut sentences: Vec<String> = Vec::new();
+    let mut current = String::new();
+
+    for part in &raw_parts {
+        let trimmed = part.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if current.is_empty() {
+            current = trimmed.to_string();
+        } else {
+            // Check if current segment ends with a word that looks like a sentence ending
+            // (2+ lowercase chars at the end) vs an initial (single uppercase letter)
+            let last_word = current.split_whitespace().last().unwrap_or("");
+            let ends_with_initial = last_word.len() <= 2
+                && last_word
+                    .chars()
+                    .all(|c| c.is_uppercase() || c.is_ascii_digit());
+
+            if ends_with_initial {
+                // Merge — this period is after an initial
+                current.push_str(&format!(". {trimmed}"));
+            } else {
+                // Real sentence boundary
+                current.push('.');
+                sentences.push(current);
+                current = trimmed.to_string();
+                if sentences.len() >= 2 {
+                    break;
+                }
+            }
+        }
+    }
+    if !current.is_empty() && sentences.len() < 2 {
+        sentences.push(current);
+    }
+    let description = sentences.join(" ").trim().to_string();
 
     // Build the response
     let mut response = format!("**{page_title}**: {description}");
