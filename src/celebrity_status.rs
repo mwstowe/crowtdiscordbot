@@ -557,9 +557,9 @@ async fn search_celebrity_attempt(name: &str) -> Result<Option<String>> {
         .user_agent("CrowBot/1.0 (https://github.com/mwstowe/crowtdiscordbot)")
         .build()?;
 
-    // First, search for the page
+    // First, search for the page - get multiple results to find the best match
     let search_url = format!(
-        "https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch={}&format=json&srlimit=1",
+        "https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch={}&format=json&srlimit=5",
         urlencoding::encode(name)
     );
 
@@ -595,19 +595,74 @@ async fn search_celebrity_attempt(name: &str) -> Result<Option<String>> {
         }
     };
 
-    // Extract the page title from search results
-    let page_title = match search_json
+    // Extract search results and find the best person match
+    let search_results = match search_json
         .get("query")
         .and_then(|q| q.get("search"))
-        .and_then(|s| s.get(0))
-        .and_then(|r| r.get("title"))
-        .and_then(|t| t.as_str())
+        .and_then(|s| s.as_array())
     {
-        Some(title) => title,
+        Some(results) => results,
         None => {
             info!("No search results found for: {}", name);
             return Ok(None);
         }
+    };
+
+    if search_results.is_empty() {
+        info!("No search results found for: {}", name);
+        return Ok(None);
+    }
+
+    // Try each result, preferring ones that look like real people
+    // First pass: look for a result whose snippet contains biographical indicators
+    let mut best_title: Option<&str> = None;
+    for result in search_results {
+        let title = result.get("title").and_then(|t| t.as_str()).unwrap_or("");
+        let snippet = result
+            .get("snippet")
+            .and_then(|s| s.as_str())
+            .unwrap_or("")
+            .to_lowercase();
+
+        // Prefer results with biographical indicators in the snippet
+        let has_bio_indicator = snippet.contains("born")
+            || snippet.contains("died")
+            || snippet.contains("was a")
+            || snippet.contains("is a")
+            || snippet.contains("writer")
+            || snippet.contains("author")
+            || snippet.contains("actor")
+            || snippet.contains("musician")
+            || snippet.contains("politician")
+            || snippet.contains("scientist");
+
+        // Skip results that look like fictional characters
+        let looks_fictional = snippet.contains("fictional character")
+            || snippet.contains("character in")
+            || title.contains("(character)")
+            || title.contains("(film)");
+
+        if has_bio_indicator && !looks_fictional {
+            info!("Found biographical result: {}", title);
+            best_title = Some(title);
+            break;
+        }
+    }
+
+    // Fall back to first result if no biographical match found
+    let page_title = match best_title {
+        Some(title) => title,
+        None => match search_results
+            .first()
+            .and_then(|r| r.get("title"))
+            .and_then(|t| t.as_str())
+        {
+            Some(title) => title,
+            None => {
+                info!("No search results found for: {}", name);
+                return Ok(None);
+            }
+        },
     };
 
     info!("Found Wikipedia page: {}", page_title);
