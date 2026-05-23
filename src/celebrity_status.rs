@@ -1681,6 +1681,24 @@ fn extract_cause_of_death(text: &str) -> Option<String> {
 
     // First try with death-related sentences for better context
     for sentence in &death_sentences {
+        let sentence_lower_check = sentence.to_lowercase();
+
+        // Skip sentences where the cause is explicitly unknown or disputed
+        if sentence_lower_check.contains("remains unknown")
+            || sentence_lower_check.contains("cause of death is unknown")
+            || sentence_lower_check.contains("cause of death remains")
+            || sentence_lower_check.contains("has been attributed to many")
+            || sentence_lower_check.contains("never been determined")
+            || sentence_lower_check.contains("subject of debate")
+            || sentence_lower_check.contains("disputed")
+        {
+            info!(
+                "Skipping sentence with unknown/disputed cause: {}",
+                sentence
+            );
+            continue;
+        }
+
         for pattern in &patterns {
             if let Ok(re) = Regex::new(pattern) {
                 if let Some(captures) = re.captures(sentence) {
@@ -1780,6 +1798,23 @@ fn extract_cause_of_death(text: &str) -> Option<String> {
 
     for sentence in &death_sentences {
         let sentence_lower = sentence.to_lowercase();
+
+        // Skip sentences where the cause is explicitly unknown or disputed
+        if sentence_lower.contains("remains unknown")
+            || sentence_lower.contains("cause of death is unknown")
+            || sentence_lower.contains("cause of death remains")
+            || sentence_lower.contains("has been attributed to many")
+            || sentence_lower.contains("never been determined")
+            || sentence_lower.contains("subject of debate")
+            || sentence_lower.contains("disputed")
+        {
+            info!(
+                "Skipping sentence with unknown/disputed cause: {}",
+                sentence
+            );
+            continue;
+        }
+
         for cause in &common_causes {
             if sentence_lower.contains(cause) {
                 // Get the context around the cause
