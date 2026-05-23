@@ -618,38 +618,58 @@ async fn search_celebrity_attempt(name: &str) -> Result<Option<String>> {
     }
 
     // Try each result, preferring ones that look like real people
-    // First pass: look for a result whose snippet contains biographical indicators
+    // First: prefer a result whose title exactly matches the search query (case-insensitive)
     let mut best_title: Option<&str> = None;
+    let name_lower = name.to_lowercase();
     for result in search_results {
         let title = result.get("title").and_then(|t| t.as_str()).unwrap_or("");
-        let snippet = result
-            .get("snippet")
-            .and_then(|s| s.as_str())
-            .unwrap_or("")
-            .to_lowercase();
-
-        // Prefer results with biographical indicators in the snippet
-        let has_bio_indicator = snippet.contains("born")
-            || snippet.contains("died")
-            || snippet.contains("was a")
-            || snippet.contains("is a")
-            || snippet.contains("writer")
-            || snippet.contains("author")
-            || snippet.contains("actor")
-            || snippet.contains("musician")
-            || snippet.contains("politician")
-            || snippet.contains("scientist");
-
-        // Skip results that look like fictional characters
-        let looks_fictional = snippet.contains("fictional character")
-            || snippet.contains("character in")
-            || title.contains("(character)")
-            || title.contains("(film)");
-
-        if has_bio_indicator && !looks_fictional {
-            info!("Found biographical result: {}", title);
+        if title.to_lowercase() == name_lower {
+            info!("Found exact title match: {}", title);
             best_title = Some(title);
             break;
+        }
+    }
+
+    // Second pass: look for a result whose snippet contains biographical indicators
+    if best_title.is_none() {
+        for result in search_results {
+            let title = result.get("title").and_then(|t| t.as_str()).unwrap_or("");
+            let snippet = result
+                .get("snippet")
+                .and_then(|s| s.as_str())
+                .unwrap_or("")
+                .to_lowercase();
+
+            // Prefer results with biographical indicators in the snippet
+            let has_bio_indicator = snippet.contains("born")
+                || snippet.contains("died")
+                || snippet.contains("was a")
+                || snippet.contains("is a")
+                || snippet.contains("writer")
+                || snippet.contains("author")
+                || snippet.contains("actor")
+                || snippet.contains("musician")
+                || snippet.contains("politician")
+                || snippet.contains("scientist")
+                || snippet.contains("professional")
+                || snippet.contains("athlete")
+                || snippet.contains("singer")
+                || snippet.contains("comedian")
+                || snippet.contains("director")
+                || snippet.contains("engineer")
+                || snippet.contains("businessman");
+
+            // Skip results that look like fictional characters
+            let looks_fictional = snippet.contains("fictional character")
+                || snippet.contains("character in")
+                || title.contains("(character)")
+                || title.contains("(film)");
+
+            if has_bio_indicator && !looks_fictional {
+                info!("Found biographical result: {}", title);
+                best_title = Some(title);
+                break;
+            }
         }
     }
 
