@@ -96,42 +96,64 @@ impl LastSeenFinder {
             return "in the future (clock mismatch?)".to_string();
         }
 
-        let diff = now - timestamp;
-        let minutes = diff / 60;
-        let hours = diff / 3600;
-        let days = diff / 86400;
-        let months = days / 30;
-        let years = days / 365;
+        let mut remaining = now - timestamp;
 
+        let years = remaining / (365 * 86400);
+        remaining %= 365 * 86400;
+        let months = remaining / (30 * 86400);
+        remaining %= 30 * 86400;
+        let days = remaining / 86400;
+        remaining %= 86400;
+        let hours = remaining / 3600;
+        remaining %= 3600;
+        let minutes = remaining / 60;
+        let seconds = remaining % 60;
+
+        let mut parts = Vec::new();
         if years > 0 {
-            let remaining_months = (days - years * 365) / 30;
-            if remaining_months > 0 {
-                format!("{} years, {} months", years, remaining_months)
-            } else {
-                format!("{} years", years)
-            }
-        } else if months > 0 {
-            let remaining_days = days - months * 30;
-            if remaining_days > 0 {
-                format!("{} months, {} days", months, remaining_days)
-            } else {
-                format!("{} months", months)
-            }
-        } else if days > 0 {
-            let remaining_hours = (diff - days * 86400) / 3600;
-            if remaining_hours > 0 {
-                format!("{} days, {} hours", days, remaining_hours)
-            } else {
-                format!("{} days", days)
-            }
-        } else if hours > 0 {
-            let remaining_minutes = (diff - hours * 3600) / 60;
-            format!("{} hours, {} minutes", hours, remaining_minutes)
-        } else if minutes > 0 {
-            format!("{} minutes", minutes)
-        } else {
-            format!("{} seconds", diff)
+            parts.push(format!(
+                "{} {}",
+                years,
+                if years == 1 { "year" } else { "years" }
+            ));
         }
+        if months > 0 {
+            parts.push(format!(
+                "{} {}",
+                months,
+                if months == 1 { "month" } else { "months" }
+            ));
+        }
+        if days > 0 {
+            parts.push(format!(
+                "{} {}",
+                days,
+                if days == 1 { "day" } else { "days" }
+            ));
+        }
+        if hours > 0 {
+            parts.push(format!(
+                "{} {}",
+                hours,
+                if hours == 1 { "hour" } else { "hours" }
+            ));
+        }
+        if minutes > 0 {
+            parts.push(format!(
+                "{} {}",
+                minutes,
+                if minutes == 1 { "minute" } else { "minutes" }
+            ));
+        }
+        if seconds > 0 || parts.is_empty() {
+            parts.push(format!(
+                "{} {}",
+                seconds,
+                if seconds == 1 { "second" } else { "seconds" }
+            ));
+        }
+
+        parts.join(", ")
     }
 }
 
