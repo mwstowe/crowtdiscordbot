@@ -24,22 +24,35 @@ fn extract_topic_from_response(response: &str) -> Option<String> {
     None
 }
 
-/// Remove the TOPIC tag from the response text for display
+/// Remove the TOPIC tag from the response text for display.
+/// The TOPIC tag format is "TOPIC: [searchable description]" and may appear
+/// inline within the text. We remove just the "TOPIC: description" portion.
 fn strip_topic_from_response(response: &str) -> String {
     if let Some(topic_start) = response.find("TOPIC:") {
         let before = &response[..topic_start];
         let after_topic = &response[topic_start + 6..];
-        // Find end of TOPIC line
-        let rest = if let Some(newline_pos) = after_topic.find('\n') {
-            &after_topic[newline_pos + 1..]
-        } else {
-            // TOPIC is inline - take everything after the topic description
-            // Find where the topic ends (next sentence)
-            let topic_line = after_topic.lines().next().unwrap_or("");
-            &after_topic[topic_line.len()..]
-        };
-        let cleaned = format!("{}{}", before.trim_end(), rest.trim_start());
-        // Clean up double spaces
+
+        // The topic description ends at a newline, or at the next sentence
+        // (indicated by a period followed by a space/capital, or end of string)
+        let topic_end = after_topic
+            .find('\n')
+            .or_else(|| {
+                // Look for end of topic description: a period followed by a space and uppercase
+                after_topic.char_indices().find_map(|(i, c)| {
+                    if c == '.' && i + 2 < after_topic.len() {
+                        let next = after_topic.as_bytes().get(i + 1)?;
+                        let after_next = after_topic.as_bytes().get(i + 2)?;
+                        if *next == b' ' && after_next.is_ascii_uppercase() {
+                            return Some(i + 1);
+                        }
+                    }
+                    None
+                })
+            })
+            .unwrap_or(after_topic.len());
+
+        let rest = &after_topic[topic_end..];
+        let cleaned = format!("{} {}", before.trim_end(), rest.trim_start());
         cleaned.split_whitespace().collect::<Vec<_>>().join(" ")
     } else {
         response.to_string()
@@ -260,6 +273,15 @@ async fn handle_fact_interjection_common(
             if let Some(topic) = extract_topic_from_response(&response) {
                 info!("Extracted fact topic for search: {}", topic);
                 let display_response = strip_topic_from_response(&response);
+
+                // Guard: don't send if stripping the TOPIC left a stub
+                if display_response.len() < 20 {
+                    info!(
+                        "Fact interjection skipped: response too short after stripping TOPIC: '{}'",
+                        display_response
+                    );
+                    return Ok(());
+                }
 
                 if let Some(url) = try_search_for_article(&topic).await {
                     // Validate the search result
