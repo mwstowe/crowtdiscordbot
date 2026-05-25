@@ -274,10 +274,14 @@ async fn handle_fact_interjection_common(
                 info!("Extracted fact topic for search: {}", topic);
                 let display_response = strip_topic_from_response(&response);
 
-                // Guard: don't send if stripping the TOPIC left a stub
-                if display_response.len() < 20 {
+                // Guard: don't send if stripping the TOPIC left an incomplete sentence
+                if display_response.ends_with(',')
+                    || display_response.ends_with(':')
+                    || display_response.ends_with("...")
+                    || display_response.ends_with(';')
+                {
                     info!(
-                        "Fact interjection skipped: response too short after stripping TOPIC: '{}'",
+                        "Fact interjection skipped: response is incomplete after stripping TOPIC: '{}'",
                         display_response
                     );
                     return Ok(());
