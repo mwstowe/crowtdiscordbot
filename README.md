@@ -293,7 +293,20 @@ The bot can be configured through the `CrowConfig.toml` file:
 - `GEMINI_PROMPT_WRAPPER` - Custom prompt wrapper for Gemini API calls
 - `GOOGLE_SEARCH_ENABLED` - Enable or disable DuckDuckGo search feature (defaults to "true") (Note: Despite the name, this controls DuckDuckGo search)
 - `IMAGINE_CHANNELS` - Comma-separated list of channel names where image generation is allowed (if empty, allowed in all channels)
+- `GIPHY_API_KEY` - Giphy API key for GIF responses (get one free at https://developers.giphy.com)
 - `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` - MySQL database credentials
+
+## GIF Responses
+
+The bot can occasionally respond with a reaction GIF instead of text when it determines a GIF would be funnier or more expressive. This uses the Giphy API.
+
+### Configuration
+
+1. Create an app at [developers.giphy.com](https://developers.giphy.com)
+2. Copy your API key
+3. Add `GIPHY_API_KEY = "your-key"` to your `CrowConfig.toml`
+
+If no key is configured, the bot will never use GIF responses.
 
 ## Image Generation
 
