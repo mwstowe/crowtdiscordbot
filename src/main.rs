@@ -208,7 +208,7 @@ struct Bot {
     // Track the last seen message timestamp for each channel
     last_seen_message: Arc<RwLock<HashMap<ChannelId, (serenity::model::Timestamp, MessageId)>>>,
     quiet_channels: Vec<String>,
-    tenor_client: Option<giphy::GiphyClient>,
+    giphy_client: Option<giphy::GiphyClient>,
 }
 
 /// Configuration for creating a Bot instance
@@ -466,7 +466,7 @@ impl Bot {
             fill_silence_manager,
             last_seen_message: Arc::new(RwLock::new(HashMap::new())),
             quiet_channels: parsed_config.quiet_channels,
-            tenor_client: parsed_config.tenor_api_key.map(giphy::GiphyClient::new),
+            giphy_client: parsed_config.giphy_api_key.map(giphy::GiphyClient::new),
         }
     }
 
@@ -2235,8 +2235,8 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                             // Check if the response is a GIF request
                             if response.trim().starts_with("GIF:") {
                                 let search_term = response.trim()[4..].trim();
-                                if let Some(tenor_client) = &self.tenor_client {
-                                    match tenor_client.search_gif(search_term).await {
+                                if let Some(giphy_client) = &self.giphy_client {
+                                    match giphy_client.search_gif(search_term).await {
                                         Ok(Some(gif_url)) => {
                                             if let Err(e) =
                                                 msg.channel_id.say(&ctx.http, &gif_url).await
@@ -2257,7 +2257,7 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                                         }
                                     }
                                 } else {
-                                    info!("GIF requested but no Tenor API key configured");
+                                    info!("GIF requested but no Giphy API key configured");
                                 }
                                 return Ok(());
                             }
