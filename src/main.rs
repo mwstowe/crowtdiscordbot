@@ -27,6 +27,7 @@ mod fact_interjection;
 mod fill_silence;
 mod frinkiac;
 mod gemini_api;
+mod giphy;
 mod image_generation;
 mod lastseen;
 mod masterofallscience;
@@ -38,7 +39,6 @@ mod news_verification;
 mod prompt_templates;
 mod rate_limiter;
 mod response_timing;
-mod tenor;
 mod text_formatting;
 mod trump_insult;
 mod utils;
@@ -208,7 +208,7 @@ struct Bot {
     // Track the last seen message timestamp for each channel
     last_seen_message: Arc<RwLock<HashMap<ChannelId, (serenity::model::Timestamp, MessageId)>>>,
     quiet_channels: Vec<String>,
-    tenor_client: Option<tenor::TenorClient>,
+    tenor_client: Option<giphy::GiphyClient>,
 }
 
 /// Configuration for creating a Bot instance
@@ -466,7 +466,7 @@ impl Bot {
             fill_silence_manager,
             last_seen_message: Arc::new(RwLock::new(HashMap::new())),
             quiet_channels: parsed_config.quiet_channels,
-            tenor_client: parsed_config.tenor_api_key.map(tenor::TenorClient::new),
+            tenor_client: parsed_config.tenor_api_key.map(giphy::GiphyClient::new),
         }
     }
 

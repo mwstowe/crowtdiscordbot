@@ -1,23 +1,23 @@
 use anyhow::Result;
 use tracing::info;
 
-pub struct TenorClient {
+pub struct GiphyClient {
     api_key: String,
 }
 
-impl TenorClient {
+impl GiphyClient {
     pub fn new(api_key: String) -> Self {
         Self { api_key }
     }
 
-    /// Search Tenor for a GIF and return the URL of the top result
+    /// Search Giphy for a GIF and return the URL of the top result
     pub async fn search_gif(&self, query: &str) -> Result<Option<String>> {
-        info!("Searching Tenor for GIF: {}", query);
+        info!("Searching Giphy for GIF: {}", query);
 
         let url = format!(
-            "https://tenor.googleapis.com/v2/search?q={}&key={}&limit=1&media_filter=gif",
+            "https://api.giphy.com/v1/gifs/search?api_key={}&q={}&limit=1&rating=pg-13",
+            self.api_key,
             urlencoding::encode(query),
-            self.api_key
         );
 
         let client = reqwest::Client::new();
@@ -29,8 +29,9 @@ impl TenorClient {
 
         let json: serde_json::Value = response.json().await?;
 
+        // Extract the GIF URL - use the regular size for Discord embedding
         if let Some(gif_url) = json
-            .pointer("/results/0/media_formats/gif/url")
+            .pointer("/data/0/images/original/url")
             .and_then(|u| u.as_str())
         {
             info!("Found GIF: {}", gif_url);
