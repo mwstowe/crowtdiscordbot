@@ -38,6 +38,7 @@ mod news_verification;
 mod prompt_templates;
 mod rate_limiter;
 mod response_timing;
+mod tenor;
 mod text_formatting;
 mod trump_insult;
 mod utils;
@@ -207,6 +208,7 @@ struct Bot {
     // Track the last seen message timestamp for each channel
     last_seen_message: Arc<RwLock<HashMap<ChannelId, (serenity::model::Timestamp, MessageId)>>>,
     quiet_channels: Vec<String>,
+    tenor_client: Option<tenor::TenorClient>,
 }
 
 /// Configuration for creating a Bot instance
@@ -464,6 +466,7 @@ impl Bot {
             fill_silence_manager,
             last_seen_message: Arc::new(RwLock::new(HashMap::new())),
             quiet_channels: parsed_config.quiet_channels,
+            tenor_client: parsed_config.tenor_api_key.map(tenor::TenorClient::new),
         }
     }
 
@@ -2229,6 +2232,36 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                                 );
                             }
 
+                            // Check if the response is a GIF request
+                            if response.trim().starts_with("GIF:") {
+                                let search_term = response.trim()[4..].trim();
+                                if let Some(tenor_client) = &self.tenor_client {
+                                    match tenor_client.search_gif(search_term).await {
+                                        Ok(Some(gif_url)) => {
+                                            if let Err(e) =
+                                                msg.channel_id.say(&ctx.http, &gif_url).await
+                                            {
+                                                error!("Error sending GIF interjection: {:?}", e);
+                                            } else {
+                                                info!(
+                                                    "GIF interjection sent: {} (search: {})",
+                                                    gif_url, search_term
+                                                );
+                                            }
+                                        }
+                                        Ok(None) => {
+                                            info!("No GIF found for: {}", search_term);
+                                        }
+                                        Err(e) => {
+                                            error!("Error searching for GIF: {:?}", e);
+                                        }
+                                    }
+                                } else {
+                                    info!("GIF requested but no Tenor API key configured");
+                                }
+                                return Ok(());
+                            }
+
                             // Apply realistic typing delay
                             apply_realistic_delay(&response, ctx, msg.channel_id).await;
 
@@ -3044,6 +3077,8 @@ Requirements:
 
 Example good response: "The error message suggests a permissions issue with the file system."
 Example bad response: "I noticed you're having trouble with file permissions. As a helpful bot, I can tell you that..."
+
+GIF OPTION: If a reaction GIF would be funnier or more expressive than words, you may respond with ONLY "GIF: [search term]" where [search term] is a short phrase describing the perfect reaction GIF. Only use this when a GIF would genuinely be the best response. Example: "GIF: mind blown explosion"
 
 Keep it brief and natural, as if you're just another participant in the conversation."#)
     });

@@ -84,6 +84,7 @@ pub struct Config {
     pub quiet_channel_id: Option<String>,
     pub quiet_channel_names: Option<String>,
     pub quiet_channel_ids: Option<String>,
+    pub tenor_api_key: Option<String>,
 }
 
 pub fn load_config() -> Result<Config> {
@@ -165,6 +166,7 @@ pub struct ParsedConfig {
     pub fill_silence_start_hours: f64,
     pub fill_silence_max_hours: f64,
     pub quiet_channels: Vec<String>,
+    pub tenor_api_key: Option<String>,
 }
 
 pub fn parse_config(config: &Config) -> ParsedConfig {
@@ -471,5 +473,6 @@ pub fn parse_config(config: &Config) -> ParsedConfig {
         fill_silence_start_hours,
         fill_silence_max_hours,
         quiet_channels,
+        tenor_api_key: config.tenor_api_key.clone(),
     }
 }
