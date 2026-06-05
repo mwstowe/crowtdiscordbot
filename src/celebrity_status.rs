@@ -21,9 +21,21 @@ pub async fn handle_aliveordead_command(
 
     // Search for the celebrity using the Wikipedia API
     match search_celebrity(celebrity_name).await {
-        Ok(Some(result)) => {
-            // Send the result
-            if let Err(e) = msg.channel_id.say(http, result).await {
+        Ok(Some((result, thumbnail_url))) => {
+            // Send the result with an embed if we have a thumbnail
+            if let Some(image_url) = thumbnail_url {
+                use serenity::builder::CreateEmbed;
+                use serenity::builder::CreateMessage;
+                let embed = CreateEmbed::new().description(&result).thumbnail(image_url);
+                let message = CreateMessage::new().embed(embed);
+                if let Err(e) = msg.channel_id.send_message(http, message).await {
+                    error!("Error sending celebrity embed: {:?}", e);
+                    // Fallback to plain text
+                    if let Err(e) = msg.channel_id.say(http, &result).await {
+                        error!("Error sending celebrity status: {:?}", e);
+                    }
+                }
+            } else if let Err(e) = msg.channel_id.say(http, result).await {
                 error!("Error sending celebrity status: {:?}", e);
                 msg.reply(http, "Sorry, I couldn't send the celebrity information.")
                     .await?;
@@ -526,7 +538,7 @@ async fn search_actor(name: &str, client: &Client) -> Result<Option<String>> {
     Ok(Some(actor_info))
 }
 
-async fn search_celebrity(name: &str) -> Result<Option<String>> {
+async fn search_celebrity(name: &str) -> Result<Option<(String, Option<String>)>> {
     const MAX_RETRIES: usize = 5;
     const INITIAL_DELAY_MS: u64 = 1000; // 1 second
 
@@ -556,7 +568,7 @@ async fn search_celebrity(name: &str) -> Result<Option<String>> {
     unreachable!()
 }
 
-async fn search_celebrity_attempt(name: &str) -> Result<Option<String>> {
+async fn search_celebrity_attempt(name: &str) -> Result<Option<(String, Option<String>)>> {
     let client = Client::builder()
         .user_agent("CrowBot/1.0 (https://github.com/mwstowe/crowtdiscordbot)")
         .build()?;
@@ -691,9 +703,9 @@ async fn search_celebrity_attempt(name: &str) -> Result<Option<String>> {
 
     info!("Found Wikipedia page: {}", page_title);
 
-    // Now get the page content
+    // Now get the page content (including thumbnail image)
     let page_url = format!(
-        "https://en.wikipedia.org/w/api.php?action=query&prop=extracts|pageprops&exintro&explaintext&redirects=1&titles={}&format=json",
+        "https://en.wikipedia.org/w/api.php?action=query&prop=extracts|pageprops|pageimages&exintro&explaintext&redirects=1&pithumbsize=300&titles={}&format=json",
         urlencoding::encode(page_title)
     );
 
@@ -759,6 +771,18 @@ async fn search_celebrity_attempt(name: &str) -> Result<Option<String>> {
         }
     };
 
+    // Extract thumbnail URL if available
+    let thumbnail_url = pages
+        .get(page_id)
+        .and_then(|p| p.get("thumbnail"))
+        .and_then(|t| t.get("source"))
+        .and_then(|s| s.as_str())
+        .map(|s| s.to_string());
+
+    if let Some(ref url) = thumbnail_url {
+        info!("Found thumbnail: {}", url);
+    }
+
     // Log only the first 100 characters of the extract for debugging
     if raw_extract.len() > 100 {
         info!(
@@ -778,12 +802,14 @@ async fn search_celebrity_attempt(name: &str) -> Result<Option<String>> {
         // Try to find the actor associated with this character
         if let Some(actor_info) = find_actor_for_character(raw_extract, page_title, &client).await?
         {
-            return Ok(Some(format!(
-                "**{page_title}** is a fictional character. {actor_info}"
+            return Ok(Some((
+                format!("**{page_title}** is a fictional character. {actor_info}"),
+                thumbnail_url.clone(),
             )));
         } else {
-            return Ok(Some(format!(
-                "**{page_title}** is a fictional character, not a real person."
+            return Ok(Some((
+                format!("**{page_title}** is a fictional character, not a real person."),
+                thumbnail_url.clone(),
             )));
         }
     }
@@ -797,8 +823,11 @@ async fn search_celebrity_attempt(name: &str) -> Result<Option<String>> {
 
     if !is_person {
         info!("Page doesn't appear to be about a person: {}", page_title);
-        return Ok(Some(format!(
-            "I found information about '{page_title}', but it doesn't appear to be a person."
+        return Ok(Some((
+            format!(
+                "I found information about '{page_title}', but it doesn't appear to be a person."
+            ),
+            thumbnail_url.clone(),
         )));
     }
 
@@ -1008,7 +1037,7 @@ async fn search_celebrity_attempt(name: &str) -> Result<Option<String>> {
             }
 
             response.push_str(&death_info);
-            return Ok(Some(response));
+            return Ok(Some((response, thumbnail_url.clone())));
         }
 
         // If not, try to extract death date from the text
@@ -1060,7 +1089,7 @@ async fn search_celebrity_attempt(name: &str) -> Result<Option<String>> {
             }
 
             response.push_str(&death_info);
-            return Ok(Some(response));
+            return Ok(Some((response, thumbnail_url.clone())));
         }
 
         // If we still don't have a death date
@@ -1083,7 +1112,7 @@ async fn search_celebrity_attempt(name: &str) -> Result<Option<String>> {
         }
 
         response.push_str(&death_info);
-        Ok(Some(response))
+        Ok(Some((response, thumbnail_url.clone())))
     } else {
         // Person is alive - try to calculate their age
 
@@ -1105,7 +1134,7 @@ async fn search_celebrity_attempt(name: &str) -> Result<Option<String>> {
                         + &subject_pronoun[1..],
                     age
                 ));
-                return Ok(Some(response));
+                return Ok(Some((response, thumbnail_url.clone())));
             }
         }
 
@@ -1130,7 +1159,7 @@ async fn search_celebrity_attempt(name: &str) -> Result<Option<String>> {
                         + &subject_pronoun[1..],
                     age
                 ));
-                return Ok(Some(response));
+                return Ok(Some((response, thumbnail_url.clone())));
             } else {
                 // We have a birth date string but couldn't parse it
                 response.push_str(&format!(
@@ -1145,7 +1174,7 @@ async fn search_celebrity_attempt(name: &str) -> Result<Option<String>> {
                         + &subject_pronoun[1..],
                     date_str
                 ));
-                return Ok(Some(response));
+                return Ok(Some((response, thumbnail_url.clone())));
             }
         }
 
@@ -1162,7 +1191,7 @@ async fn search_celebrity_attempt(name: &str) -> Result<Option<String>> {
                 + &subject_pronoun[1..],
             possessive_pronoun
         ));
-        Ok(Some(response))
+        Ok(Some((response, thumbnail_url.clone())))
     }
 }
 
