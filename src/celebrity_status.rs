@@ -814,8 +814,26 @@ async fn search_celebrity_attempt(name: &str) -> Result<Option<(String, Option<S
         }
     }
 
-    // Check if this is a person (has birth/death dates in parentheses or "born"/"died" in the extract)
-    let is_person = raw_extract.contains(" born ")
+    // Get Wikidata ID from pageprops
+    let wikidata_id = pages
+        .get(page_id)
+        .and_then(|p| p.get("pageprops"))
+        .and_then(|pp| pp.get("wikibase_item"))
+        .and_then(|w| w.as_str());
+
+    // Fetch structured data from Wikidata
+    let wikidata = if let Some(qid) = wikidata_id {
+        fetch_wikidata_person_info(&client, qid).await
+    } else {
+        None
+    };
+
+    // If we have Wikidata info with a birth date, it's definitely a person
+    // Otherwise fall back to text heuristics
+    let is_person = wikidata
+        .as_ref()
+        .is_some_and(|w| w.birth_date.is_some() || w.death_date.is_some())
+        || raw_extract.contains(" born ")
         || raw_extract.contains(" died ")
         || Regex::new(r"\([^)]*\d{4}[^)]*\)")
             .ok()
@@ -832,24 +850,11 @@ async fn search_celebrity_attempt(name: &str) -> Result<Option<(String, Option<S
     }
 
     // Determine gender for proper pronoun usage
-    let (subject_pronoun, object_pronoun, possessive_pronoun) = determine_gender(raw_extract);
-    info!(
-        "Using pronouns: {}/{}/{}",
-        subject_pronoun, object_pronoun, possessive_pronoun
-    );
+    let (subject_pronoun, _object_pronoun, possessive_pronoun) = determine_gender(raw_extract);
+    info!("Using pronouns: {}/{}", subject_pronoun, possessive_pronoun);
 
-    // Try to extract birth and death dates from parentheses after the name
-    let (birth_date, death_date, cleaned_extract) = extract_dates_from_parentheses(raw_extract);
-
-    info!(
-        "Extracted dates - Birth: {:?}, Death: {:?}",
-        birth_date, death_date
-    );
-
-    // Get a short description (first two sentences)
-    // Split on '.' then reassemble, treating a period as a sentence boundary only
-    // when the preceding segment ends with a word of 2+ lowercase letters
-    // (not an initial like "H" or "P")
+    // Get a short description (first two sentences) from Wikipedia extract
+    let (_, _, cleaned_extract) = extract_dates_from_parentheses(raw_extract);
     let raw_parts: Vec<&str> = cleaned_extract.split('.').collect();
     let mut sentences: Vec<String> = Vec::new();
     let mut current = String::new();
@@ -862,8 +867,6 @@ async fn search_celebrity_attempt(name: &str) -> Result<Option<(String, Option<S
         if current.is_empty() {
             current = trimmed.to_string();
         } else {
-            // Check if current segment ends with a word that looks like a sentence ending
-            // (2+ lowercase chars at the end) vs an initial (single uppercase letter)
             let last_word = current.split_whitespace().last().unwrap_or("");
             let ends_with_initial = last_word.len() <= 2
                 && last_word
@@ -871,10 +874,8 @@ async fn search_celebrity_attempt(name: &str) -> Result<Option<(String, Option<S
                     .all(|c| c.is_uppercase() || c.is_ascii_digit());
 
             if ends_with_initial {
-                // Merge — this period is after an initial
                 current.push_str(&format!(". {trimmed}"));
             } else {
-                // Real sentence boundary
                 current.push('.');
                 sentences.push(current);
                 current = trimmed.to_string();
@@ -889,325 +890,94 @@ async fn search_celebrity_attempt(name: &str) -> Result<Option<(String, Option<S
     }
     let description = sentences.join(" ").trim().to_string();
 
-    // Build the response
     let mut response = format!("**{page_title}**: {description}");
 
-    // Determine if the person is dead and add appropriate information
-    let contains_was = raw_extract.contains(" was ");
-    let contains_is = raw_extract.contains(" is ");
+    // Capitalize the subject pronoun for sentence starts
+    let cap_pronoun = subject_pronoun
+        .chars()
+        .next()
+        .unwrap()
+        .to_uppercase()
+        .to_string()
+        + &subject_pronoun[1..];
 
-    // A person is considered dead if:
-    // 1. We have a death date from parentheses, OR
-    // 2. The text explicitly mentions they died
-    let is_dead = if death_date.is_some() {
-        // We have an explicit death date
-        true
-    } else if raw_extract.to_lowercase().contains(" died ")
-        || raw_extract.to_lowercase().contains(" death ")
-    {
-        // Text explicitly mentions death
-        true
-    } else if contains_was && !contains_is && raw_extract.contains("(") && raw_extract.contains(")")
-    {
-        // Check for special cases where "was" might be used for living people
-        // If the text contains phrases like "is an American" or "is best known", the person is likely alive
-        let alive_indicators = [
-            " is an ",
-            " is a ",
-            " is best known",
-            " is known",
-            " is currently ",
-            " has been ",
-            " has toured",
-            " has played",
-            " has recorded",
-            " has released",
-            " continues to ",
-            " lives in ",
-            " resides in ",
-            " is the ",
-            " is also ",
-            " is active",
-            " is married",
-            " is working",
-            " is touring",
-            " is recording",
-            " is performing",
-            " is based in",
-            " is a member of",
-            " is the founder",
-            " is the author",
-            " is the creator",
-            " is the owner",
-            " is the director",
-            " is the producer",
-            " is the host",
-            " is the presenter",
-            " is the leader",
-            " is the ceo",
-            " is the president",
-            " is the chairman",
-            " is the founder",
-            " is the head",
-            " is the chief",
-            " is the manager",
-            " is the coach",
-            " is the instructor",
-            " is the teacher",
-            " is the professor",
-            " since ",
-            " as of ",
-            " to date ",
-            " to present",
-            " present day",
-            " currently ",
-            " nowadays ",
-            " these days ",
-            " recently ",
-            " today ",
-            " now ",
-            " still ",
-            " ongoing ",
-            " active ",
-        ];
-
-        let text_lower = raw_extract.to_lowercase();
-        let has_alive_indicator = alive_indicators
-            .iter()
-            .any(|&indicator| text_lower.contains(indicator));
-
-        // If we find any alive indicators, the person is likely alive despite the "was" usage
-        !has_alive_indicator
-    } else {
-        false
-    };
-
-    info!("Is dead determination: {}", is_dead);
-
-    if is_dead {
-        // Try to extract cause of death from the article text first
-        let mut cause_of_death = extract_cause_of_death(raw_extract);
-
-        // If not found in text, try Wikidata infobox (P509 = cause of death)
-        if cause_of_death.is_none() {
-            let wikidata_id = pages
-                .get(page_id)
-                .and_then(|p| p.get("pageprops"))
-                .and_then(|pp| pp.get("wikibase_item"))
-                .and_then(|w| w.as_str());
-            if let Some(qid) = wikidata_id {
-                if let Some(cause) = fetch_cause_of_death_from_wikidata(&client, qid).await {
-                    info!("Found cause of death from Wikidata: {}", cause);
-                    cause_of_death = Some(cause);
-                }
-            }
-        }
-
-        // First check if we have a death date from parentheses
-        if let Some(date) = death_date {
-            info!("Using death date from parentheses: {}", date);
-            let mut death_info = format!(
-                ". {} died on {}.",
-                subject_pronoun
-                    .to_string()
-                    .to_uppercase()
-                    .chars()
-                    .next()
-                    .unwrap()
-                    .to_string()
-                    + &subject_pronoun[1..],
-                date
-            );
-
-            // Add cause of death if available
-            if let Some(ref cause) = cause_of_death {
-                death_info.push_str(&format!(" Cause of death: {cause}."));
-            }
-
-            // Calculate age at death if birth date is available
-            if let Some(birth_date_str) = &birth_date {
-                if let Some(birth) = parse_date(birth_date_str) {
-                    if let Some(death) = parse_date(&date) {
+    // Use Wikidata for alive/dead determination and dates
+    if let Some(ref wd) = wikidata {
+        if wd.is_dead {
+            // Person is dead
+            if let Some(ref death_date) = wd.death_date {
+                if let Some(ref birth_date) = wd.birth_date {
+                    // Calculate age at death
+                    if let (Some(birth), Some(death)) =
+                        (parse_date(birth_date), parse_date(death_date))
+                    {
                         let age = calculate_age(birth, death);
-                        death_info = format!(
-                            ". {} died on {} at the age of {}.",
-                            subject_pronoun
-                                .to_string()
-                                .to_uppercase()
-                                .chars()
-                                .next()
-                                .unwrap()
-                                .to_string()
-                                + &subject_pronoun[1..],
-                            date,
-                            age
-                        );
-
-                        // Re-add cause of death if available
-                        if let Some(ref cause) = cause_of_death {
-                            death_info.push_str(&format!(" Cause of death: {cause}."));
-                        }
+                        response.push_str(&format!(
+                            ". {cap_pronoun} died on {death_date} at the age of {age}."
+                        ));
+                    } else {
+                        response.push_str(&format!(". {cap_pronoun} died on {death_date}."));
                     }
+                } else {
+                    response.push_str(&format!(". {cap_pronoun} died on {death_date}."));
                 }
-            }
-
-            response.push_str(&death_info);
-            return Ok(Some((response, thumbnail_url.clone())));
-        }
-
-        // If not, try to extract death date from the text
-        if let Some(date) = extract_date(&cleaned_extract, "died") {
-            info!("Using extracted death date: {}", date);
-            let mut death_info = format!(
-                ". {} died on {}.",
-                subject_pronoun
-                    .to_string()
-                    .to_uppercase()
-                    .chars()
-                    .next()
-                    .unwrap()
-                    .to_string()
-                    + &subject_pronoun[1..],
-                date
-            );
-
-            // Add cause of death if available
-            if let Some(ref cause) = cause_of_death {
-                death_info.push_str(&format!(" Cause of death: {cause}."));
-            }
-
-            // Calculate age at death if birth date is available
-            if let Some(birth_date_str) = &birth_date {
-                if let Some(birth) = parse_date(birth_date_str) {
-                    if let Some(death) = parse_date(&date) {
-                        let age = calculate_age(birth, death);
-                        death_info = format!(
-                            ". {} died on {} at the age of {}.",
-                            subject_pronoun
-                                .to_string()
-                                .to_uppercase()
-                                .chars()
-                                .next()
-                                .unwrap()
-                                .to_string()
-                                + &subject_pronoun[1..],
-                            date,
-                            age
-                        );
-
-                        // Re-add cause of death if available
-                        if let Some(ref cause) = cause_of_death {
-                            death_info.push_str(&format!(" Cause of death: {cause}."));
-                        }
-                    }
-                }
-            }
-
-            response.push_str(&death_info);
-            return Ok(Some((response, thumbnail_url.clone())));
-        }
-
-        // If we still don't have a death date
-        info!("No death date found for {}", page_title);
-        let mut death_info = format!(
-            ". {} has died, but I couldn't determine the exact date.",
-            subject_pronoun
-                .to_string()
-                .to_uppercase()
-                .chars()
-                .next()
-                .unwrap()
-                .to_string()
-                + &subject_pronoun[1..]
-        );
-
-        // Add cause of death if available
-        if let Some(cause) = cause_of_death {
-            death_info.push_str(&format!(" Cause of death: {cause}."));
-        }
-
-        response.push_str(&death_info);
-        Ok(Some((response, thumbnail_url.clone())))
-    } else {
-        // Person is alive - try to calculate their age
-
-        // First try with birth date from parentheses
-        if let Some(date_str) = birth_date {
-            if let Some(birth) = parse_date(&date_str) {
-                let today = chrono::Local::now().naive_local().date();
-                let age = calculate_age(birth, today);
-                info!("Calculated age {} from birth date {}", age, date_str);
-                response.push_str(&format!(
-                    ". {} is still alive at {} years old.",
-                    subject_pronoun
-                        .to_string()
-                        .to_uppercase()
-                        .chars()
-                        .next()
-                        .unwrap()
-                        .to_string()
-                        + &subject_pronoun[1..],
-                    age
-                ));
-                return Ok(Some((response, thumbnail_url.clone())));
-            }
-        }
-
-        // If that fails, try with birth date from text
-        if let Some(date_str) = extract_date(&cleaned_extract, "born") {
-            if let Some(birth) = parse_date(&date_str) {
-                let today = chrono::Local::now().naive_local().date();
-                let age = calculate_age(birth, today);
-                info!(
-                    "Calculated age {} from extracted birth date {}",
-                    age, date_str
-                );
-                response.push_str(&format!(
-                    ". {} is still alive at {} years old.",
-                    subject_pronoun
-                        .to_string()
-                        .to_uppercase()
-                        .chars()
-                        .next()
-                        .unwrap()
-                        .to_string()
-                        + &subject_pronoun[1..],
-                    age
-                ));
-                return Ok(Some((response, thumbnail_url.clone())));
             } else {
-                // We have a birth date string but couldn't parse it
-                response.push_str(&format!(
-                    ". {} is still alive, born on {}.",
-                    subject_pronoun
-                        .to_string()
-                        .to_uppercase()
-                        .chars()
-                        .next()
-                        .unwrap()
-                        .to_string()
-                        + &subject_pronoun[1..],
-                    date_str
-                ));
-                return Ok(Some((response, thumbnail_url.clone())));
+                response.push_str(&format!(". {cap_pronoun} has died."));
+            }
+
+            if let Some(ref cause) = wd.cause_of_death {
+                response.push_str(&format!(" Cause of death: {cause}."));
+            }
+        } else {
+            // Person is alive
+            if let Some(ref birth_date) = wd.birth_date {
+                if let Some(birth) = parse_date(birth_date) {
+                    let today = chrono::Local::now().naive_local().date();
+                    let age = calculate_age(birth, today);
+                    response.push_str(&format!(
+                        ". {cap_pronoun} is still alive at {age} years old."
+                    ));
+                } else {
+                    response.push_str(&format!(". {cap_pronoun} is still alive."));
+                }
+            } else {
+                response.push_str(&format!(". {cap_pronoun} is still alive."));
             }
         }
+    } else {
+        // No Wikidata — fall back to text-based heuristics
+        let (birth_date, death_date, _) = extract_dates_from_parentheses(raw_extract);
 
-        // If we couldn't determine age
-        response.push_str(&format!(
-            ". {} appears to be alive, but I couldn't determine {} age.",
-            subject_pronoun
-                .to_string()
-                .to_uppercase()
-                .chars()
-                .next()
-                .unwrap()
-                .to_string()
-                + &subject_pronoun[1..],
-            possessive_pronoun
-        ));
-        Ok(Some((response, thumbnail_url.clone())))
+        if death_date.is_some()
+            || raw_extract.to_lowercase().contains(" died ")
+            || (raw_extract.contains(" was ") && !raw_extract.contains(" is "))
+        {
+            if let Some(ref date) = death_date {
+                response.push_str(&format!(". {cap_pronoun} died on {date}."));
+            } else {
+                response.push_str(&format!(". {cap_pronoun} has died."));
+            }
+            if let Some(cause) = extract_cause_of_death(raw_extract) {
+                response.push_str(&format!(" Cause of death: {cause}."));
+            }
+        } else if let Some(ref date) = birth_date {
+            if let Some(birth) = parse_date(date) {
+                let today = chrono::Local::now().naive_local().date();
+                let age = calculate_age(birth, today);
+                response.push_str(&format!(
+                    ". {cap_pronoun} is still alive at {age} years old."
+                ));
+            } else {
+                response.push_str(&format!(". {cap_pronoun} is still alive."));
+            }
+        } else {
+            response.push_str(&format!(
+                ". I couldn't determine if {subject_pronoun} is alive or dead."
+            ));
+        }
     }
+
+    Ok(Some((response, thumbnail_url.clone())))
 }
 
 pub fn extract_dates_from_parentheses(text: &str) -> (Option<String>, Option<String>, String) {
@@ -1494,62 +1264,6 @@ pub fn extract_year_from_parentheses(text: &str, date_type: &str) -> Option<Stri
     None
 }
 
-fn extract_date(text: &str, keyword: &str) -> Option<String> {
-    info!("Extracting {} date from text: {}", keyword, text);
-
-    // Common date patterns in Wikipedia
-    let patterns = [
-        format!(r"{keyword} on (\d+ [A-Za-z]+ \d{{4}})"),
-        format!(r"{keyword} in ([A-Za-z]+ \d{{4}})"),
-        format!(r"{keyword} (\d+ [A-Za-z]+ \d{{4}})"),
-        format!(r"{keyword} at .* on (\d+ [A-Za-z]+ \d{{4}})"),
-        format!(r"{keyword} .* on (\d+ [A-Za-z]+ \d{{4}})"),
-        // Add more patterns as needed
-    ];
-
-    for pattern in &patterns {
-        info!("Trying pattern: {}", pattern);
-        if let Some(captures) = regex::Regex::new(pattern).ok()?.captures(text) {
-            if let Some(date_match) = captures.get(1) {
-                let date = date_match.as_str().to_string();
-                info!("Found date with pattern {}: {}", pattern, date);
-                return Some(date);
-            }
-        }
-    }
-
-    // If we couldn't find a date with the specific patterns, try a more general approach
-    // Look for dates near the keyword
-    let keyword_pos = text.find(keyword)?;
-
-    // Look for a date pattern within 100 characters after the keyword
-    let search_end = (keyword_pos + 100).min(text.len());
-    let search_text = &text[keyword_pos..search_end];
-
-    info!("Searching for date in: {}", search_text);
-
-    // General date patterns - more specific to avoid matching ranges like "86 to 1991"
-    let general_patterns = [
-        r"(\d{1,2} [A-Za-z]{3,} \d{4})", // 20 April 2023 (month must be 3+ chars to avoid "to")
-        r"([A-Za-z]{3,} \d{1,2}, \d{4})", // April 20, 2023 (month must be 3+ chars)
-        r"(\d{4}-\d{2}-\d{2})",          // 2023-04-20
-    ];
-
-    for pattern in &general_patterns {
-        info!("Trying general pattern: {}", pattern);
-        if let Some(captures) = regex::Regex::new(pattern).ok()?.captures(search_text) {
-            if let Some(date_match) = captures.get(1) {
-                let date = date_match.as_str().to_string();
-                info!("Found date with general pattern {}: {}", pattern, date);
-                return Some(date);
-            }
-        }
-    }
-
-    info!("No date found for keyword: {}", keyword);
-    None
-}
-
 fn parse_date(date_str: &str) -> Option<NaiveDate> {
     info!("Attempting to parse date string: '{}'", date_str);
 
@@ -1586,38 +1300,92 @@ fn parse_date(date_str: &str) -> Option<NaiveDate> {
 }
 
 // Function to extract cause of death from text
-// Fetch cause of death from Wikidata (property P509)
-async fn fetch_cause_of_death_from_wikidata(client: &Client, qid: &str) -> Option<String> {
+/// Structured person data from Wikidata
+struct WikidataPersonInfo {
+    birth_date: Option<String>,
+    death_date: Option<String>,
+    cause_of_death: Option<String>,
+    is_dead: bool,
+}
+
+/// Fetch person info from Wikidata (P569=birth, P570=death, P509=cause of death)
+async fn fetch_wikidata_person_info(client: &Client, qid: &str) -> Option<WikidataPersonInfo> {
     let url = format!(
-        "https://www.wikidata.org/w/api.php?action=wbgetclaims&entity={}&property=P509&format=json",
+        "https://www.wikidata.org/w/api.php?action=wbgetclaims&entity={}&property=P569|P570|P509&format=json",
         qid
+    );
+    info!("Fetching Wikidata claims for {}", qid);
+    let response = client.get(&url).send().await.ok()?;
+    let json: Value = response.json().await.ok()?;
+
+    let claims = json.get("claims")?;
+
+    // Extract birth date (P569)
+    let birth_date = claims
+        .pointer("/P569/0/mainsnak/datavalue/value/time")
+        .and_then(|v| v.as_str())
+        .and_then(format_wikidata_date);
+
+    // Extract death date (P570)
+    let death_date = claims
+        .pointer("/P570/0/mainsnak/datavalue/value/time")
+        .and_then(|v| v.as_str())
+        .and_then(format_wikidata_date);
+
+    let is_dead = claims
+        .get("P570")
+        .and_then(|v| v.as_array())
+        .is_some_and(|a| !a.is_empty());
+
+    // Extract cause of death (P509) - points to another entity
+    let cause_of_death = if let Some(cause_id) = claims
+        .pointer("/P509/0/mainsnak/datavalue/value/id")
+        .and_then(|v| v.as_str())
+    {
+        fetch_wikidata_label(client, cause_id).await
+    } else {
+        None
+    };
+
+    info!(
+        "Wikidata result: birth={:?}, death={:?}, cause={:?}, is_dead={}",
+        birth_date, death_date, cause_of_death, is_dead
+    );
+
+    Some(WikidataPersonInfo {
+        birth_date,
+        death_date,
+        cause_of_death,
+        is_dead,
+    })
+}
+
+/// Convert Wikidata time format (+1954-02-21T00:00:00Z) to readable date
+fn format_wikidata_date(time_str: &str) -> Option<String> {
+    // Format is like "+1954-02-21T00:00:00Z"
+    let date_part = time_str.trim_start_matches('+').split('T').next()?;
+    let date = NaiveDate::parse_from_str(date_part, "%Y-%m-%d").ok()?;
+    Some(date.format("%B %-d, %Y").to_string())
+}
+
+/// Fetch the English label for a Wikidata entity
+async fn fetch_wikidata_label(client: &Client, entity_id: &str) -> Option<String> {
+    let url = format!(
+        "https://www.wikidata.org/w/api.php?action=wbgetentities&ids={}&props=labels&languages=en&format=json",
+        entity_id
     );
     let response = client.get(&url).send().await.ok()?;
     let json: Value = response.json().await.ok()?;
 
-    // P509 claims point to other Wikidata entities; get the first one's ID
-    let claim = json
-        .pointer("/claims/P509/0/mainsnak/datavalue/value/id")
+    let label = json
+        .pointer(&format!("/entities/{}/labels/en/value", entity_id))
         .and_then(|v| v.as_str())?;
 
-    // Fetch the label of that entity
-    let label_url = format!(
-        "https://www.wikidata.org/w/api.php?action=wbgetentities&ids={}&props=labels&languages=en&format=json",
-        claim
-    );
-    let label_response = client.get(&label_url).send().await.ok()?;
-    let label_json: Value = label_response.json().await.ok()?;
-
-    let label = label_json
-        .pointer(&format!("/entities/{}/labels/en/value", claim))
-        .and_then(|v| v.as_str())?;
-
-    // Capitalize first letter
-    let mut cause = label.to_string();
-    if let Some(first) = cause.get_mut(0..1) {
+    let mut result = label.to_string();
+    if let Some(first) = result.get_mut(0..1) {
         first.make_ascii_uppercase();
     }
-    Some(cause)
+    Some(result)
 }
 
 // Function to extract cause of death from text
