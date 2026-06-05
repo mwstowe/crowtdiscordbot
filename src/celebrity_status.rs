@@ -985,8 +985,23 @@ async fn search_celebrity_attempt(name: &str) -> Result<Option<(String, Option<S
     info!("Is dead determination: {}", is_dead);
 
     if is_dead {
-        // Try to extract cause of death
-        let cause_of_death = extract_cause_of_death(raw_extract);
+        // Try to extract cause of death from the article text first
+        let mut cause_of_death = extract_cause_of_death(raw_extract);
+
+        // If not found in text, try Wikidata infobox (P509 = cause of death)
+        if cause_of_death.is_none() {
+            let wikidata_id = pages
+                .get(page_id)
+                .and_then(|p| p.get("pageprops"))
+                .and_then(|pp| pp.get("wikibase_item"))
+                .and_then(|w| w.as_str());
+            if let Some(qid) = wikidata_id {
+                if let Some(cause) = fetch_cause_of_death_from_wikidata(&client, qid).await {
+                    info!("Found cause of death from Wikidata: {}", cause);
+                    cause_of_death = Some(cause);
+                }
+            }
+        }
 
         // First check if we have a death date from parentheses
         if let Some(date) = death_date {
@@ -1571,6 +1586,40 @@ fn parse_date(date_str: &str) -> Option<NaiveDate> {
 }
 
 // Function to extract cause of death from text
+// Fetch cause of death from Wikidata (property P509)
+async fn fetch_cause_of_death_from_wikidata(client: &Client, qid: &str) -> Option<String> {
+    let url = format!(
+        "https://www.wikidata.org/w/api.php?action=wbgetclaims&entity={}&property=P509&format=json",
+        qid
+    );
+    let response = client.get(&url).send().await.ok()?;
+    let json: Value = response.json().await.ok()?;
+
+    // P509 claims point to other Wikidata entities; get the first one's ID
+    let claim = json
+        .pointer("/claims/P509/0/mainsnak/datavalue/value/id")
+        .and_then(|v| v.as_str())?;
+
+    // Fetch the label of that entity
+    let label_url = format!(
+        "https://www.wikidata.org/w/api.php?action=wbgetentities&ids={}&props=labels&languages=en&format=json",
+        claim
+    );
+    let label_response = client.get(&label_url).send().await.ok()?;
+    let label_json: Value = label_response.json().await.ok()?;
+
+    let label = label_json
+        .pointer(&format!("/entities/{}/labels/en/value", claim))
+        .and_then(|v| v.as_str())?;
+
+    // Capitalize first letter
+    let mut cause = label.to_string();
+    if let Some(first) = cause.get_mut(0..1) {
+        first.make_ascii_uppercase();
+    }
+    Some(cause)
+}
+
 // Function to extract cause of death from text
 fn extract_cause_of_death(text: &str) -> Option<String> {
     info!("Attempting to extract cause of death from text");
