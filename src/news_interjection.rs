@@ -11,16 +11,30 @@ use std::time::Duration;
 use tokio_rusqlite::Connection;
 use tracing::{error, info};
 
-// Extract topic from response in "TOPIC: description" format
+// Extract topic from response in "TOPIC: description ENDTOPIC" format
 fn extract_topic_from_response(response: &str) -> Option<String> {
-    if let Some(topic_start) = response.find("TOPIC:") {
-        let after_topic = &response[topic_start + 6..];
-        let topic = after_topic.lines().next()?.trim();
+    let topic_start = response.find("TOPIC:")?;
+    let after_topic = &response[topic_start + 6..];
+
+    // Look for ENDTOPIC delimiter first
+    if let Some(end_pos) = after_topic.find("ENDTOPIC") {
+        let topic = after_topic[..end_pos].trim();
         if !topic.is_empty() {
             return Some(topic.to_string());
         }
     }
-    None
+
+    // Fallback: take first 8 words as search query
+    let topic: String = after_topic
+        .split_whitespace()
+        .take(8)
+        .collect::<Vec<_>>()
+        .join(" ");
+    if !topic.is_empty() {
+        Some(topic)
+    } else {
+        None
+    }
 }
 
 // Handle news interjection

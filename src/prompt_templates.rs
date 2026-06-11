@@ -119,16 +119,16 @@ impl PromptTemplates {
             2. The fact MUST be true and verifiable - this is extremely important\n\
             3. DO NOT start with \"Fun fact:\" or \"Did you know?\"\n\
             4. Instead, address a specific user by name and acknowledge what they mentioned, then share your fact\n\
-            5. For example: \"Hey Alice, you mentioned learning Python. TOPIC: Python programming language named after Monty Python The language was actually named after Monty Python, not the snake.\"\n\
-            6. Another example: \"Bob, that discussion about coffee reminds me - TOPIC: Finland coffee consumption per capita Finland consumes more coffee per capita than any other country.\"\n\
+            5. For example: \"Hey Alice, you mentioned learning Python. TOPIC: Python named after Monty Python ENDTOPIC The language was actually named after Monty Python, not the snake.\"\n\
+            6. Another example: \"Bob, that discussion about coffee reminds me - TOPIC: Finland highest coffee consumption per capita ENDTOPIC Finland consumes more coffee per capita than any other country.\"\n\
             7. If there's no clear person to address, you can use a general greeting like \"Hey folks\" or just address the most recent speaker\n\
             8. Keep it brief (1-2 sentences for the fact itself)\n\
             9. Make it interesting and educational\n\
             10. If possible, relate it to the conversation topic, but don't force it\n\
             11. If you can't find a relevant fact based on the conversation, share a general interesting fact about technology, science, history, or nature\n\
             12. DO NOT include any URLs - we will search for and add a real link automatically\n\
-            13. ALWAYS include a TOPIC tag with a searchable description of your fact, formatted as: \"TOPIC: [brief searchable description]\"\n\
-            14. The TOPIC should be specific enough to find a real source (e.g., \"TOPIC: APA 2023 work stress survey\" not \"TOPIC: work stress\")\n\
+            13. ALWAYS include a TOPIC tag formatted as: \"TOPIC: [brief searchable description] ENDTOPIC\" - keep the topic SHORT (3-8 words), just enough to search for a source\n\
+            14. The TOPIC should be specific enough to find a real source (e.g., \"TOPIC: APA 2023 work stress survey ENDTOPIC\" not \"TOPIC: work stress ENDTOPIC\")\n\
             15. DO NOT respond to the prompt instructions themselves - focus ONLY on the conversation context\n\
             16. DO NOT introduce yourself or explain who you are\n\
             17. DO NOT use phrases like \"As Crow, I...\" or \"Oh, I'm Crow\"\n\
@@ -152,10 +152,10 @@ impl PromptTemplates {
             {context}\n\n\
             Guidelines:\n\
             1. Describe an interesting technology or weird news topic (NO sports)\n\
-            2. Format as: \"TOPIC: [brief description of the topic]\"\n\
+            2. Format the topic tag as: \"TOPIC: [brief description] ENDTOPIC\" - keep it SHORT (3-8 words)\n\
             3. Then add a comment (1-2 sentences) on why it's interesting or relevant to the conversation\n\
             4. DO NOT include any URLs - we will search for and add a real link\n\
-            5. Make the topic specific enough to search for (e.g., \"TOPIC: New quantum computing breakthrough at IBM\" not \"TOPIC: quantum computers\")\n\
+            5. Make the topic specific enough to search for (e.g., \"TOPIC: IBM quantum computing breakthrough 2025 ENDTOPIC\" not \"TOPIC: quantum computers ENDTOPIC\")\n\
             6. If possible, relate it to the conversation, but don't force it\n\
             7. Don't use phrases like \"Check out this article\" or \"You might find this interesting\"\n\
             8. NEVER include tags like \"(via search)\", \"(via Google)\", or any other source attribution\n\

@@ -12,47 +12,59 @@ use std::sync::Arc;
 use tokio_rusqlite::Connection;
 use tracing::{error, info};
 
-/// Extract topic from response in "TOPIC: description" format
+/// Extract topic from response in "TOPIC: description ENDTOPIC" format
 fn extract_topic_from_response(response: &str) -> Option<String> {
-    if let Some(topic_start) = response.find("TOPIC:") {
-        let after_topic = &response[topic_start + 6..];
-        let topic = after_topic.lines().next()?.trim();
+    let topic_start = response.find("TOPIC:")?;
+    let after_topic = &response[topic_start + 6..];
+
+    // Look for ENDTOPIC delimiter first
+    if let Some(end_pos) = after_topic.find("ENDTOPIC") {
+        let topic = after_topic[..end_pos].trim();
         if !topic.is_empty() {
             return Some(topic.to_string());
         }
     }
-    None
+
+    // Fallback: take only first 8 words after TOPIC: as the search query
+    let topic: String = after_topic
+        .split_whitespace()
+        .take(8)
+        .collect::<Vec<_>>()
+        .join(" ");
+    if !topic.is_empty() {
+        Some(topic)
+    } else {
+        None
+    }
 }
 
-/// Remove the TOPIC tag from the response text for display.
-/// The TOPIC tag format is "TOPIC: [searchable description]" and may appear
-/// inline within the text. We remove just the "TOPIC: description" portion.
+/// Remove the TOPIC tag from the response text for display
 fn strip_topic_from_response(response: &str) -> String {
     if let Some(topic_start) = response.find("TOPIC:") {
         let before = &response[..topic_start];
+
         let after_topic = &response[topic_start + 6..];
-
-        // The topic description ends at a newline, or at the next sentence
-        // (indicated by a period followed by a space/capital, or end of string)
-        let topic_end = after_topic
-            .find('\n')
-            .or_else(|| {
-                // Look for end of topic description: a period followed by a space and uppercase
-                after_topic.char_indices().find_map(|(i, c)| {
-                    if c == '.' && i + 2 < after_topic.len() {
-                        let next = after_topic.as_bytes().get(i + 1)?;
-                        let after_next = after_topic.as_bytes().get(i + 2)?;
-                        if *next == b' ' && after_next.is_ascii_uppercase() {
-                            return Some(i + 1);
-                        }
+        let rest = if let Some(end_pos) = after_topic.find("ENDTOPIC") {
+            // Skip past "ENDTOPIC" and any trailing whitespace
+            after_topic[end_pos + 8..].trim_start()
+        } else {
+            // Fallback: skip first 8 words (assumed topic) and keep the rest
+            let mut words = 0;
+            let skip_pos = after_topic
+                .char_indices()
+                .find(|(_, c)| {
+                    if c.is_whitespace() {
+                        words += 1;
                     }
-                    None
+                    words >= 8
                 })
-            })
-            .unwrap_or(after_topic.len());
+                .map(|(i, _)| i)
+                .unwrap_or(after_topic.len());
+            after_topic[skip_pos..].trim_start()
+        };
 
-        let rest = &after_topic[topic_end..];
-        let cleaned = format!("{} {}", before.trim_end(), rest.trim_start());
+        let cleaned = format!("{}{}", before.trim_end_matches(' '), rest);
+        // Clean up any double spaces
         cleaned.split_whitespace().collect::<Vec<_>>().join(" ")
     } else {
         response.to_string()
