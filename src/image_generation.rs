@@ -79,9 +79,8 @@ pub async fn handle_imagine_command(
 
     let image_bytes = if let Some(key) = pollinations_api_key {
         // Try models in order of quality, falling back on 402 (payment required)
-        let models = ["zimage", "flux"];
+        let models = ["gptimage", "flux"];
         let mut result = None;
-        let mut all_402 = true;
 
         for model in models {
             let url = format!(
@@ -97,7 +96,6 @@ pub async fn handle_imagine_command(
             match resp {
                 Ok(r) if r.status().is_success() => {
                     info!("Image generated successfully with model: {}", model);
-                    all_402 = false;
                     result = Some(r.bytes().await?);
                     break;
                 }
@@ -111,78 +109,24 @@ pub async fn handle_imagine_command(
                         model,
                         r.status()
                     );
-                    all_402 = false;
                     break;
                 }
                 Err(e) => {
                     error!("Pollinations API request failed: {:?}", e);
-                    all_402 = false;
                     break;
-                }
-            }
-        }
-
-        // If all models returned 402, fall back to legacy endpoint (no auth, no pollen cost)
-        if result.is_none() && all_402 {
-            info!("All models returned 402, falling back to legacy endpoint");
-            let url = format!(
-                "https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true"
-            );
-            for attempt in 1..=3 {
-                match http_client.get(&url).timeout(timeout).send().await {
-                    Ok(resp) if resp.status().is_success() => {
-                        result = Some(resp.bytes().await?);
-                        break;
-                    }
-                    Ok(resp) if resp.status().as_u16() == 429 => {
-                        info!(
-                            "Legacy endpoint returned 429, retry {}/3 after {}s",
-                            attempt,
-                            attempt * 10
-                        );
-                        tokio::time::sleep(Duration::from_secs(attempt as u64 * 10)).await;
-                        let _ = msg.channel_id.broadcast_typing(&ctx.http).await;
-                        continue;
-                    }
-                    Ok(resp) => {
-                        error!("Legacy endpoint failed: HTTP {}", resp.status());
-                        break;
-                    }
-                    Err(_) if attempt < 3 => {
-                        info!(
-                            "Legacy endpoint timed out, retry {}/3 after {}s",
-                            attempt,
-                            attempt * 10
-                        );
-                        tokio::time::sleep(Duration::from_secs(attempt as u64 * 10)).await;
-                        let _ = msg.channel_id.broadcast_typing(&ctx.http).await;
-                        continue;
-                    }
-                    Err(e) => {
-                        error!("Legacy endpoint request failed after retries: {:?}", e);
-                        break;
-                    }
                 }
             }
         }
 
         result
     } else {
-        info!("No Pollinations API key configured, using legacy endpoint");
-        let url = format!(
-            "https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true"
-        );
-        match http_client.get(&url).timeout(timeout).send().await {
-            Ok(resp) if resp.status().is_success() => Some(resp.bytes().await?),
-            Ok(resp) => {
-                error!("Pollinations legacy API error: HTTP {}", resp.status());
-                None
-            }
-            Err(e) => {
-                error!("Pollinations legacy API request failed: {:?}", e);
-                None
-            }
-        }
+        error!("No Pollinations API key configured - image generation requires a key");
+        msg.reply(
+            &ctx.http,
+            "Image generation is not configured. A Pollinations API key is required.",
+        )
+        .await?;
+        return Ok(());
     };
 
     match image_bytes {
