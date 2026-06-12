@@ -195,19 +195,13 @@ async fn send_fact_response(http: &Http, channel_id: ChannelId, response: &str) 
     }
 }
 
-// Common implementation for both regular and spontaneous fact interjections
+#[allow(clippy::type_complexity)]
 async fn handle_fact_interjection_common(
     http: &Http,
     channel_id: ChannelId,
     gemini_client: &GeminiClient,
     multi_response_generator: &Option<MultiResponseGenerator>,
-    #[allow(clippy::type_complexity)] context_messages: &[(
-        String,
-        String,
-        Option<String>,
-        String,
-        Option<String>,
-    )],
+    context_messages: &[(String, String, Option<String>, String, Option<String>)],
     _bot_name: &str,
 ) -> Result<()> {
     // Format context for the prompt
