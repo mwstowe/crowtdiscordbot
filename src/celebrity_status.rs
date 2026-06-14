@@ -927,6 +927,8 @@ async fn search_celebrity_attempt(name: &str) -> Result<Option<(String, Option<S
 
             if let Some(ref cause) = wd.cause_of_death {
                 response.push_str(&format!(" Cause of death: {cause}."));
+            } else if let Some(cause) = extract_cause_of_death(raw_extract) {
+                response.push_str(&format!(" Cause of death: {cause}."));
             }
         } else {
             // Person is alive
