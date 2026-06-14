@@ -515,8 +515,8 @@ impl GeminiClient {
                         text
                     };
 
-                // Success! Return the text
-                return Ok(cleaned_text.to_string());
+                // Success! Return the text with spacing fixes
+                return Ok(crate::text_formatting::fix_sentence_spacing(cleaned_text));
             } else {
                 // Check for prompt feedback
                 let prompt_feedback = if let Some(feedback) = response_json.get("promptFeedback") {
@@ -634,7 +634,7 @@ impl GeminiClient {
             .pointer("/candidates/0/content/parts/0/text")
             .and_then(|t| t.as_str())
         {
-            Ok(text.to_string())
+            Ok(crate::text_formatting::fix_sentence_spacing(text))
         } else {
             Err(anyhow::anyhow!(
                 "Failed to extract text from multimodal response"

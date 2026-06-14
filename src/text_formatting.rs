@@ -1,3 +1,18 @@
+/// Fix missing spaces after sentence-ending punctuation followed by a capital letter
+pub fn fix_sentence_spacing(text: &str) -> String {
+    let mut result = String::with_capacity(text.len() + 10);
+    let chars: Vec<char> = text.chars().collect();
+    for i in 0..chars.len() {
+        result.push(chars[i]);
+        if i + 1 < chars.len()
+            && (chars[i] == '.' || chars[i] == '!' || chars[i] == '?')
+            && chars[i + 1].is_uppercase()
+        {
+            result.push(' ');
+        }
+    }
+    result
+}
 // Common text formatting utilities for caption formatting
 
 // Format a caption to proper sentence case and separate different speakers
