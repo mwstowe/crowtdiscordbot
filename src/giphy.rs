@@ -1,5 +1,5 @@
 use anyhow::Result;
-use tracing::info;
+use tracing::{error, info};
 
 pub struct GiphyClient {
     api_key: String,
@@ -41,4 +41,36 @@ impl GiphyClient {
             Ok(None)
         }
     }
+
+    /// Check if a response is a GIF request (starts with "GIF:") and resolve it.
+    /// Returns Some(gif_url) if it was a GIF request and we found one, None otherwise.
+    pub async fn try_resolve_gif(&self, response: &str) -> Option<String> {
+        let trimmed = response.trim();
+        if !trimmed.starts_with("GIF:") {
+            return None;
+        }
+        let search_term = trimmed[4..].trim();
+        if search_term.is_empty() {
+            return None;
+        }
+        match self.search_gif(search_term).await {
+            Ok(Some(url)) => {
+                info!("GIF resolved: {} -> {}", search_term, url);
+                Some(url)
+            }
+            Ok(None) => {
+                info!("No GIF found for: {}", search_term);
+                None
+            }
+            Err(e) => {
+                error!("Error searching for GIF: {:?}", e);
+                None
+            }
+        }
+    }
 }
+
+/// The GIF instruction text to append to prompts
+pub const GIF_INSTRUCTION: &str = r#"
+
+GIF OPTION: If a reaction GIF would be funnier or more expressive than words, you may respond with ONLY "GIF: [search term]" where [search term] is a short phrase describing the perfect reaction GIF. Only use this when a GIF would genuinely be the best response. Example: "GIF: mind blown explosion""#;

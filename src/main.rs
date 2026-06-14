@@ -1567,6 +1567,13 @@ impl Bot {
                     let youtube_urls = media_utils::extract_youtube_urls(&content);
                     let has_media = !media_items.is_empty() || !youtube_urls.is_empty();
 
+                    // Append GIF instruction if Giphy is configured
+                    let gif_suffix = if self.giphy_client.is_some() {
+                        giphy::GIF_INSTRUCTION
+                    } else {
+                        ""
+                    };
+
                     // Use multimodal path if media is present, otherwise standard text path
                     let response_result = if has_media {
                         info!(
@@ -1574,20 +1581,24 @@ impl Bot {
                             media_items.len(),
                             youtube_urls.len()
                         );
-                        // Build the full prompt with personality and context
-                        let prompt = gemini_client.prompt_templates().format_general_response(
-                            &content,
-                            &clean_display_name,
-                            "",
+                        let prompt = format!(
+                            "{}{}",
+                            gemini_client.prompt_templates().format_general_response(
+                                &content,
+                                &clean_display_name,
+                                "",
+                            ),
+                            gif_suffix
                         );
                         gemini_client
                             .generate_content_with_media(&prompt, &media_items, &youtube_urls)
                             .await
                             .map(Some)
                     } else {
+                        let content_with_gif = format!("{}{}", content, gif_suffix);
                         gemini_client
                             .generate_best_response_with_context_and_pronouns(
-                                &content,
+                                &content_with_gif,
                                 &clean_display_name,
                                 &context_for_api,
                                 user_pronouns.as_deref(),
@@ -1598,6 +1609,23 @@ impl Bot {
 
                     match response_result {
                         Ok(Some(response)) => {
+                            // Check if the response is a GIF request
+                            if let Some(giphy_client) = &self.giphy_client {
+                                if let Some(gif_url) = giphy_client.try_resolve_gif(&response).await
+                                {
+                                    let message_reference = MessageReference::from(msg);
+                                    let create_message = CreateMessage::new()
+                                        .content(gif_url)
+                                        .reference_message(message_reference);
+                                    if let Err(e) =
+                                        msg.channel_id.send_message(&ctx.http, create_message).await
+                                    {
+                                        error!("Error sending GIF reply: {:?}", e);
+                                    }
+                                    return Ok(());
+                                }
+                            }
+
                             // Apply realistic typing delay based on response length
                             apply_realistic_delay(&response, ctx, msg.channel_id).await;
 
@@ -2233,33 +2261,16 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                             }
 
                             // Check if the response is a GIF request
-                            if response.trim().starts_with("GIF:") {
-                                let search_term = response.trim()[4..].trim();
-                                if let Some(giphy_client) = &self.giphy_client {
-                                    match giphy_client.search_gif(search_term).await {
-                                        Ok(Some(gif_url)) => {
-                                            if let Err(e) =
-                                                msg.channel_id.say(&ctx.http, &gif_url).await
-                                            {
-                                                error!("Error sending GIF interjection: {:?}", e);
-                                            } else {
-                                                info!(
-                                                    "GIF interjection sent: {} (search: {})",
-                                                    gif_url, search_term
-                                                );
-                                            }
-                                        }
-                                        Ok(None) => {
-                                            info!("No GIF found for: {}", search_term);
-                                        }
-                                        Err(e) => {
-                                            error!("Error searching for GIF: {:?}", e);
-                                        }
+                            if let Some(giphy_client) = &self.giphy_client {
+                                if let Some(gif_url) = giphy_client.try_resolve_gif(&response).await
+                                {
+                                    if let Err(e) = msg.channel_id.say(&ctx.http, &gif_url).await {
+                                        error!("Error sending GIF interjection: {:?}", e);
+                                    } else {
+                                        info!("GIF interjection sent: {}", gif_url);
                                     }
-                                } else {
-                                    info!("GIF requested but no Giphy API key configured");
+                                    return Ok(());
                                 }
-                                return Ok(());
                             }
 
                             // Apply realistic typing delay
