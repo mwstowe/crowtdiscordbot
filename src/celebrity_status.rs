@@ -1498,6 +1498,8 @@ fn extract_cause_of_death(text: &str) -> Option<String> {
             s_lower.contains("died")
                 || s_lower.contains("death")
                 || s_lower.contains("passed away")
+                || s_lower.contains("was killed")
+                || s_lower.contains("were killed")
                 || s_lower.contains("succumbed")
                 || s_lower.contains("lost his battle")
                 || s_lower.contains("lost her battle")
@@ -1525,6 +1527,10 @@ fn extract_cause_of_death(text: &str) -> Option<String> {
         r"died as a result of ([^\.;:,]+)",
         r"died because of ([^\.;:,]+)",
         r"death resulted from ([^\.;:,]+)",
+        r"was killed in ([^\.;:,]+)",
+        r"were killed in ([^\.;:,]+)",
+        r"was killed by ([^\.;:,]+)",
+        r"killed in ([^\.;:,]+?) (?:in|on|near|at)",
     ];
 
     // First try with death-related sentences for better context
