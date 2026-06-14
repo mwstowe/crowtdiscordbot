@@ -1313,7 +1313,7 @@ struct WikidataPersonInfo {
 /// Fetch person info from Wikidata (P569=birth, P570=death, P509=cause of death)
 async fn fetch_wikidata_person_info(client: &Client, qid: &str) -> Option<WikidataPersonInfo> {
     let url = format!(
-        "https://www.wikidata.org/w/api.php?action=wbgetclaims&entity={}&property=P569|P570|P509&format=json",
+        "https://www.wikidata.org/w/api.php?action=wbgetclaims&entity={}&format=json",
         qid
     );
     info!("Fetching Wikidata claims for {}", qid);
