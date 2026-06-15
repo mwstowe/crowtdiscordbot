@@ -68,6 +68,32 @@ impl GiphyClient {
             }
         }
     }
+
+    /// Check if a response contains "GIF:" anywhere (even after text).
+    /// Returns Some((text_before, gif_url)) if found and resolved, None otherwise.
+    pub async fn try_resolve_embedded_gif(&self, response: &str) -> Option<(String, String)> {
+        let trimmed = response.trim();
+        if let Some(gif_pos) = trimmed.find("GIF:") {
+            let text_before = trimmed[..gif_pos].trim().to_string();
+            let search_term = trimmed[gif_pos + 4..].trim();
+            if search_term.is_empty() {
+                return None;
+            }
+            match self.search_gif(search_term).await {
+                Ok(Some(url)) => {
+                    info!("Embedded GIF resolved: {} -> {}", search_term, url);
+                    Some((text_before, url))
+                }
+                Ok(None) => None,
+                Err(e) => {
+                    error!("Error searching for embedded GIF: {:?}", e);
+                    None
+                }
+            }
+        } else {
+            None
+        }
+    }
 }
 
 /// The GIF instruction text to append to prompts

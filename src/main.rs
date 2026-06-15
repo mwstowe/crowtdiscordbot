@@ -1624,6 +1624,29 @@ impl Bot {
                                     }
                                     return Ok(());
                                 }
+                                // Also check for embedded GIF (text + GIF: at the end)
+                                if let Some((text, gif_url)) =
+                                    giphy_client.try_resolve_embedded_gif(&response).await
+                                {
+                                    if !text.is_empty() {
+                                        apply_realistic_delay(&text, ctx, msg.channel_id).await;
+                                        let message_reference = MessageReference::from(msg);
+                                        let create_message = CreateMessage::new()
+                                            .content(&text)
+                                            .reference_message(message_reference);
+                                        if let Err(e) = msg
+                                            .channel_id
+                                            .send_message(&ctx.http, create_message)
+                                            .await
+                                        {
+                                            error!("Error sending text before GIF: {:?}", e);
+                                        }
+                                    }
+                                    if let Err(e) = msg.channel_id.say(&ctx.http, &gif_url).await {
+                                        error!("Error sending GIF reply: {:?}", e);
+                                    }
+                                    return Ok(());
+                                }
                             }
 
                             // Apply realistic typing delay based on response length
@@ -2272,6 +2295,23 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                                         error!("Error sending GIF interjection: {:?}", e);
                                     } else {
                                         info!("GIF interjection sent: {}", gif_url);
+                                    }
+                                    return Ok(());
+                                }
+                                // Also check for embedded GIF (text + GIF: at the end)
+                                if let Some((text, gif_url)) =
+                                    giphy_client.try_resolve_embedded_gif(&response).await
+                                {
+                                    if !text.is_empty() {
+                                        apply_realistic_delay(&text, ctx, msg.channel_id).await;
+                                        if let Err(e) = msg.channel_id.say(&ctx.http, &text).await {
+                                            error!("Error sending text before GIF: {:?}", e);
+                                        }
+                                    }
+                                    if let Err(e) = msg.channel_id.say(&ctx.http, &gif_url).await {
+                                        error!("Error sending GIF interjection: {:?}", e);
+                                    } else {
+                                        info!("Embedded GIF interjection sent: {}", gif_url);
                                     }
                                     return Ok(());
                                 }
