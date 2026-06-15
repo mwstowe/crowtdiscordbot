@@ -1585,6 +1585,19 @@ fn extract_cause_of_death(text: &str) -> Option<String> {
                             "musician",
                             "album",
                             "single",
+                            "art",
+                            "painting",
+                            "moving to",
+                            "living in",
+                            "working",
+                            "studying",
+                            "attending",
+                            "graduating",
+                            "known for",
+                            "famous for",
+                            "contributed",
+                            "considered",
+                            "influenced",
                         ];
 
                         let is_false_positive = false_indicators
