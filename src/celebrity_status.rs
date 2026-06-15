@@ -902,6 +902,10 @@ async fn search_celebrity_attempt(name: &str) -> Result<Option<(String, Option<S
         + &subject_pronoun[1..];
 
     // Use Wikidata for alive/dead determination and dates
+    // Trim trailing period to avoid double periods when appending
+    let response_trimmed = response.trim_end_matches('.').trim_end().to_string();
+    response = response_trimmed;
+
     if let Some(ref wd) = wikidata {
         if wd.is_dead {
             // Person is dead
