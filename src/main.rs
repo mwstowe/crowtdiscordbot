@@ -1807,9 +1807,12 @@ impl Bot {
                     .call(move |conn| {
                         let query =
                             "SELECT content, author, display_name, timestamp FROM messages \
-                        WHERE length(content) >= 20 \
+                        WHERE length(content) >= 20 AND length(content) <= 300 \
+                        AND content NOT LIKE '!%' \
                         AND content NOT LIKE 'http://%' \
                         AND content NOT LIKE 'https://%' \
+                        AND content NOT LIKE '%[Image:%' \
+                        AND content NOT LIKE '%[Video:%' \
                         AND author != ?1 AND display_name != ?1 \
                         ORDER BY (ABS(RANDOM()) / 9223372036854775807.0) * timestamp DESC \
                         LIMIT 1";
@@ -1912,12 +1915,13 @@ impl Bot {
                                 Rules:\n\
                                 1. ALWAYS start by quoting the date, who said it, and what they said\n\
                                 2. Keep the follow-up comment short (1-2 sentences)\n\
-                                3. Try to connect the memory to what's currently being discussed\n\
-                                4. If you can't make it work naturally, respond with ONLY the word \"pass\"\n\
+                                3. The memory MUST have a clear, obvious connection to what's currently being discussed - if you have to stretch to make a connection, just pass\n\
+                                4. If the memory isn't funny, interesting, or relevant, respond with ONLY the word \"pass\"\n\
                                 5. NEVER make jokes about dating, relationships, or sexual topics\n\
                                 6. NEVER reference the movie \"Manos: The Hands of Fate\"\n\
                                 7. Use gender-neutral language unless you're certain of someone's gender\n\
-                                8. If you're unsure if a response is appropriate, respond with ONLY the word \"pass\"",
+                                8. If you're unsure if a response is appropriate, respond with ONLY the word \"pass\"\n\
+                                9. The bar for relevance is HIGH - a weak or forced connection is worse than passing",
                                 self.bot_name, date_str, display_name, content, context_text,
                                 date_str, display_name, content
                             );
