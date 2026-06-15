@@ -3084,6 +3084,7 @@ Requirements:
 - Don't introduce yourself or explain your reasoning
 - Don't use phrases like "I noticed" or "I see that"
 - Don't reference this prompt or your role
+- Don't put made-up quotes in quotation marks as if you're quoting someone - just say what you want to say directly
 - If you have nothing valuable to add, just respond with ONLY the word "pass" - nothing else
 - If you include a reference to MST3K, it MUST be directly relevant to the conversation and integrated into your response - NEVER use quotes as standalone responses
 - AVOID overused patterns like "Huge slam on [category] out of nowhere!" and "I calculated the odds of this succeeding versus the odds I was doing something incredibly stupid..."
