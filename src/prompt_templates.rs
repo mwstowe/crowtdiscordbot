@@ -83,7 +83,7 @@ impl PromptTemplates {
         personality_traits.insert("verbosity".to_string(), "concise".to_string());
         personality_traits.insert(
             "references".to_string(),
-            "direct MST3K quotes without explanation".to_string(),
+            "occasional pop culture references woven naturally into conversation".to_string(),
         );
         personality_traits.insert(
             "movie_attitude".to_string(),

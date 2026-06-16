@@ -2187,49 +2187,8 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                         Vec::new()
                     };
 
-                    // Format context for the prompt
-                    let context_text = if !context_messages.is_empty() {
-                        // Reverse the messages to get chronological order (oldest first)
-                        let mut chronological_messages = context_messages.clone();
-                        chronological_messages.reverse();
-
-                        let formatted_messages: Vec<String> = chronological_messages
-                            .iter()
-                            .map(
-                                |(author, display_name, _pronouns, content, reply_context)| {
-                                    // Use display name if available and non-empty, otherwise use author
-                                    // This matches the logic in get_best_display_name
-                                    let name_to_use = if !display_name.is_empty() {
-                                        display_name
-                                    } else {
-                                        author
-                                    };
-
-                                    if let Some(reply) = reply_context {
-                                        format!(
-                                            "{}: {} (in reply to: {})",
-                                            name_to_use, content, reply
-                                        )
-                                    } else {
-                                        format!("{name_to_use}: {content}")
-                                    }
-                                },
-                            )
-                            .collect();
-                        formatted_messages.join("\n")
-                    } else {
-                        info!(
-                            "No context available for AI interjection in channel_id: {}",
-                            msg.channel_id
-                        );
-                        // Use empty string instead of "No recent messages" to avoid showing this in logs
-                        "".to_string()
-                    };
-
-                    // Replace placeholders in the custom prompt
-                    let prompt = interjection_prompt
-                        .replace("{bot_name}", &self.bot_name)
-                        .replace("{context}", &context_text);
+                    // Replace bot_name but leave {context} for the API layer to handle
+                    let prompt = interjection_prompt.replace("{bot_name}", &self.bot_name);
 
                     // Convert to the format expected by generate_response_with_context_and_pronouns
                     let context_for_api: Vec<(String, String, Option<String>, String)> =
