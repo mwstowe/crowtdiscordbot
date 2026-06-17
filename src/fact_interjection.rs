@@ -63,8 +63,8 @@ fn strip_topic_from_response(response: &str) -> String {
             after_topic[skip_pos..].trim_start()
         };
 
-        let cleaned = format!("{}{}", before.trim_end_matches(' '), rest);
-        // Clean up any double spaces
+        let cleaned = format!("{} {}", before.trim_end(), rest);
+        // Clean up any double/triple spaces
         cleaned.split_whitespace().collect::<Vec<_>>().join(" ")
     } else {
         response.to_string()
