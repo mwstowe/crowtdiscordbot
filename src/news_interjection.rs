@@ -101,18 +101,16 @@ pub async fn handle_news_interjection(
         .prompt_templates()
         .format_news_interjection(&context_text);
 
-    // Call Gemini API with the news prompt using multi-response generation
-    match gemini_client
-        .generate_best_response_with_context_and_pronouns(
-            &news_prompt,
-            "",
-            &Vec::new(),
-            None,
-            false, // Let it decide whether to respond for news interjections
-        )
-        .await
-    {
-        Ok(Some(response)) => {
+    // Prompt is already fully formed — send directly
+    match gemini_client.generate_content(&news_prompt).await {
+        Ok(response) => {
+            let response = response.trim().to_string();
+
+            // Check if the AI decided to pass
+            if response.to_lowercase() == "pass" {
+                info!("News interjection evaluation: decided to PASS - no response sent");
+                return Ok(());
+            }
             // Check if the response looks like the prompt itself (API error)
             if response.contains("{bot_name}")
                 || response.contains("{context}")
@@ -203,9 +201,6 @@ pub async fn handle_news_interjection(
             } else {
                 info!("Could not extract topic from response - skipping interjection");
             }
-        }
-        Ok(None) => {
-            info!("News interjection evaluation: decided to PASS - no response sent");
         }
         Err(e) => {
             error!("Error generating news interjection: {:?}", e);

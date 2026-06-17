@@ -3905,42 +3905,8 @@ Be creative but realistic with your article title and URL."#)
                                         .replace("{bot_name}", &bot_name_clone)
                                         .replace("{context}", &context_text);
 
-                                    // Convert to the format expected by generate_response_with_context_and_pronouns
-                                    let context_for_api: Vec<(
-                                        String,
-                                        String,
-                                        Option<String>,
-                                        String,
-                                    )> = context_messages
-                                        .iter()
-                                        .map(
-                                            |(
-                                                author,
-                                                display_name,
-                                                pronouns,
-                                                content,
-                                                _reply_context,
-                                            )| {
-                                                (
-                                                    author.clone(),
-                                                    display_name.clone(),
-                                                    pronouns.clone(),
-                                                    content.clone(),
-                                                )
-                                            },
-                                        )
-                                        .collect();
-
-                                    // Call Gemini API with the news prompt
-                                    match gemini_client
-                                        .generate_response_with_context_and_pronouns(
-                                            &news_prompt,
-                                            "",
-                                            &context_for_api,
-                                            None,
-                                        )
-                                        .await
-                                    {
+                                    // Prompt is already fully formed — send directly
+                                    match gemini_client.generate_content(&news_prompt).await {
                                         Ok(response) => {
                                             // Check if the response is "pass" - if so, don't send anything
                                             if response.trim().to_lowercase() == "pass" {

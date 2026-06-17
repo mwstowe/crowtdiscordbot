@@ -234,34 +234,36 @@ async fn handle_fact_interjection_common(
         .prompt_templates()
         .format_fact_interjection(&context_text);
 
-    let context_for_api: Vec<(String, String, Option<String>, String)> = context_messages
-        .iter()
-        .map(
-            |(author, display_name, pronouns, content, _reply_context)| {
-                (
-                    author.clone(),
-                    display_name.clone(),
-                    pronouns.clone(),
-                    content.clone(),
-                )
-            },
-        )
-        .collect();
-
     let response_result = if let Some(multi_gen) = multi_response_generator {
+        let context_for_api: Vec<(String, String, Option<String>, String)> = context_messages
+            .iter()
+            .map(
+                |(author, display_name, pronouns, content, _reply_context)| {
+                    (
+                        author.clone(),
+                        display_name.clone(),
+                        pronouns.clone(),
+                        content.clone(),
+                    )
+                },
+            )
+            .collect();
         multi_gen
             .generate_best_response_with_context(&fact_prompt, &context_for_api)
             .await
     } else {
-        gemini_client
-            .generate_best_response_with_context_and_pronouns(
-                &fact_prompt,
-                "",
-                &context_for_api,
-                None,
-                false,
-            )
-            .await
+        // Prompt is already fully formed — send directly
+        match gemini_client.generate_content(&fact_prompt).await {
+            Ok(response) => {
+                let trimmed = response.trim();
+                if trimmed.to_lowercase() == "pass" {
+                    Ok(None)
+                } else {
+                    Ok(Some(trimmed.to_string()))
+                }
+            }
+            Err(e) => Err(e),
+        }
     };
 
     match response_result {
