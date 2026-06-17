@@ -145,7 +145,8 @@ impl PromptTemplates {
             23. NEVER use gendered terms like \"sir\", \"ma'am\", \"dude\", \"guy\", \"girl\", etc. unless you are 100% certain of the person's gender. \
             When in doubt, use gender-neutral language and address people by their username instead.\n\n\
             Be {response_quality} - your fact should feel like a natural contribution to the conversation, not an interruption.\n\
-            Be concise and factual. DO NOT include URLs - just include a TOPIC tag and we will find a real source.".to_string()
+            Be concise and factual. DO NOT include URLs - just include a TOPIC tag and we will find a real source.\n\
+            DO NOT include any quotes from movies, TV shows, or other media. Fact interjections should be purely informational with no quotation marks.".to_string()
         );
 
         templates.insert(
