@@ -1756,6 +1756,11 @@ impl Bot {
         // Get the current user (bot) ID
         let current_user_id = self.get_bot_user_id(ctx).await;
 
+        // Don't trigger interjections on bot commands - they're already handled
+        if msg.content.starts_with('!') {
+            return Ok(());
+        }
+
         // Get the probability multiplier based on channel inactivity
         let silence_multiplier = self
             .fill_silence_manager
