@@ -1963,6 +1963,18 @@ impl Bot {
                                         return Ok(());
                                     }
 
+                                    // Check for prompt leak
+                                    if response.contains("{bot_name}")
+                                        || response.contains("{context}")
+                                        || response.contains("Guidelines:")
+                                        || response.contains("TOPIC:")
+                                    {
+                                        error!(
+                                            "Memory interjection error: API returned prompt text"
+                                        );
+                                        return Ok(());
+                                    }
+
                                     // Check if the response is a GIF request
                                     if let Some(giphy_client) = &self.giphy_client {
                                         if let Some(gif_url) =
@@ -2567,17 +2579,101 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                             )
                             .collect();
 
-                    match gemini_client
-                        .generate_best_response_with_context_and_pronouns(
-                            &content,
-                            &clean_display_name,
-                            &context_for_api,
-                            user_pronouns.as_deref(),
-                            true, // Always respond when directly mentioned
-                        )
-                        .await
-                    {
+                    // Extract media (images/video) from the message and any replied-to message
+                    let media_items = media_utils::extract_media_from_message(msg).await;
+                    let youtube_urls = media_utils::extract_youtube_urls(&content);
+                    let has_media = !media_items.is_empty() || !youtube_urls.is_empty();
+
+                    // Append GIF instruction if Giphy is configured
+                    let gif_suffix = if self.giphy_client.is_some() {
+                        giphy::GIF_INSTRUCTION
+                    } else {
+                        ""
+                    };
+
+                    // Use multimodal path if media is present, otherwise standard text path
+                    let response_result = if has_media {
+                        info!(
+                            "Using multimodal path for mention: {} media items, {} YouTube URLs",
+                            media_items.len(),
+                            youtube_urls.len()
+                        );
+                        let prompt = format!(
+                            "{}{}",
+                            gemini_client.prompt_templates().format_general_response(
+                                &content,
+                                &clean_display_name,
+                                "",
+                            ),
+                            gif_suffix
+                        );
+                        gemini_client
+                            .generate_content_with_media(&prompt, &media_items, &youtube_urls)
+                            .await
+                            .map(Some)
+                    } else {
+                        let content_with_gif = format!("{}{}", content, gif_suffix);
+                        gemini_client
+                            .generate_best_response_with_context_and_pronouns(
+                                &content_with_gif,
+                                &clean_display_name,
+                                &context_for_api,
+                                user_pronouns.as_deref(),
+                                true, // Always respond when directly mentioned
+                            )
+                            .await
+                    };
+
+                    match response_result {
                         Ok(Some(response)) => {
+                            // Check if the response looks like the prompt itself (API error)
+                            if response.contains("{bot_name}")
+                                || response.contains("{context}")
+                                || response.contains("Guidelines:")
+                            {
+                                error!("Mention response error: API returned prompt text");
+                                return Ok(());
+                            }
+
+                            // Check for GIF resolution
+                            if let Some(giphy_client) = &self.giphy_client {
+                                if let Some(gif_url) = giphy_client.try_resolve_gif(&response).await
+                                {
+                                    let message_reference = MessageReference::from(msg);
+                                    let create_message = CreateMessage::new()
+                                        .content(gif_url)
+                                        .reference_message(message_reference);
+                                    if let Err(e) =
+                                        msg.channel_id.send_message(&ctx.http, create_message).await
+                                    {
+                                        error!("Error sending GIF reply: {:?}", e);
+                                    }
+                                    return Ok(());
+                                }
+                                if let Some((text, gif_url)) =
+                                    giphy_client.try_resolve_embedded_gif(&response).await
+                                {
+                                    if !text.is_empty() {
+                                        apply_realistic_delay(&text, ctx, msg.channel_id).await;
+                                        let message_reference = MessageReference::from(msg);
+                                        let create_message = CreateMessage::new()
+                                            .content(&text)
+                                            .reference_message(message_reference);
+                                        if let Err(e) = msg
+                                            .channel_id
+                                            .send_message(&ctx.http, create_message)
+                                            .await
+                                        {
+                                            error!("Error sending text before GIF: {:?}", e);
+                                        }
+                                    }
+                                    if let Err(e) = msg.channel_id.say(&ctx.http, &gif_url).await {
+                                        error!("Error sending GIF reply: {:?}", e);
+                                    }
+                                    return Ok(());
+                                }
+                            }
+
                             // Apply realistic typing delay based on response length
                             apply_realistic_delay(&response, ctx, msg.channel_id).await;
 
