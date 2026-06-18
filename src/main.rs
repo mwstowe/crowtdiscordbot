@@ -1963,6 +1963,48 @@ impl Bot {
                                         return Ok(());
                                     }
 
+                                    // Check if the response is a GIF request
+                                    if let Some(giphy_client) = &self.giphy_client {
+                                        if let Some(gif_url) =
+                                            giphy_client.try_resolve_gif(response).await
+                                        {
+                                            if let Err(e) =
+                                                msg.channel_id.say(&ctx.http, &gif_url).await
+                                            {
+                                                error!(
+                                                    "Error sending GIF memory interjection: {:?}",
+                                                    e
+                                                );
+                                            }
+                                            return Ok(());
+                                        }
+                                        if let Some((text, gif_url)) =
+                                            giphy_client.try_resolve_embedded_gif(response).await
+                                        {
+                                            if !text.is_empty() {
+                                                apply_realistic_delay(&text, ctx, msg.channel_id)
+                                                    .await;
+                                                if let Err(e) =
+                                                    msg.channel_id.say(&ctx.http, &text).await
+                                                {
+                                                    error!(
+                                                        "Error sending text before GIF: {:?}",
+                                                        e
+                                                    );
+                                                }
+                                            }
+                                            if let Err(e) =
+                                                msg.channel_id.say(&ctx.http, &gif_url).await
+                                            {
+                                                error!(
+                                                    "Error sending GIF memory interjection: {:?}",
+                                                    e
+                                                );
+                                            }
+                                            return Ok(());
+                                        }
+                                    }
+
                                     if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await
                                     {
                                         error!("Failed to send typing indicator for memory interjection: {:?}", e);
@@ -2108,6 +2150,30 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                             // Log the issue but don't send any message to the channel
                             error!("Suppressing fallback pondering message as configured");
                             return Ok(());
+                        }
+
+                        // Check if the response is a GIF request
+                        if let Some(giphy_client) = &self.giphy_client {
+                            if let Some(gif_url) = giphy_client.try_resolve_gif(&response).await {
+                                if let Err(e) = msg.channel_id.say(&ctx.http, &gif_url).await {
+                                    error!("Error sending GIF pondering interjection: {:?}", e);
+                                }
+                                return Ok(());
+                            }
+                            if let Some((text, gif_url)) =
+                                giphy_client.try_resolve_embedded_gif(&response).await
+                            {
+                                if !text.is_empty() {
+                                    apply_realistic_delay(&text, ctx, msg.channel_id).await;
+                                    if let Err(e) = msg.channel_id.say(&ctx.http, &text).await {
+                                        error!("Error sending text before GIF: {:?}", e);
+                                    }
+                                }
+                                if let Err(e) = msg.channel_id.say(&ctx.http, &gif_url).await {
+                                    error!("Error sending GIF pondering interjection: {:?}", e);
+                                }
+                                return Ok(());
+                            }
                         }
 
                         // Start typing indicator
