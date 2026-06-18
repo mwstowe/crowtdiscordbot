@@ -37,6 +37,35 @@ fn extract_topic_from_response(response: &str) -> Option<String> {
     }
 }
 
+/// Remove the TOPIC...ENDTOPIC tag from the response text for display
+fn strip_topic_from_response(response: &str) -> String {
+    if let Some(topic_start) = response.find("TOPIC:") {
+        let before = &response[..topic_start];
+        let after_topic = &response[topic_start + 6..];
+        let rest = if let Some(end_pos) = after_topic.find("ENDTOPIC") {
+            after_topic[end_pos + 8..].trim_start()
+        } else {
+            // Fallback: skip first 8 words
+            let mut words = 0;
+            let skip_pos = after_topic
+                .char_indices()
+                .find(|(_, c)| {
+                    if c.is_whitespace() {
+                        words += 1;
+                    }
+                    words >= 8
+                })
+                .map(|(i, _)| i)
+                .unwrap_or(after_topic.len());
+            after_topic[skip_pos..].trim_start()
+        };
+        let cleaned = format!("{} {}", before.trim_end(), rest);
+        cleaned.split_whitespace().collect::<Vec<_>>().join(" ")
+    } else {
+        response.to_string()
+    }
+}
+
 // Handle news interjection
 pub async fn handle_news_interjection(
     ctx: &Context,
@@ -123,6 +152,7 @@ pub async fn handle_news_interjection(
             // Extract the topic from the response
             if let Some(topic) = extract_topic_from_response(&response) {
                 info!("Extracted topic for search: {}", topic);
+                let display_response = strip_topic_from_response(&response);
 
                 // Search for an article about this topic
                 if let Some(search_result) = try_search_for_article(&topic).await {
@@ -143,7 +173,7 @@ pub async fn handle_news_interjection(
 
                             // Append the validated URL to the response
                             let final_response =
-                                format!("{} Source: {}", response, search_result.url);
+                                format!("{} Source: {}", display_response, search_result.url);
 
                             if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
                                 error!("Failed to send typing indicator: {:?}", e);
@@ -165,17 +195,20 @@ pub async fn handle_news_interjection(
                         Ok(false) => {
                             info!("Search result failed validation - sending response without URL");
 
-                            // Send the response without a URL rather than skipping entirely
                             if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
                                 error!("Failed to send typing indicator: {:?}", e);
                             }
 
-                            apply_realistic_delay(&response, ctx, msg.channel_id).await;
+                            apply_realistic_delay(&display_response, ctx, msg.channel_id).await;
 
-                            if let Err(e) = msg.channel_id.say(&ctx.http, response.clone()).await {
+                            if let Err(e) = msg
+                                .channel_id
+                                .say(&ctx.http, display_response.clone())
+                                .await
+                            {
                                 error!("Error sending news interjection: {:?}", e);
                             } else {
-                                info!("News interjection sent without URL: {}", response);
+                                info!("News interjection sent without URL: {}", display_response);
                             }
                         }
                         Err(e) => {
@@ -185,17 +218,20 @@ pub async fn handle_news_interjection(
                 } else {
                     info!("No search results found - sending response without URL");
 
-                    // Send the response without a URL
                     if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
                         error!("Failed to send typing indicator: {:?}", e);
                     }
 
-                    apply_realistic_delay(&response, ctx, msg.channel_id).await;
+                    apply_realistic_delay(&display_response, ctx, msg.channel_id).await;
 
-                    if let Err(e) = msg.channel_id.say(&ctx.http, response.clone()).await {
+                    if let Err(e) = msg
+                        .channel_id
+                        .say(&ctx.http, display_response.clone())
+                        .await
+                    {
                         error!("Error sending news interjection: {:?}", e);
                     } else {
-                        info!("News interjection sent without URL: {}", response);
+                        info!("News interjection sent without URL: {}", display_response);
                     }
                 }
             } else {
