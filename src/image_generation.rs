@@ -5,6 +5,7 @@ use serenity::builder::CreateAttachment;
 use serenity::model::channel::Message;
 use serenity::prelude::*;
 use std::time::Duration;
+use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
 pub async fn handle_imagine_command(
@@ -44,13 +45,25 @@ pub async fn handle_imagine_command(
         return Ok(());
     }
 
-    // Start typing indicator
-    if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
-        error!(
-            "Failed to send typing indicator for image generation: {:?}",
-            e
-        );
-    }
+    // Start typing indicator and keep refreshing it until generation completes
+    let typing_channel_id = msg.channel_id;
+    let typing_http = ctx.http.clone();
+    let typing_cancel = CancellationToken::new();
+    let typing_cancel_clone = typing_cancel.clone();
+    tokio::spawn(async move {
+        loop {
+            if let Err(e) = typing_channel_id.broadcast_typing(&typing_http).await {
+                error!(
+                    "Failed to send typing indicator for image generation: {:?}",
+                    e
+                );
+            }
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_secs(8)) => {}
+                _ = typing_cancel_clone.cancelled() => break,
+            }
+        }
+    });
 
     info!("Generating image via Pollinations for prompt: {}", prompt);
 
@@ -121,6 +134,7 @@ pub async fn handle_imagine_command(
         result
     } else {
         error!("No Pollinations API key configured - image generation requires a key");
+        typing_cancel.cancel();
         msg.reply(
             &ctx.http,
             "Image generation is not configured. A Pollinations API key is required.",
@@ -128,6 +142,9 @@ pub async fn handle_imagine_command(
         .await?;
         return Ok(());
     };
+
+    // Stop the typing indicator
+    typing_cancel.cancel();
 
     match image_bytes {
         Some(bytes) => {
