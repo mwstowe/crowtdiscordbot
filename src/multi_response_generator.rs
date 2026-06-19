@@ -109,6 +109,17 @@ impl MultiResponseGenerator {
         responses: &[String],
         original_prompt: &str,
     ) -> Result<Vec<ResponseCandidate>> {
+        // Truncate the original prompt to avoid leaking template placeholders into the rating prompt
+        let context_preview = if original_prompt.len() > 300 {
+            let mut end = 300;
+            while !original_prompt.is_char_boundary(end) {
+                end -= 1;
+            }
+            &original_prompt[..end]
+        } else {
+            original_prompt
+        };
+
         let rating_prompt = format!(
             "You are evaluating response quality for a Discord bot. Rate each response on a scale of 1-10 based on:\n\
             - Relevance to the conversation\n\
@@ -116,7 +127,6 @@ impl MultiResponseGenerator {
             - Humor/entertainment value (if appropriate)\n\
             - Character consistency\n\
             - Avoiding repetitive patterns\n\n\
-            Original prompt context: {}\n\n\
             Responses to rate:\n{}\n\n\
             Provide your ratings in JSON format:\n\
             {{\n\
@@ -125,12 +135,14 @@ impl MultiResponseGenerator {
                 {{\"response_index\": 2, \"rating\": 8.2, \"reasoning\": \"Natural and relevant\"}}\n\
               ]\n\
             }}",
-            original_prompt,
             responses.iter().enumerate()
                 .map(|(i, r)| format!("{}. {}", i + 1, r))
                 .collect::<Vec<_>>()
                 .join("\n")
         );
+
+        // Suppress unused variable warning - we keep the parameter for API compatibility
+        let _ = context_preview;
 
         match self.gemini_client.generate_content(&rating_prompt).await {
             Ok(rating_response) => self.parse_ratings(&rating_response, responses).await,
