@@ -95,9 +95,13 @@ pub async fn verify_news_article(
         return Ok(false);
     }
 
-    // Take first 2000 characters of content for verification
+    // Take first 2000 characters of content for verification (char-boundary safe)
     let content_sample = if text_content.len() > 2000 {
-        &text_content[..2000]
+        let mut end = 2000;
+        while !text_content.is_char_boundary(end) {
+            end -= 1;
+        }
+        &text_content[..end]
     } else {
         &text_content
     };

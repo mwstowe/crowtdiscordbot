@@ -785,9 +785,13 @@ async fn search_celebrity_attempt(name: &str) -> Result<Option<(String, Option<S
 
     // Log only the first 100 characters of the extract for debugging
     if raw_extract.len() > 100 {
+        let preview_end = raw_extract
+            .char_indices()
+            .nth(100)
+            .map_or(raw_extract.len(), |(i, _)| i);
         info!(
             "Extract preview (first 100 chars): {}...",
-            &raw_extract[..100]
+            &raw_extract[..preview_end]
         );
     } else {
         info!("Extract preview: {}", raw_extract);
