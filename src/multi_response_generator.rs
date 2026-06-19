@@ -300,17 +300,20 @@ impl MultiResponseGenerator {
     }
 
     /// Evaluate a single response for quality
-    async fn evaluate_single_response(&self, response: &str, original_prompt: &str) -> Result<f32> {
+    async fn evaluate_single_response(
+        &self,
+        response: &str,
+        _original_prompt: &str,
+    ) -> Result<f32> {
         let evaluation_prompt = format!(
             "Rate this Discord bot response on a scale of 1-10 based on:\n\
             - Relevance and naturalness\n\
             - Humor/entertainment value (if appropriate)\n\
             - Character consistency\n\
             - Avoiding repetitive patterns\n\n\
-            Original prompt: {}\n\
             Response: {}\n\n\
             Respond with just a number between 1.0 and 10.0",
-            original_prompt, response
+            response
         );
 
         match self
