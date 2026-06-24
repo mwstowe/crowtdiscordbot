@@ -516,6 +516,7 @@ pub async fn generate_gif(
     start: u64,
     end: u64,
     subtitles: &[TimedSubtitle],
+    font_size: u32,
 ) -> Option<String> {
     let url = format!("{base_url}/api/render/gif/stream");
 
@@ -528,7 +529,7 @@ pub async fn generate_gif(
                 "y": 90,
                 "text_align": "c",
                 "all_caps": false,
-                "size": 0,
+                "size": font_size,
                 "color": [255, 255, 255, 255],
                 "start": sub.start.saturating_sub(start),
                 "end": sub.end.saturating_sub(start)
@@ -586,11 +587,11 @@ pub fn format_frinkiac_result(result: &FrinkiacResult) -> String {
     let episode_number = result.episode_number;
     if result.gif_url.is_some() {
         // Caption is baked into the GIF
-        format!("{media_url}\n{episode_title} (Season {season}, Episode {episode_number})")
+        format!("{episode_title} (Season {season}, Episode {episode_number})\n{media_url}")
     } else {
         let caption = &result.caption;
         format!(
-            "{media_url}\n{episode_title} (Season {season}, Episode {episode_number})\n{caption}"
+            "{episode_title} (Season {season}, Episode {episode_number})\n{media_url}\n{caption}"
         )
     }
 }
@@ -671,6 +672,7 @@ pub async fn handle_frinkiac_command(
                     result.start_timestamp,
                     result.end_timestamp,
                     &result.subtitles,
+                    40,
                 )
                 .await;
                 format_frinkiac_result(&result)
@@ -707,6 +709,7 @@ pub async fn handle_frinkiac_command(
                         result.start_timestamp,
                         result.end_timestamp,
                         &result.subtitles,
+                        40,
                     )
                     .await;
                     format_frinkiac_result(&result)
