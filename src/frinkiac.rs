@@ -125,7 +125,11 @@ impl FrinkiacClient {
             .build()
             .expect("Failed to create HTTP client");
 
-        Self { http_client }
+        Self {
+            http_client,
+            last_query: std::sync::RwLock::new(None),
+            current_index: std::sync::RwLock::new(0),
+        }
     }
 
     // Get a random screenshot from Frinkiac
@@ -261,16 +265,28 @@ impl FrinkiacClient {
             return Ok(None);
         }
 
-        // Just take the first result
-        let first_result = &search_results[0];
+        // Pick the next result, rotating through results for repeated queries
+        let index = {
+            let mut last_q = self.last_query.write().unwrap();
+            let mut idx = self.current_index.write().unwrap();
+            if last_q.as_deref() == Some(query) {
+                *idx = (*idx + 1) % search_results.len();
+            } else {
+                *last_q = Some(query.to_string());
+                *idx = 0;
+            }
+            *idx
+        };
+
+        let result = &search_results[index];
 
         // Extract the episode and timestamp
-        let episode = first_result
+        let episode = result
             .get("Episode")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing Episode in search result"))?;
 
-        let timestamp = first_result
+        let timestamp = result
             .get("Timestamp")
             .and_then(|v| v.as_u64())
             .ok_or_else(|| anyhow!("Missing Timestamp in search result"))?;
@@ -672,7 +688,7 @@ pub async fn handle_frinkiac_command(
                     result.start_timestamp,
                     result.end_timestamp,
                     &result.subtitles,
-                    40,
+                    0,
                 )
                 .await;
                 format_frinkiac_result(&result)
@@ -709,7 +725,7 @@ pub async fn handle_frinkiac_command(
                         result.start_timestamp,
                         result.end_timestamp,
                         &result.subtitles,
-                        40,
+                        0,
                     )
                     .await;
                     format_frinkiac_result(&result)
@@ -740,4 +756,6 @@ pub async fn handle_frinkiac_command(
 // Frinkiac client struct
 pub struct FrinkiacClient {
     http_client: HttpClient,
+    last_query: std::sync::RwLock<Option<String>>,
+    current_index: std::sync::RwLock<usize>,
 }
