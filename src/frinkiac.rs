@@ -109,6 +109,9 @@ pub struct FrinkiacResult {
     pub image_url: String,
     pub _meme_url: String,
     pub caption: String,
+    pub start_timestamp: u64,
+    pub end_timestamp: u64,
+    pub gif_url: Option<String>,
 }
 
 impl FrinkiacClient {
@@ -372,6 +375,16 @@ impl FrinkiacClient {
                     .collect::<Vec<&str>>()
                     .join(" ");
 
+                // Extract subtitle time range
+                let start_ts = subtitles
+                    .first()
+                    .and_then(|s| s.get("StartTimestamp").and_then(|v| v.as_u64()))
+                    .unwrap_or(timestamp);
+                let end_ts = subtitles
+                    .last()
+                    .and_then(|s| s.get("EndTimestamp").and_then(|v| v.as_u64()))
+                    .unwrap_or(timestamp + 4000);
+
                 // Format the image URL
                 let image_url = format!("{FRINKIAC_IMAGE_URL}/{alt_episode}/{timestamp}.jpg");
 
@@ -387,6 +400,9 @@ impl FrinkiacClient {
                     image_url,
                     _meme_url: meme_url,
                     caption: format_caption(&caption),
+                    start_timestamp: start_ts,
+                    end_timestamp: end_ts,
+                    gif_url: None,
                 }));
             }
 
@@ -435,6 +451,16 @@ impl FrinkiacClient {
             .collect::<Vec<&str>>()
             .join(" ");
 
+        // Extract subtitle time range
+        let start_ts = subtitles
+            .first()
+            .and_then(|s| s.get("StartTimestamp").and_then(|v| v.as_u64()))
+            .unwrap_or(timestamp);
+        let end_ts = subtitles
+            .last()
+            .and_then(|s| s.get("EndTimestamp").and_then(|v| v.as_u64()))
+            .unwrap_or(timestamp + 4000);
+
         // Format the image URL
         let image_url = format!("{FRINKIAC_IMAGE_URL}/{episode}/{timestamp}.jpg");
 
@@ -450,6 +476,9 @@ impl FrinkiacClient {
             image_url,
             _meme_url: meme_url,
             caption: format_caption(&caption),
+            start_timestamp: start_ts,
+            end_timestamp: end_ts,
+            gif_url: None,
         }))
     }
 }
@@ -459,14 +488,59 @@ fn format_caption(caption: &str) -> String {
     text_formatting::format_caption(caption, text_formatting::SIMPSONS_PROPER_NOUNS)
 }
 
+// Generate a GIF from a Frinkiac result using the render API
+pub async fn generate_gif(base_url: &str, episode: &str, start: u64, end: u64) -> Option<String> {
+    let url = format!("{base_url}/api/render/gif/stream");
+    let body = serde_json::json!([{
+        "episode": episode,
+        "start": start,
+        "end": end,
+        "overlays": []
+    }]);
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .ok()?;
+
+    let response = client
+        .post(&url)
+        .header("Content-Type", "application/json")
+        .body(body.to_string())
+        .send()
+        .await
+        .ok()?;
+
+    if !response.status().is_success() {
+        error!("GIF generation failed with status: {}", response.status());
+        return None;
+    }
+
+    let text = response.text().await.ok()?;
+
+    // Parse newline-delimited JSON, find the line with "url"
+    for line in text.lines().rev() {
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(line) {
+            if let Some(gif_path) = val.get("url").and_then(|v| v.as_str()) {
+                let full_url = format!("{base_url}{gif_path}");
+                info!("Generated GIF: {}", full_url);
+                return Some(full_url);
+            }
+        }
+    }
+
+    error!("GIF generation did not return a URL");
+    None
+}
+
 // Format a Frinkiac result for display
 pub fn format_frinkiac_result(result: &FrinkiacResult) -> String {
-    let image_url = &result.image_url;
+    let media_url = result.gif_url.as_deref().unwrap_or(&result.image_url);
     let episode_title = &result.episode_title;
     let season = result.season;
     let episode_number = result.episode_number;
     let caption = &result.caption;
-    format!("{image_url}\n{episode_title} (Season {season}, Episode {episode_number})\n{caption}")
+    format!("{media_url}\n{episode_title} (Season {season}, Episode {episode_number})\n{caption}")
 }
 
 // Parse arguments for the frinkiac command
@@ -538,7 +612,16 @@ pub async fn handle_frinkiac_command(
         info!("Frinkiac request for random screenshot");
 
         let response = match frinkiac_client.random().await {
-            Ok(Some(result)) => format_frinkiac_result(&result),
+            Ok(Some(mut result)) => {
+                result.gif_url = generate_gif(
+                    "https://frinkiac.com",
+                    &result._episode,
+                    result.start_timestamp,
+                    result.end_timestamp,
+                )
+                .await;
+                format_frinkiac_result(&result)
+            }
             Ok(None) => "Couldn't find any Simpsons screenshots. D'oh!".to_string(),
             Err(e) => {
                 error!("Error getting random Frinkiac screenshot: {:?}", e);
@@ -557,7 +640,7 @@ pub async fn handle_frinkiac_command(
         info!("Frinkiac search for: {}", term);
 
         let response = match frinkiac_client.search(&term).await {
-            Ok(Some(result)) => {
+            Ok(Some(mut result)) => {
                 // Apply season/episode filters
                 let filtered_out = season_filter.is_some_and(|s| result.season != s)
                     || episode_filter.is_some_and(|e| result.episode_number != e);
@@ -565,6 +648,13 @@ pub async fn handle_frinkiac_command(
                 if filtered_out {
                     format!("Couldn't find any Simpsons screenshots matching \"{term}\" in the specified season/episode.")
                 } else {
+                    result.gif_url = generate_gif(
+                        "https://frinkiac.com",
+                        &result._episode,
+                        result.start_timestamp,
+                        result.end_timestamp,
+                    )
+                    .await;
                     format_frinkiac_result(&result)
                 }
             }

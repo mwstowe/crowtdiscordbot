@@ -105,9 +105,9 @@ struct MorbotronSubtitle {
     #[serde(rename = "Episode")]
     _episode: String,
     #[serde(rename = "StartTimestamp")]
-    _start_timestamp: u64,
+    start_timestamp: u64,
     #[serde(rename = "EndTimestamp")]
-    _end_timestamp: u64,
+    end_timestamp: u64,
     #[serde(rename = "Content")]
     content: String,
     #[serde(rename = "Language")]
@@ -146,6 +146,9 @@ pub struct MorbotronResult {
     pub _timestamp: String,
     pub image_url: String,
     pub caption: String,
+    pub start_timestamp: u64,
+    pub end_timestamp: u64,
+    pub gif_url: Option<String>,
 }
 
 pub struct MorbotronClient {
@@ -352,6 +355,18 @@ impl MorbotronClient {
         let season = caption_result.episode.season;
         let episode_number = caption_result.episode.episode_number;
 
+        // Extract subtitle time range
+        let start_ts = caption_result
+            .subtitles
+            .first()
+            .map(|s| s.start_timestamp)
+            .unwrap_or(timestamp);
+        let end_ts = caption_result
+            .subtitles
+            .last()
+            .map(|s| s.end_timestamp)
+            .unwrap_or(timestamp + 4000);
+
         // Return the result
         Ok(Some(MorbotronResult {
             _episode: episode.to_string(),
@@ -361,6 +376,9 @@ impl MorbotronClient {
             _timestamp: timestamp.to_string(),
             image_url,
             caption: format_caption(&caption),
+            start_timestamp: start_ts,
+            end_timestamp: end_ts,
+            gif_url: None,
         }))
     }
 
@@ -428,9 +446,9 @@ fn format_morbotron_result(result: &MorbotronResult) -> String {
     let season = result.season;
     let episode_number = result.episode_number;
     let episode_title = &result.episode_title;
-    let image_url = &result.image_url;
+    let media_url = result.gif_url.as_deref().unwrap_or(&result.image_url);
     let caption = &result.caption;
-    format!("**S{season:02}E{episode_number:02} - {episode_title}**\n{image_url}\n\n{caption}")
+    format!("**S{season:02}E{episode_number:02} - {episode_title}**\n{media_url}\n\n{caption}")
 }
 
 // This function will be called from main.rs to handle the !morbotron command
@@ -449,7 +467,16 @@ pub async fn handle_morbotron_command(
         info!("Morbotron request for random screenshot");
 
         let response = match morbotron_client.random().await {
-            Ok(Some(result)) => format_morbotron_result(&result),
+            Ok(Some(mut result)) => {
+                result.gif_url = crate::frinkiac::generate_gif(
+                    "https://morbotron.com",
+                    &result._episode,
+                    result.start_timestamp,
+                    result.end_timestamp,
+                )
+                .await;
+                format_morbotron_result(&result)
+            }
             Ok(None) => {
                 "Couldn't find any Futurama screenshots. Bite my shiny metal...".to_string()
             }
@@ -470,7 +497,16 @@ pub async fn handle_morbotron_command(
         info!("Morbotron search for: {}", term);
 
         let response = match morbotron_client.search(&term).await {
-            Ok(Some(result)) => format_morbotron_result(&result),
+            Ok(Some(mut result)) => {
+                result.gif_url = crate::frinkiac::generate_gif(
+                    "https://morbotron.com",
+                    &result._episode,
+                    result.start_timestamp,
+                    result.end_timestamp,
+                )
+                .await;
+                format_morbotron_result(&result)
+            }
             Ok(None) => {
                 format!("Couldn't find any Futurama screenshots matching \"{term}\".")
             }
