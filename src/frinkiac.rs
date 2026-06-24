@@ -533,6 +533,7 @@ pub async fn generate_gif(
     end: u64,
     subtitles: &[TimedSubtitle],
     font_size: u32,
+    font: &str,
 ) -> Option<String> {
     let url = format!("{base_url}/api/render/gif/stream");
 
@@ -541,6 +542,7 @@ pub async fn generate_gif(
         .map(|sub| {
             serde_json::json!({
                 "text": sub.text,
+                "font": font,
                 "x": 50,
                 "y": 90,
                 "text_align": "c",
@@ -689,6 +691,7 @@ pub async fn handle_frinkiac_command(
                     result.end_timestamp,
                     &result.subtitles,
                     0,
+                    "ComicNeue-Bold",
                 )
                 .await;
                 format_frinkiac_result(&result)
@@ -726,6 +729,7 @@ pub async fn handle_frinkiac_command(
                         result.end_timestamp,
                         &result.subtitles,
                         0,
+                        "ComicNeue-Bold",
                     )
                     .await;
                     format_frinkiac_result(&result)

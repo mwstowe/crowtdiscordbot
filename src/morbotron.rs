@@ -458,6 +458,7 @@ pub async fn handle_morbotron_command(
                     result.end_timestamp,
                     &result.subtitles,
                     0,
+                    "impact",
                 )
                 .await;
                 format_morbotron_result(&result)
@@ -490,6 +491,7 @@ pub async fn handle_morbotron_command(
                     result.end_timestamp,
                     &result.subtitles,
                     0,
+                    "impact",
                 )
                 .await;
                 format_morbotron_result(&result)
