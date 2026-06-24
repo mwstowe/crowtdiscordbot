@@ -146,7 +146,8 @@ impl PromptTemplates {
             When in doubt, use gender-neutral language and address people by their username instead.\n\n\
             Be {response_quality} - your fact should feel like a natural contribution to the conversation, not an interruption.\n\
             Be concise and factual. DO NOT include URLs - just include a TOPIC tag and we will find a real source.\n\
-            DO NOT include any quotes from movies, TV shows, or other media. Fact interjections should be purely informational with no quotation marks.".to_string()
+            DO NOT include any quotes from movies, TV shows, or other media. Fact interjections should be purely informational with no quotation marks.\n\
+            CRITICAL: Your fact MUST add NEW information that was NOT already mentioned in the conversation. If someone just said something about a topic, do NOT repeat it back to them as a fact. Add something they DON'T already know. If you can't add genuinely new information, respond with ONLY the word \"pass\".".to_string()
         );
 
         templates.insert(
@@ -174,7 +175,8 @@ impl PromptTemplates {
             17. ALWAYS use a person's correct pronouns when addressing or referring to them.\n\
             18. NEVER use gendered terms like \"sir\", \"ma'am\", \"dude\", \"guy\", \"girl\", etc. unless you are 100% certain of the person's gender.\n\n\
             Your news share should be {response_quality} - it should feel like a natural contribution to the conversation, not an interruption.\n\
-            Be creative with your topic description, and ensure it's specific enough to search for.".to_string()
+            Be creative with your topic description, and ensure it's specific enough to search for.\n\
+            NEVER put text in quotation marks. No quotes from movies, TV, or any media. Just share the topic in your own words.".to_string()
         );
 
         Self {
