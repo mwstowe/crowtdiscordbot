@@ -207,6 +207,8 @@ struct Bot {
     fill_silence_manager: Arc<fill_silence::FillSilenceManager>,
     // Track the last seen message timestamp for each channel
     last_seen_message: Arc<RwLock<HashMap<ChannelId, (serenity::model::Timestamp, MessageId)>>>,
+    // Track processed message IDs to prevent duplicate processing
+    processed_messages: Arc<RwLock<VecDeque<MessageId>>>,
     quiet_channels: Vec<String>,
     giphy_client: Option<giphy::GiphyClient>,
 }
@@ -465,6 +467,7 @@ impl Bot {
             interjection_news_probability: parsed_config.interjection_news_probability,
             fill_silence_manager,
             last_seen_message: Arc::new(RwLock::new(HashMap::new())),
+            processed_messages: Arc::new(RwLock::new(VecDeque::new())),
             quiet_channels: parsed_config.quiet_channels,
             giphy_client: parsed_config.giphy_api_key.map(giphy::GiphyClient::new),
         }
@@ -1081,6 +1084,19 @@ impl Bot {
 
     // Process a message
     async fn process_message(&self, ctx: &Context, msg: &Message) -> Result<()> {
+        // Prevent duplicate processing of the same message
+        {
+            let mut processed = self.processed_messages.write().await;
+            if processed.contains(&msg.id) {
+                return Ok(());
+            }
+            processed.push_back(msg.id);
+            // Keep only last 1000 message IDs
+            while processed.len() > 1000 {
+                processed.pop_front();
+            }
+        }
+
         // Check if we should respond in quiet channels
         if !self.should_respond_in_quiet_channel(ctx, msg).await {
             // In a quiet channel and not directly addressed - skip all processing except random interjections
