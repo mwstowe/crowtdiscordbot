@@ -134,6 +134,10 @@ DUCKDUCKGO_SEARCH_ENABLED = "true"
 # Gateway Bot IDs (comma-separated list of bot IDs to ignore)
 # GATEWAY_BOT_IDS = "123456789012345678,234567890123456789"
 
+# Giphy API Configuration (for GIF responses)
+# Get a free API key at https://developers.giphy.com
+# GIPHY_API_KEY = "your_giphy_api_key_here"
+
 # News Feed Configuration
 # Comma-separated list of RSS feed URLs for news interjections.
 # Format: "url|Name, url|Name" or just "url, url" (name derived from domain)

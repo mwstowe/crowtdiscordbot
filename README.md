@@ -10,12 +10,15 @@ A Discord bot that follows specific channels and responds to various triggers in
 - Detects and responds to specific keywords
 - Performs searches via DuckDuckGo
 - Generates AI responses using Google's Gemini API with conversation context
-- Stores message history in a SQLite database
+- Understands images and videos via multimodal Gemini API (attachments in conversation context are automatically included)
+- YouTube URL passthrough for video understanding
+- Stores message history and attachment metadata in a SQLite database
 - Automatically trims the database to prevent excessive growth
 - Can follow multiple channels simultaneously
 - Maintains channel-specific conversation contexts
 - Configurable random interjections with separate probability controls
 - Supports "quiet channels" where the bot only responds when directly addressed
+- Tracks processed message IDs to prevent duplicate responses
 
 ## Installation and Setup
 
@@ -74,9 +77,9 @@ A Discord bot that follows specific channels and responds to various triggers in
 - `!quote -show [show]` - Get quote from specific show
 - `!quote -dud [user]` - Get random message from a user (or random user if no username provided)
 - `!slogan [term]` - Get a random advertising slogan
-- `!frinkiac [term]` - Get a Simpsons screenshot
-- `!morbotron [term]` - Get a Futurama screenshot
-- `!masterofallscience [term]` - Get a Rick and Morty screenshot
+- `!frinkiac [term]` - Get a Simpsons animated GIF with subtitles
+- `!morbotron [term]` - Get a Futurama animated GIF with subtitles
+- `!masterofallscience [term]` - ⚠️ **Deprecated** - Service has been shut down (suggests alternatives)
 - `!imagine [text]` - Generate an image (if configured)
 - `!alive [name]` - Check if a celebrity is alive or dead
 - `!info` - Show bot statistics
@@ -169,15 +172,15 @@ Setting any probability to 0 will disable that type of interjection completely.
 
 1. **MST3K Quotes** - Random quotes from Mystery Science Theater 3000, a cult classic TV show. The bot will occasionally interject with one of these quotes, adding humor to the conversation.
 
-2. **Channel Memory** - Quotes something someone previously said in the channel. This creates a sense of continuity and can bring up relevant past discussions.
+2. **Channel Memory** - Quotes something someone previously said in the channel, including the date and author. Biases toward more recent messages and uses conversation context to pick relevant memories. This creates a sense of continuity and can bring up relevant past discussions.
 
 3. **Message Pondering** - Thoughtful comments about the conversation, such as "That's an interesting point" or "I was just thinking about that." These interjections make the bot feel more engaged in the conversation.
 
-4. **AI Interjection** - AI-generated comments using the Gemini API. The bot analyzes the conversation context and provides a comment that feels like a natural part of the discussion.
+4. **AI Interjection** - AI-generated comments using the Gemini API. The bot analyzes the most recent message and conversation context, providing a comment that feels like a natural part of the discussion. Responses are held to a high quality bar — the bot will only interject if it has something genuinely clever or relevant to say, and never generates fake quotes.
 
-5. **Fact Interjection** - AI-generated interesting facts related to the conversation. Unlike the general AI interjection, fact interjections are specifically focused on providing informative content.
+5. **Fact Interjection** - AI-generated interesting facts related to the conversation. Unlike the general AI interjection, fact interjections are specifically focused on providing informative content that adds NEW information not already mentioned in the conversation, using a search-first approach to find relevant URLs.
 
-6. **News Interjection** - AI-generated links to interesting technology or weird news articles (excluding sports) with commentary on why they're interesting and how they relate to the conversation. The format looks like: "Article title: https://example.com/article-path This shows how [technology/topic] is advancing in interesting ways."
+6. **News Interjection** - Shares interesting technology or weird news articles (excluding sports) sourced from real RSS feeds (Ars Technica, BBC News Tech, Slashdot, Gizmodo, NYT, them., Oddity Central) with commentary on why they're interesting and how they relate to the conversation. The feed list is configurable via `NEWS_FEEDS`. The format looks like: "Article title: https://example.com/article-path This shows how [technology/topic] is advancing in interesting ways."
 
 ## Display Name Handling
 
@@ -294,6 +297,7 @@ The bot can be configured through the `CrowConfig.toml` file:
 - `GOOGLE_SEARCH_ENABLED` - Enable or disable DuckDuckGo search feature (defaults to "true") (Note: Despite the name, this controls DuckDuckGo search)
 - `IMAGINE_CHANNELS` - Comma-separated list of channel names where image generation is allowed (if empty, allowed in all channels)
 - `GIPHY_API_KEY` - Giphy API key for GIF responses (get one free at https://developers.giphy.com)
+- `NEWS_FEEDS` - Comma-separated list of RSS feed URLs for news interjections (prefix with "+" to append to defaults; format: "url|Name" or just "url")
 - `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` - MySQL database credentials
 
 ## GIF Responses
