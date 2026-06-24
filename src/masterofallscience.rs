@@ -1,3 +1,4 @@
+#![allow(dead_code)] // masterofallscience.com has been shut down; keeping code in case it returns
 use crate::gemini_api::GeminiClient;
 use crate::text_formatting;
 use anyhow::{anyhow, Result};
@@ -575,76 +576,11 @@ pub fn format_masterofallscience_result(result: &MasterOfAllScienceResult) -> St
 pub async fn handle_masterofallscience_command(
     http: &Http,
     msg: &Message,
-    args: Option<String>,
-    masterofallscience_client: &MasterOfAllScienceClient,
+    _args: Option<String>,
+    _masterofallscience_client: &MasterOfAllScienceClient,
     _gemini_client: Option<&GeminiClient>,
 ) -> Result<()> {
-    // Show typing indicator while we search
-    let _ = msg.channel_id.broadcast_typing(http).await;
-
-    // If no search term is provided, get a random screenshot
-    if args.is_none() {
-        info!("MasterOfAllScience request for random screenshot");
-
-        let response = match masterofallscience_client.random().await {
-            Ok(Some(mut result)) => {
-                result.gif_url = crate::frinkiac::generate_gif(
-                    "https://masterofallscience.com",
-                    &result._episode,
-                    result.start_timestamp,
-                    result.end_timestamp,
-                    &result.subtitles,
-                )
-                .await;
-                format_masterofallscience_result(&result)
-            }
-            Ok(None) => {
-                "Couldn't find any Rick and Morty screenshots. Wubba lubba dub dub!".to_string()
-            }
-            Err(e) => {
-                error!(
-                    "Error getting random MasterOfAllScience screenshot: {:?}",
-                    e
-                );
-                "Error getting Rick and Morty screenshot. Wubba lubba dub dub!".to_string()
-            }
-        };
-
-        if let Err(e) = msg.channel_id.say(http, &response).await {
-            error!("Error sending MasterOfAllScience result: {:?}", e);
-        }
-        return Ok(());
-    }
-
-    // If we have a search term, search for it
-    if let Some(term) = args {
-        info!("MasterOfAllScience search for: {}", term);
-
-        let response = match masterofallscience_client.search(&term).await {
-            Ok(Some(mut result)) => {
-                result.gif_url = crate::frinkiac::generate_gif(
-                    "https://masterofallscience.com",
-                    &result._episode,
-                    result.start_timestamp,
-                    result.end_timestamp,
-                    &result.subtitles,
-                )
-                .await;
-                format_masterofallscience_result(&result)
-            }
-            Ok(None) => {
-                format!("Couldn't find any Rick and Morty screenshots matching \"{term}\".")
-            }
-            Err(e) => {
-                error!("Error searching MasterOfAllScience: {:?}", e);
-                "Error searching Rick and Morty quotes. Wubba lubba dub dub!".to_string()
-            }
-        };
-
-        if let Err(e) = msg.channel_id.say(http, &response).await {
-            error!("Error sending MasterOfAllScience result: {:?}", e);
-        }
-    }
-
+    // masterofallscience.com now redirects to frinkiac.com - the service is gone
+    let _ = msg.channel_id.say(http, "The Master of All Science (Rick and Morty) service has been shut down. Try `!frinkiac` for Simpsons or `!morbotron` for Futurama instead.").await;
     Ok(())
 }

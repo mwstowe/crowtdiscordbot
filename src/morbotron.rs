@@ -68,32 +68,8 @@ struct MorbotronSearchResult {
 struct MorbotronCaptionResult {
     #[serde(rename = "Episode")]
     episode: MorbotronEpisode,
-    #[serde(rename = "Frame")]
-    _frame: MorbotronFrame,
     #[serde(rename = "Subtitles")]
     subtitles: Vec<MorbotronSubtitle>,
-    #[serde(rename = "Nearby")]
-    _nearby: Vec<MorbotronNearbyFrame>,
-}
-
-#[derive(Debug, Deserialize)]
-struct MorbotronFrame {
-    #[serde(rename = "Id")]
-    _id: u64,
-    #[serde(rename = "Episode")]
-    _episode: String,
-    #[serde(rename = "Timestamp")]
-    _timestamp: u64,
-}
-
-#[derive(Debug, Deserialize)]
-struct MorbotronNearbyFrame {
-    #[serde(rename = "Id")]
-    _id: u64,
-    #[serde(rename = "Episode")]
-    _episode: String,
-    #[serde(rename = "Timestamp")]
-    _timestamp: u64,
 }
 
 #[derive(Debug, Deserialize)]
