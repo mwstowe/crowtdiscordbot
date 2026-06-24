@@ -254,6 +254,7 @@ impl PromptTemplates {
     }
 
     /// Format a news interjection prompt
+    #[allow(dead_code)]
     pub fn format_news_interjection(&self, context: &str) -> String {
         let mut values = HashMap::new();
         values.insert("context".to_string(), context.to_string());

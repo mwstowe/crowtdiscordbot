@@ -34,7 +34,9 @@ mod masterofallscience;
 mod media_utils;
 mod morbotron;
 mod multi_response_generator;
+mod news_feed;
 mod news_interjection;
+mod news_interjection_legacy;
 mod news_verification;
 mod prompt_templates;
 mod rate_limiter;
@@ -211,6 +213,7 @@ struct Bot {
     processed_messages: Arc<RwLock<VecDeque<MessageId>>>,
     quiet_channels: Vec<String>,
     giphy_client: Option<giphy::GiphyClient>,
+    headline_cache: news_feed::HeadlineCache,
 }
 
 /// Configuration for creating a Bot instance
@@ -470,6 +473,7 @@ impl Bot {
             processed_messages: Arc::new(RwLock::new(VecDeque::new())),
             quiet_channels: parsed_config.quiet_channels,
             giphy_client: parsed_config.giphy_api_key.map(giphy::GiphyClient::new),
+            headline_cache: news_feed::new_cache(),
         }
     }
 
@@ -2464,6 +2468,7 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                     &self.message_db,
                     &self.bot_name,
                     self.gemini_context_messages,
+                    &self.headline_cache,
                 )
                 .await
                 {
@@ -2991,6 +2996,9 @@ impl EventHandler for Bot {
         }
 
         info!("Bot is ready to respond to messages in the configured channels");
+
+        // Start background news feed fetcher (refreshes every 15 minutes)
+        news_feed::spawn_fetcher(self.headline_cache.clone(), 900);
 
         // Load last seen messages from the database
         if let Some(db) = &self.message_db {
@@ -4112,7 +4120,7 @@ Be creative but realistic with your article title and URL."#)
                                                             String::new()
                                                         } else {
                                                             // Validate that the URL actually exists
-                                                            match news_interjection::validate_url_exists(url_str).await {
+                                                            match news_interjection_legacy::validate_url_exists(url_str).await {
                                                                 Ok((true, Some(final_url))) => {
                                                                     // URL exists, return the cleaned response with the final URL
                                                                     info!("URL validation successful: {} exists", final_url);
