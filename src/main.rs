@@ -213,6 +213,7 @@ struct Bot {
     quiet_channels: Vec<String>,
     giphy_client: Option<giphy::GiphyClient>,
     headline_cache: news_feed::HeadlineCache,
+    news_feeds_config: Option<String>,
 }
 
 /// Configuration for creating a Bot instance
@@ -232,6 +233,7 @@ pub struct BotConfig {
     pub interjection_fact_probability: f64,
     pub gemini_personality_description: Option<String>,
     pub pollinations_api_key: Option<String>,
+    pub news_feeds: Option<String>,
 }
 
 impl Bot {
@@ -473,6 +475,7 @@ impl Bot {
             quiet_channels: parsed_config.quiet_channels,
             giphy_client: parsed_config.giphy_api_key.map(giphy::GiphyClient::new),
             headline_cache: news_feed::new_cache(),
+            news_feeds_config: config.news_feeds,
         }
     }
 
@@ -2997,7 +3000,11 @@ impl EventHandler for Bot {
         info!("Bot is ready to respond to messages in the configured channels");
 
         // Start background news feed fetcher (refreshes every 15 minutes)
-        news_feed::spawn_fetcher(self.headline_cache.clone(), 900);
+        news_feed::spawn_fetcher(
+            self.headline_cache.clone(),
+            900,
+            self.news_feeds_config.clone(),
+        );
 
         // Load last seen messages from the database
         if let Some(db) = &self.message_db {
@@ -3555,6 +3562,7 @@ Keep it brief and natural, as if you're just another participant in the conversa
             interjection_fact_probability,
             gemini_personality_description: gemini_personality_description_for_bot,
             pollinations_api_key: config.pollinations_api_key.clone(),
+            news_feeds: config.news_feeds.clone(),
         },
         parsed_config.clone(),
     );

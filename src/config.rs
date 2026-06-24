@@ -85,6 +85,7 @@ pub struct Config {
     pub quiet_channel_names: Option<String>,
     pub quiet_channel_ids: Option<String>,
     pub giphy_api_key: Option<String>,
+    pub news_feeds: Option<String>,
 }
 
 pub fn load_config() -> Result<Config> {

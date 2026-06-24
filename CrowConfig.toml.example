@@ -133,3 +133,10 @@ DUCKDUCKGO_SEARCH_ENABLED = "true"
 
 # Gateway Bot IDs (comma-separated list of bot IDs to ignore)
 # GATEWAY_BOT_IDS = "123456789012345678,234567890123456789"
+
+# News Feed Configuration
+# Comma-separated list of RSS feed URLs for news interjections.
+# Format: "url|Name, url|Name" or just "url, url" (name derived from domain)
+# Prefix with "+" to append to defaults instead of replacing them.
+# Default feeds: Ars Technica, BBC News Tech, Slashdot, Gizmodo, NYT, them., Oddity Central
+# NEWS_FEEDS = "+https://example.com/feed|My Feed, https://other.com/rss|Other"
