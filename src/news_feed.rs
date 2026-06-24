@@ -67,8 +67,15 @@ async fn fetch_all_feeds() -> Vec<Headline> {
         all.append(&mut items);
     }
 
-    // Hacker News top stories (JSON API)
-    if let Some(mut items) = fetch_hackernews(&client, 15).await {
+    // Slashdot RSS (tech/nerd/weird news)
+    if let Some(mut items) = fetch_rss(
+        &client,
+        "https://rss.slashdot.org/Slashdot/slashdotMain",
+        "Slashdot",
+    )
+    .await
+    {
+        items.truncate(15);
         all.append(&mut items);
     }
 
@@ -98,37 +105,6 @@ async fn fetch_rss(client: &reqwest::Client, url: &str, source: &str) -> Option<
 }
 
 /// Fetch top stories from Hacker News API
-async fn fetch_hackernews(client: &reqwest::Client, count: usize) -> Option<Vec<Headline>> {
-    let ids: Vec<u64> = client
-        .get("https://hacker-news.firebaseio.com/v0/topstories.json")
-        .send()
-        .await
-        .ok()?
-        .json()
-        .await
-        .ok()?;
-
-    let mut headlines = Vec::new();
-    for id in ids.into_iter().take(count) {
-        let url = format!("https://hacker-news.firebaseio.com/v0/item/{id}.json");
-        if let Ok(resp) = client.get(&url).send().await {
-            if let Ok(item) = resp.json::<serde_json::Value>().await {
-                let title = item.get("title").and_then(|v| v.as_str()).unwrap_or("");
-                let link = item.get("url").and_then(|v| v.as_str()).unwrap_or("");
-                if !title.is_empty() && !link.is_empty() {
-                    headlines.push(Headline {
-                        title: title.to_string(),
-                        url: link.to_string(),
-                        source: "Hacker News".to_string(),
-                    });
-                }
-            }
-        }
-    }
-
-    Some(headlines)
-}
-
 /// Extract content between XML tags (handles CDATA)
 fn extract_xml_tag(xml: &str, tag: &str) -> Option<String> {
     let open = format!("<{tag}");
