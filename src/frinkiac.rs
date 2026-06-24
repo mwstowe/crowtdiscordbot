@@ -267,12 +267,26 @@ impl FrinkiacClient {
             return Ok(None);
         }
 
+        // Deduplicate results by episode (API returns many frames from same scene)
+        let mut seen_episodes = std::collections::HashSet::new();
+        let unique_results: Vec<&serde_json::Value> = search_results
+            .iter()
+            .filter(|r| {
+                let ep = r.get("Episode").and_then(|v| v.as_str()).unwrap_or("");
+                seen_episodes.insert(ep.to_string())
+            })
+            .collect();
+
+        if unique_results.is_empty() {
+            return Ok(None);
+        }
+
         // Pick the next result, rotating through results for repeated queries
         let index = {
             let mut last_q = self.last_query.write().unwrap();
             let mut idx = self.current_index.write().unwrap();
             if last_q.as_deref() == Some(query) {
-                *idx = (*idx + 1) % search_results.len();
+                *idx = (*idx + 1) % unique_results.len();
             } else {
                 *last_q = Some(query.to_string());
                 *idx = 0;
@@ -280,7 +294,7 @@ impl FrinkiacClient {
             *idx
         };
 
-        let result = &search_results[index];
+        let result = unique_results[index];
 
         // Extract the episode and timestamp
         let episode = result
