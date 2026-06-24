@@ -530,105 +530,25 @@ pub async fn handle_frinkiac_command(
         (None, None, None)
     };
 
+    // Show typing indicator while we search
+    let _ = msg.channel_id.broadcast_typing(http).await;
+
     // If no search term is provided, get a random screenshot
     if search_term.is_none() && season_filter.is_none() && episode_filter.is_none() {
         info!("Frinkiac request for random screenshot");
 
-        // Send a "searching" message
-        let searching_msg = match msg
-            .channel_id
-            .say(http, "Finding a random Simpsons moment...")
-            .await
-        {
-            Ok(msg) => Some(msg),
+        let response = match frinkiac_client.random().await {
+            Ok(Some(result)) => format_frinkiac_result(&result),
+            Ok(None) => "Couldn't find any Simpsons screenshots. D'oh!".to_string(),
             Err(e) => {
-                error!("Error sending searching message: {:?}", e);
-                None
+                error!("Error getting random Frinkiac screenshot: {:?}", e);
+                "Error getting Frinkiac screenshot. D'oh!".to_string()
             }
         };
 
-        // Get a random screenshot
-        match frinkiac_client.random().await {
-            Ok(Some(result)) => {
-                // Format the response
-                let response = format_frinkiac_result(&result);
-
-                // Edit the searching message if we have one, otherwise send a new message
-                if let Some(mut search_msg) = searching_msg {
-                    if let Err(e) = search_msg
-                        .edit(
-                            http,
-                            serenity::builder::EditMessage::new().content(&response),
-                        )
-                        .await
-                    {
-                        error!("Error editing searching message: {:?}", e);
-                        // Try sending a new message if editing fails
-                        if let Err(e) = msg.channel_id.say(http, &response).await {
-                            error!("Error sending Frinkiac result: {:?}", e);
-                        }
-                    }
-                } else {
-                    // Send a new message
-                    if let Err(e) = msg.channel_id.say(http, &response).await {
-                        error!("Error sending Frinkiac result: {:?}", e);
-                    }
-                }
-            }
-            Ok(None) => {
-                let error_msg = "Couldn't find any Simpsons screenshots. D'oh!";
-
-                // Edit the searching message if we have one, otherwise send a new message
-                if let Some(mut search_msg) = searching_msg {
-                    if let Err(e) = search_msg
-                        .edit(
-                            http,
-                            serenity::builder::EditMessage::new().content(error_msg),
-                        )
-                        .await
-                    {
-                        error!("Error editing searching message: {:?}", e);
-                        // Try sending a new message if editing fails
-                        if let Err(e) = msg.channel_id.say(http, error_msg).await {
-                            error!("Error sending error message: {:?}", e);
-                        }
-                    }
-                } else {
-                    // Send a new message
-                    if let Err(e) = msg.channel_id.say(http, error_msg).await {
-                        error!("Error sending error message: {:?}", e);
-                    }
-                }
-            }
-            Err(e) => {
-                error!("Error getting random Frinkiac screenshot: {:?}", e);
-
-                let error_msg = "Error getting Frinkiac screenshot. D'oh!";
-
-                // Edit the searching message if we have one, otherwise send a new message
-                if let Some(mut search_msg) = searching_msg {
-                    if let Err(e) = search_msg
-                        .edit(
-                            http,
-                            serenity::builder::EditMessage::new().content(error_msg),
-                        )
-                        .await
-                    {
-                        error!("Error editing searching message: {:?}", e);
-                        // Try sending a new message if editing fails
-                        if let Err(e) = msg.channel_id.say(http, error_msg).await {
-                            error!("Error sending error message: {:?}", e);
-                        }
-                    }
-                } else {
-                    // Send a new message
-                    if let Err(e) = msg.channel_id.say(http, error_msg).await {
-                        error!("Error sending error message: {:?}", e);
-                    }
-                }
-            }
+        if let Err(e) = msg.channel_id.say(http, &response).await {
+            error!("Error sending Frinkiac result: {:?}", e);
         }
-
         return Ok(());
     }
 
@@ -636,157 +556,31 @@ pub async fn handle_frinkiac_command(
     if let Some(term) = search_term {
         info!("Frinkiac search for: {}", term);
 
-        // Show a "searching" message that we'll edit later with the result
-        let searching_msg = match msg
-            .channel_id
-            .say(http, "🔍 Searching Simpsons quotes...")
-            .await
-        {
-            Ok(msg) => Some(msg),
-            Err(e) => {
-                error!("Error sending searching message: {:?}", e);
-                None
-            }
-        };
-
-        // Search for the term
-        match frinkiac_client.search(&term).await {
+        let response = match frinkiac_client.search(&term).await {
             Ok(Some(result)) => {
-                // Apply filters if needed
-                let mut filtered_out = false;
+                // Apply season/episode filters
+                let filtered_out = season_filter.is_some_and(|s| result.season != s)
+                    || episode_filter.is_some_and(|e| result.episode_number != e);
 
-                // Filter by season if specified
-                if let Some(season) = season_filter {
-                    if result.season != season {
-                        filtered_out = true;
-                        info!(
-                            "Result filtered out: season {} doesn't match filter {}",
-                            result.season, season
-                        );
-                    }
-                }
-
-                // Filter by episode if specified
-                if let Some(episode) = episode_filter {
-                    if result.episode_number != episode {
-                        filtered_out = true;
-                        info!(
-                            "Result filtered out: episode {} doesn't match filter {}",
-                            result.episode_number, episode
-                        );
-                    }
-                }
-
-                // If filtered out, return appropriate message
                 if filtered_out {
-                    let error_msg = format!("Couldn't find any Simpsons screenshots matching \"{term}\" in the specified season/episode.");
-
-                    // Edit the searching message if we have one, otherwise send a new message
-                    if let Some(mut search_msg) = searching_msg {
-                        if let Err(e) = search_msg
-                            .edit(
-                                http,
-                                serenity::builder::EditMessage::new().content(&error_msg),
-                            )
-                            .await
-                        {
-                            error!("Error editing searching message: {:?}", e);
-                            // Try sending a new message if editing fails
-                            if let Err(e) = msg.channel_id.say(http, &error_msg).await {
-                                error!("Error sending error message: {:?}", e);
-                            }
-                        }
-                    } else {
-                        // Send a new message
-                        if let Err(e) = msg.channel_id.say(http, &error_msg).await {
-                            error!("Error sending error message: {:?}", e);
-                        }
-                    }
-
-                    return Ok(());
-                }
-
-                // Format the response
-                let response = format_frinkiac_result(&result);
-
-                // Edit the searching message if we have one, otherwise send a new message
-                if let Some(mut search_msg) = searching_msg {
-                    if let Err(e) = search_msg
-                        .edit(
-                            http,
-                            serenity::builder::EditMessage::new().content(&response),
-                        )
-                        .await
-                    {
-                        error!("Error editing searching message: {:?}", e);
-                        // Try sending a new message if editing fails
-                        if let Err(e) = msg.channel_id.say(http, &response).await {
-                            error!("Error sending Frinkiac result: {:?}", e);
-                        }
-                    }
+                    format!("Couldn't find any Simpsons screenshots matching \"{term}\" in the specified season/episode.")
                 } else {
-                    // Send a new message
-                    if let Err(e) = msg.channel_id.say(http, &response).await {
-                        error!("Error sending Frinkiac result: {:?}", e);
-                    }
+                    format_frinkiac_result(&result)
                 }
             }
             Ok(None) => {
-                let error_msg =
-                    format!("Couldn't find any Simpsons screenshots matching \"{term}\".");
-
-                // Edit the searching message if we have one, otherwise send a new message
-                if let Some(mut search_msg) = searching_msg {
-                    if let Err(e) = search_msg
-                        .edit(
-                            http,
-                            serenity::builder::EditMessage::new().content(&error_msg),
-                        )
-                        .await
-                    {
-                        error!("Error editing searching message: {:?}", e);
-                        // Try sending a new message if editing fails
-                        if let Err(e) = msg.channel_id.say(http, &error_msg).await {
-                            error!("Error sending error message: {:?}", e);
-                        }
-                    }
-                } else {
-                    // Send a new message
-                    if let Err(e) = msg.channel_id.say(http, &error_msg).await {
-                        error!("Error sending error message: {:?}", e);
-                    }
-                }
+                format!("Couldn't find any Simpsons screenshots matching \"{term}\".")
             }
             Err(e) => {
                 error!("Error searching Frinkiac: {:?}", e);
-
-                let error_msg = "Error searching Frinkiac. D'oh!";
-
-                // Edit the searching message if we have one, otherwise send a new message
-                if let Some(mut search_msg) = searching_msg {
-                    if let Err(e) = search_msg
-                        .edit(
-                            http,
-                            serenity::builder::EditMessage::new().content(error_msg),
-                        )
-                        .await
-                    {
-                        error!("Error editing searching message: {:?}", e);
-                        // Try sending a new message if editing fails
-                        if let Err(e) = msg.channel_id.say(http, error_msg).await {
-                            error!("Error sending error message: {:?}", e);
-                        }
-                    }
-                } else {
-                    // Send a new message
-                    if let Err(e) = msg.channel_id.say(http, error_msg).await {
-                        error!("Error sending error message: {:?}", e);
-                    }
-                }
+                "Error searching Frinkiac. D'oh!".to_string()
             }
+        };
+
+        if let Err(e) = msg.channel_id.say(http, &response).await {
+            error!("Error sending Frinkiac result: {:?}", e);
         }
     } else {
-        // If we only have filters but no search term, that's not supported
         let error_msg = "Please provide a search term with season/episode filters.";
         if let Err(e) = msg.channel_id.say(http, error_msg).await {
             error!("Error sending error message: {:?}", e);

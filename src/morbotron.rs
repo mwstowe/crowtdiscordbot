@@ -441,105 +441,27 @@ pub async fn handle_morbotron_command(
     morbotron_client: &MorbotronClient,
     _gemini_client: Option<&GeminiClient>,
 ) -> Result<()> {
+    // Show typing indicator while we search
+    let _ = msg.channel_id.broadcast_typing(http).await;
+
     // If no search term is provided, get a random screenshot
     if args.is_none() {
         info!("Morbotron request for random screenshot");
 
-        // Send a "searching" message
-        let searching_msg = match msg
-            .channel_id
-            .say(http, "Finding a random Futurama moment...")
-            .await
-        {
-            Ok(msg) => Some(msg),
-            Err(e) => {
-                error!("Error sending searching message: {:?}", e);
-                None
-            }
-        };
-
-        // Get a random screenshot
-        match morbotron_client.random().await {
-            Ok(Some(result)) => {
-                // Format the response
-                let response = format_morbotron_result(&result);
-
-                // Edit the searching message if we have one, otherwise send a new message
-                if let Some(mut search_msg) = searching_msg {
-                    if let Err(e) = search_msg
-                        .edit(
-                            http,
-                            serenity::builder::EditMessage::new().content(&response),
-                        )
-                        .await
-                    {
-                        error!("Error editing searching message: {:?}", e);
-                        // Try sending a new message if editing fails
-                        if let Err(e) = msg.channel_id.say(http, &response).await {
-                            error!("Error sending Morbotron result: {:?}", e);
-                        }
-                    }
-                } else {
-                    // Send a new message
-                    if let Err(e) = msg.channel_id.say(http, &response).await {
-                        error!("Error sending Morbotron result: {:?}", e);
-                    }
-                }
-            }
+        let response = match morbotron_client.random().await {
+            Ok(Some(result)) => format_morbotron_result(&result),
             Ok(None) => {
-                let error_msg = "Couldn't find any Futurama screenshots. Bite my shiny metal...";
-
-                // Edit the searching message if we have one, otherwise send a new message
-                if let Some(mut search_msg) = searching_msg {
-                    if let Err(e) = search_msg
-                        .edit(
-                            http,
-                            serenity::builder::EditMessage::new().content(error_msg),
-                        )
-                        .await
-                    {
-                        error!("Error editing searching message: {:?}", e);
-                        // Try sending a new message if editing fails
-                        if let Err(e) = msg.channel_id.say(http, error_msg).await {
-                            error!("Error sending error message: {:?}", e);
-                        }
-                    }
-                } else {
-                    // Send a new message
-                    if let Err(e) = msg.channel_id.say(http, error_msg).await {
-                        error!("Error sending error message: {:?}", e);
-                    }
-                }
+                "Couldn't find any Futurama screenshots. Bite my shiny metal...".to_string()
             }
             Err(e) => {
                 error!("Error getting random Morbotron screenshot: {:?}", e);
-
-                let error_msg = "Error getting Futurama screenshot. Bite my shiny metal...";
-
-                // Edit the searching message if we have one, otherwise send a new message
-                if let Some(mut search_msg) = searching_msg {
-                    if let Err(e) = search_msg
-                        .edit(
-                            http,
-                            serenity::builder::EditMessage::new().content(error_msg),
-                        )
-                        .await
-                    {
-                        error!("Error editing searching message: {:?}", e);
-                        // Try sending a new message if editing fails
-                        if let Err(e) = msg.channel_id.say(http, error_msg).await {
-                            error!("Error sending error message: {:?}", e);
-                        }
-                    }
-                } else {
-                    // Send a new message
-                    if let Err(e) = msg.channel_id.say(http, error_msg).await {
-                        error!("Error sending error message: {:?}", e);
-                    }
-                }
+                "Error getting Futurama screenshot. Bite my shiny metal...".to_string()
             }
-        }
+        };
 
+        if let Err(e) = msg.channel_id.say(http, &response).await {
+            error!("Error sending Morbotron result: {:?}", e);
+        }
         return Ok(());
     }
 
@@ -547,100 +469,19 @@ pub async fn handle_morbotron_command(
     if let Some(term) = args {
         info!("Morbotron search for: {}", term);
 
-        // Show a "searching" message that we'll edit later with the result
-        let searching_msg = match msg
-            .channel_id
-            .say(http, "🔍 Searching Futurama quotes...")
-            .await
-        {
-            Ok(msg) => Some(msg),
-            Err(e) => {
-                error!("Error sending searching message: {:?}", e);
-                None
-            }
-        };
-
-        // Search for the term
-        match morbotron_client.search(&term).await {
-            Ok(Some(result)) => {
-                // Format the response
-                let response = format_morbotron_result(&result);
-
-                // Edit the searching message if we have one, otherwise send a new message
-                if let Some(mut search_msg) = searching_msg {
-                    if let Err(e) = search_msg
-                        .edit(
-                            http,
-                            serenity::builder::EditMessage::new().content(&response),
-                        )
-                        .await
-                    {
-                        error!("Error editing searching message: {:?}", e);
-                        // Try sending a new message if editing fails
-                        if let Err(e) = msg.channel_id.say(http, &response).await {
-                            error!("Error sending Morbotron result: {:?}", e);
-                        }
-                    }
-                } else {
-                    // Send a new message
-                    if let Err(e) = msg.channel_id.say(http, &response).await {
-                        error!("Error sending Morbotron result: {:?}", e);
-                    }
-                }
-            }
+        let response = match morbotron_client.search(&term).await {
+            Ok(Some(result)) => format_morbotron_result(&result),
             Ok(None) => {
-                let error_msg =
-                    format!("Couldn't find any Futurama screenshots matching \"{term}\".");
-
-                // Edit the searching message if we have one, otherwise send a new message
-                if let Some(mut search_msg) = searching_msg {
-                    if let Err(e) = search_msg
-                        .edit(
-                            http,
-                            serenity::builder::EditMessage::new().content(&error_msg),
-                        )
-                        .await
-                    {
-                        error!("Error editing searching message: {:?}", e);
-                        // Try sending a new message if editing fails
-                        if let Err(e) = msg.channel_id.say(http, &error_msg).await {
-                            error!("Error sending error message: {:?}", e);
-                        }
-                    }
-                } else {
-                    // Send a new message
-                    if let Err(e) = msg.channel_id.say(http, &error_msg).await {
-                        error!("Error sending error message: {:?}", e);
-                    }
-                }
+                format!("Couldn't find any Futurama screenshots matching \"{term}\".")
             }
             Err(e) => {
                 error!("Error searching Morbotron: {:?}", e);
-
-                let error_msg = "Error searching Futurama quotes. Bite my shiny metal...";
-
-                // Edit the searching message if we have one, otherwise send a new message
-                if let Some(mut search_msg) = searching_msg {
-                    if let Err(e) = search_msg
-                        .edit(
-                            http,
-                            serenity::builder::EditMessage::new().content(error_msg),
-                        )
-                        .await
-                    {
-                        error!("Error editing searching message: {:?}", e);
-                        // Try sending a new message if editing fails
-                        if let Err(e) = msg.channel_id.say(http, error_msg).await {
-                            error!("Error sending error message: {:?}", e);
-                        }
-                    }
-                } else {
-                    // Send a new message
-                    if let Err(e) = msg.channel_id.say(http, error_msg).await {
-                        error!("Error sending error message: {:?}", e);
-                    }
-                }
+                "Error searching Futurama quotes. Bite my shiny metal...".to_string()
             }
+        };
+
+        if let Err(e) = msg.channel_id.say(http, &response).await {
+            error!("Error sending Morbotron result: {:?}", e);
         }
     }
 
