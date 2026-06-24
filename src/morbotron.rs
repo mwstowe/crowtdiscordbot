@@ -5,6 +5,7 @@ use rand::seq::IndexedRandom;
 use reqwest::Client as HttpClient;
 use serde::Deserialize;
 use serenity::all::Http;
+use serenity::builder::{CreateEmbed, CreateMessage};
 use serenity::model::channel::Message;
 use std::sync::RwLock;
 use std::time::Duration;
@@ -434,6 +435,32 @@ fn format_morbotron_result(result: &MorbotronResult) -> String {
     }
 }
 
+async fn send_morbotron_result(http: &Http, msg: &Message, result: &MorbotronResult) {
+    if let Some(gif_url) = &result.gif_url {
+        let caption_url = format!(
+            "https://morbotron.com/caption/{}/{}",
+            result._episode, result._timestamp
+        );
+        let title = format!(
+            "S{:02}E{:02} - {}",
+            result.season, result.episode_number, result.episode_title
+        );
+        let embed = CreateEmbed::new()
+            .title(title)
+            .url(caption_url)
+            .image(gif_url);
+        let message = CreateMessage::new().embed(embed);
+        if let Err(e) = msg.channel_id.send_message(http, message).await {
+            error!("Error sending Morbotron embed: {:?}", e);
+        }
+    } else {
+        let response = format_morbotron_result(result);
+        if let Err(e) = msg.channel_id.say(http, &response).await {
+            error!("Error sending Morbotron result: {:?}", e);
+        }
+    }
+}
+
 // This function will be called from main.rs to handle the !morbotron command
 pub async fn handle_morbotron_command(
     http: &Http,
@@ -461,7 +488,8 @@ pub async fn handle_morbotron_command(
                     "impact",
                 )
                 .await;
-                format_morbotron_result(&result)
+                send_morbotron_result(http, msg, &result).await;
+                return Ok(());
             }
             Ok(None) => {
                 "Couldn't find any Futurama screenshots. Bite my shiny metal...".to_string()
@@ -482,7 +510,7 @@ pub async fn handle_morbotron_command(
     if let Some(term) = args {
         info!("Morbotron search for: {}", term);
 
-        let response = match morbotron_client.search(&term).await {
+        match morbotron_client.search(&term).await {
             Ok(Some(mut result)) => {
                 result.gif_url = crate::frinkiac::generate_gif(
                     "https://morbotron.com",
@@ -494,19 +522,27 @@ pub async fn handle_morbotron_command(
                     "impact",
                 )
                 .await;
-                format_morbotron_result(&result)
+                send_morbotron_result(http, msg, &result).await;
             }
             Ok(None) => {
-                format!("Couldn't find any Futurama screenshots matching \"{term}\".")
+                let _ = msg
+                    .channel_id
+                    .say(
+                        http,
+                        format!("Couldn't find any Futurama screenshots matching \"{term}\"."),
+                    )
+                    .await;
             }
             Err(e) => {
                 error!("Error searching Morbotron: {:?}", e);
-                "Error searching Futurama quotes. Bite my shiny metal...".to_string()
+                let _ = msg
+                    .channel_id
+                    .say(
+                        http,
+                        "Error searching Futurama quotes. Bite my shiny metal...",
+                    )
+                    .await;
             }
-        };
-
-        if let Err(e) = msg.channel_id.say(http, &response).await {
-            error!("Error sending Morbotron result: {:?}", e);
         }
     }
 

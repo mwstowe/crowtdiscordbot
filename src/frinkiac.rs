@@ -4,6 +4,8 @@ use anyhow::{anyhow, Result};
 use rand::seq::IndexedRandom;
 use reqwest::Client as HttpClient;
 use serenity::all::Http;
+use serenity::builder::CreateEmbed;
+use serenity::builder::CreateMessage;
 use serenity::model::channel::Message;
 use std::time::Duration;
 use tracing::{error, info};
@@ -614,6 +616,33 @@ pub fn format_frinkiac_result(result: &FrinkiacResult) -> String {
     }
 }
 
+/// Send a frinkiac result as a Discord embed (GIF with clickable title) or plain text fallback
+async fn send_frinkiac_result(http: &Http, msg: &Message, result: &FrinkiacResult) {
+    if let Some(gif_url) = &result.gif_url {
+        let caption_url = format!(
+            "https://frinkiac.com/caption/{}/{}",
+            result._episode, result._timestamp
+        );
+        let title = format!(
+            "{} (Season {}, Episode {})",
+            result.episode_title, result.season, result.episode_number
+        );
+        let embed = CreateEmbed::new()
+            .title(title)
+            .url(caption_url)
+            .image(gif_url);
+        let message = CreateMessage::new().embed(embed);
+        if let Err(e) = msg.channel_id.send_message(http, message).await {
+            error!("Error sending Frinkiac embed: {:?}", e);
+        }
+    } else {
+        let response = format_frinkiac_result(result);
+        if let Err(e) = msg.channel_id.say(http, &response).await {
+            error!("Error sending Frinkiac result: {:?}", e);
+        }
+    }
+}
+
 // Parse arguments for the frinkiac command
 fn parse_frinkiac_args(args: &str) -> (Option<String>, Option<u32>, Option<u32>) {
     let mut search_term = None;
@@ -682,7 +711,7 @@ pub async fn handle_frinkiac_command(
     if search_term.is_none() && season_filter.is_none() && episode_filter.is_none() {
         info!("Frinkiac request for random screenshot");
 
-        let response = match frinkiac_client.random().await {
+        match frinkiac_client.random().await {
             Ok(Some(mut result)) => {
                 result.gif_url = generate_gif(
                     "https://frinkiac.com",
@@ -694,18 +723,23 @@ pub async fn handle_frinkiac_command(
                     "ComicNeue-Bold",
                 )
                 .await;
-                format_frinkiac_result(&result)
+                send_frinkiac_result(http, msg, &result).await;
             }
-            Ok(None) => "Couldn't find any Simpsons screenshots. D'oh!".to_string(),
+            Ok(None) => {
+                let _ = msg
+                    .channel_id
+                    .say(http, "Couldn't find any Simpsons screenshots. D'oh!")
+                    .await;
+            }
             Err(e) => {
                 error!("Error getting random Frinkiac screenshot: {:?}", e);
-                "Error getting Frinkiac screenshot. D'oh!".to_string()
+                let _ = msg
+                    .channel_id
+                    .say(http, "Error getting Frinkiac screenshot. D'oh!")
+                    .await;
             }
         };
 
-        if let Err(e) = msg.channel_id.say(http, &response).await {
-            error!("Error sending Frinkiac result: {:?}", e);
-        }
         return Ok(());
     }
 
@@ -713,14 +747,13 @@ pub async fn handle_frinkiac_command(
     if let Some(term) = search_term {
         info!("Frinkiac search for: {}", term);
 
-        let response = match frinkiac_client.search(&term).await {
+        match frinkiac_client.search(&term).await {
             Ok(Some(mut result)) => {
-                // Apply season/episode filters
                 let filtered_out = season_filter.is_some_and(|s| result.season != s)
                     || episode_filter.is_some_and(|e| result.episode_number != e);
 
                 if filtered_out {
-                    format!("Couldn't find any Simpsons screenshots matching \"{term}\" in the specified season/episode.")
+                    let _ = msg.channel_id.say(http, format!("Couldn't find any Simpsons screenshots matching \"{term}\" in the specified season/episode.")).await;
                 } else {
                     result.gif_url = generate_gif(
                         "https://frinkiac.com",
@@ -732,20 +765,25 @@ pub async fn handle_frinkiac_command(
                         "ComicNeue-Bold",
                     )
                     .await;
-                    format_frinkiac_result(&result)
+                    send_frinkiac_result(http, msg, &result).await;
                 }
             }
             Ok(None) => {
-                format!("Couldn't find any Simpsons screenshots matching \"{term}\".")
+                let _ = msg
+                    .channel_id
+                    .say(
+                        http,
+                        format!("Couldn't find any Simpsons screenshots matching \"{term}\"."),
+                    )
+                    .await;
             }
             Err(e) => {
                 error!("Error searching Frinkiac: {:?}", e);
-                "Error searching Frinkiac. D'oh!".to_string()
+                let _ = msg
+                    .channel_id
+                    .say(http, "Error searching Frinkiac. D'oh!")
+                    .await;
             }
-        };
-
-        if let Err(e) = msg.channel_id.say(http, &response).await {
-            error!("Error sending Frinkiac result: {:?}", e);
         }
     } else {
         let error_msg = "Please provide a search term with season/episode filters.";
