@@ -111,6 +111,7 @@ pub struct FrinkiacResult {
     pub caption: String,
     pub start_timestamp: u64,
     pub end_timestamp: u64,
+    pub subtitles: Vec<TimedSubtitle>,
     pub gif_url: Option<String>,
 }
 
@@ -375,15 +376,20 @@ impl FrinkiacClient {
                     .collect::<Vec<&str>>()
                     .join(" ");
 
+                let timed_subs: Vec<TimedSubtitle> = subtitles
+                    .iter()
+                    .filter_map(|s| {
+                        Some(TimedSubtitle {
+                            text: s.get("Content")?.as_str()?.to_string(),
+                            start: s.get("StartTimestamp")?.as_u64()?,
+                            end: s.get("EndTimestamp")?.as_u64()?,
+                        })
+                    })
+                    .collect();
+
                 // Extract subtitle time range
-                let start_ts = subtitles
-                    .first()
-                    .and_then(|s| s.get("StartTimestamp").and_then(|v| v.as_u64()))
-                    .unwrap_or(timestamp);
-                let end_ts = subtitles
-                    .last()
-                    .and_then(|s| s.get("EndTimestamp").and_then(|v| v.as_u64()))
-                    .unwrap_or(timestamp + 4000);
+                let start_ts = timed_subs.first().map(|s| s.start).unwrap_or(timestamp);
+                let end_ts = timed_subs.last().map(|s| s.end).unwrap_or(timestamp + 4000);
 
                 // Format the image URL
                 let image_url = format!("{FRINKIAC_IMAGE_URL}/{alt_episode}/{timestamp}.jpg");
@@ -402,6 +408,7 @@ impl FrinkiacClient {
                     caption: format_caption(&caption),
                     start_timestamp: start_ts,
                     end_timestamp: end_ts,
+                    subtitles: timed_subs,
                     gif_url: None,
                 }));
             }
@@ -451,15 +458,20 @@ impl FrinkiacClient {
             .collect::<Vec<&str>>()
             .join(" ");
 
+        let timed_subs: Vec<TimedSubtitle> = subtitles
+            .iter()
+            .filter_map(|s| {
+                Some(TimedSubtitle {
+                    text: s.get("Content")?.as_str()?.to_string(),
+                    start: s.get("StartTimestamp")?.as_u64()?,
+                    end: s.get("EndTimestamp")?.as_u64()?,
+                })
+            })
+            .collect();
+
         // Extract subtitle time range
-        let start_ts = subtitles
-            .first()
-            .and_then(|s| s.get("StartTimestamp").and_then(|v| v.as_u64()))
-            .unwrap_or(timestamp);
-        let end_ts = subtitles
-            .last()
-            .and_then(|s| s.get("EndTimestamp").and_then(|v| v.as_u64()))
-            .unwrap_or(timestamp + 4000);
+        let start_ts = timed_subs.first().map(|s| s.start).unwrap_or(timestamp);
+        let end_ts = timed_subs.last().map(|s| s.end).unwrap_or(timestamp + 4000);
 
         // Format the image URL
         let image_url = format!("{FRINKIAC_IMAGE_URL}/{episode}/{timestamp}.jpg");
@@ -478,6 +490,7 @@ impl FrinkiacClient {
             caption: format_caption(&caption),
             start_timestamp: start_ts,
             end_timestamp: end_ts,
+            subtitles: timed_subs,
             gif_url: None,
         }))
     }
@@ -488,14 +501,46 @@ fn format_caption(caption: &str) -> String {
     text_formatting::format_caption(caption, text_formatting::SIMPSONS_PROPER_NOUNS)
 }
 
+/// A subtitle with timing for GIF overlay
+#[derive(Debug, Clone)]
+pub struct TimedSubtitle {
+    pub text: String,
+    pub start: u64,
+    pub end: u64,
+}
+
 // Generate a GIF from a Frinkiac result using the render API
-pub async fn generate_gif(base_url: &str, episode: &str, start: u64, end: u64) -> Option<String> {
+pub async fn generate_gif(
+    base_url: &str,
+    episode: &str,
+    start: u64,
+    end: u64,
+    subtitles: &[TimedSubtitle],
+) -> Option<String> {
     let url = format!("{base_url}/api/render/gif/stream");
+
+    let overlays: Vec<serde_json::Value> = subtitles
+        .iter()
+        .map(|sub| {
+            serde_json::json!({
+                "text": sub.text,
+                "x": 50,
+                "y": 90,
+                "text_align": "c",
+                "all_caps": false,
+                "size": 0,
+                "color": [255, 255, 255, 255],
+                "start": sub.start.saturating_sub(start),
+                "end": sub.end.saturating_sub(start)
+            })
+        })
+        .collect();
+
     let body = serde_json::json!([{
         "episode": episode,
         "start": start,
         "end": end,
-        "overlays": []
+        "overlays": overlays
     }]);
 
     let client = reqwest::Client::builder()
@@ -539,8 +584,15 @@ pub fn format_frinkiac_result(result: &FrinkiacResult) -> String {
     let episode_title = &result.episode_title;
     let season = result.season;
     let episode_number = result.episode_number;
-    let caption = &result.caption;
-    format!("{media_url}\n{episode_title} (Season {season}, Episode {episode_number})\n{caption}")
+    if result.gif_url.is_some() {
+        // Caption is baked into the GIF
+        format!("{media_url}\n{episode_title} (Season {season}, Episode {episode_number})")
+    } else {
+        let caption = &result.caption;
+        format!(
+            "{media_url}\n{episode_title} (Season {season}, Episode {episode_number})\n{caption}"
+        )
+    }
 }
 
 // Parse arguments for the frinkiac command
@@ -618,6 +670,7 @@ pub async fn handle_frinkiac_command(
                     &result._episode,
                     result.start_timestamp,
                     result.end_timestamp,
+                    &result.subtitles,
                 )
                 .await;
                 format_frinkiac_result(&result)
@@ -653,6 +706,7 @@ pub async fn handle_frinkiac_command(
                         &result._episode,
                         result.start_timestamp,
                         result.end_timestamp,
+                        &result.subtitles,
                     )
                     .await;
                     format_frinkiac_result(&result)

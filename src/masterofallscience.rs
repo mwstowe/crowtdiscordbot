@@ -255,6 +255,7 @@ pub struct MasterOfAllScienceResult {
     pub caption: String,
     pub start_timestamp: u64,
     pub end_timestamp: u64,
+    pub subtitles: Vec<crate::frinkiac::TimedSubtitle>,
     pub gif_url: Option<String>,
 }
 
@@ -454,6 +455,16 @@ impl MasterOfAllScienceClient {
             .collect::<Vec<String>>()
             .join("\n");
 
+        let timed_subs: Vec<crate::frinkiac::TimedSubtitle> = caption_result
+            .subtitles
+            .iter()
+            .map(|s| crate::frinkiac::TimedSubtitle {
+                text: s.content.clone(),
+                start: s.start_timestamp,
+                end: s.end_timestamp,
+            })
+            .collect();
+
         // Build the image URL
         let image_url = format!("{MASTEROFALLSCIENCE_IMAGE_URL}/{episode}/{timestamp}.jpg");
 
@@ -462,17 +473,8 @@ impl MasterOfAllScienceClient {
         let season = caption_result.episode.season;
         let episode_number = caption_result.episode.episode_number;
 
-        // Extract subtitle time range
-        let start_ts = caption_result
-            .subtitles
-            .first()
-            .map(|s| s.start_timestamp)
-            .unwrap_or(timestamp);
-        let end_ts = caption_result
-            .subtitles
-            .last()
-            .map(|s| s.end_timestamp)
-            .unwrap_or(timestamp + 4000);
+        let start_ts = timed_subs.first().map(|s| s.start).unwrap_or(timestamp);
+        let end_ts = timed_subs.last().map(|s| s.end).unwrap_or(timestamp + 4000);
 
         // Return the result
         Ok(Some(MasterOfAllScienceResult {
@@ -485,6 +487,7 @@ impl MasterOfAllScienceClient {
             caption: format_caption(&caption),
             start_timestamp: start_ts,
             end_timestamp: end_ts,
+            subtitles: timed_subs,
             gif_url: None,
         }))
     }
@@ -560,8 +563,12 @@ pub fn format_masterofallscience_result(result: &MasterOfAllScienceResult) -> St
     let episode_number = result.episode_number;
     let episode_title = &result.episode_title;
     let media_url = result.gif_url.as_deref().unwrap_or(&result.image_url);
-    let caption = &result.caption;
-    format!("**S{season:02}E{episode_number:02} - {episode_title}**\n{media_url}\n\n{caption}")
+    if result.gif_url.is_some() {
+        format!("**S{season:02}E{episode_number:02} - {episode_title}**\n{media_url}")
+    } else {
+        let caption = &result.caption;
+        format!("**S{season:02}E{episode_number:02} - {episode_title}**\n{media_url}\n\n{caption}")
+    }
 }
 
 // This function will be called from main.rs to handle the !masterofallscience command
@@ -586,6 +593,7 @@ pub async fn handle_masterofallscience_command(
                     &result._episode,
                     result.start_timestamp,
                     result.end_timestamp,
+                    &result.subtitles,
                 )
                 .await;
                 format_masterofallscience_result(&result)
@@ -619,6 +627,7 @@ pub async fn handle_masterofallscience_command(
                     &result._episode,
                     result.start_timestamp,
                     result.end_timestamp,
+                    &result.subtitles,
                 )
                 .await;
                 format_masterofallscience_result(&result)
