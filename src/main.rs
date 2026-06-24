@@ -36,7 +36,6 @@ mod morbotron;
 mod multi_response_generator;
 mod news_feed;
 mod news_interjection;
-mod news_interjection_legacy;
 mod news_verification;
 mod prompt_templates;
 mod rate_limiter;
@@ -4120,7 +4119,7 @@ Be creative but realistic with your article title and URL."#)
                                                             String::new()
                                                         } else {
                                                             // Validate that the URL actually exists
-                                                            match news_interjection_legacy::validate_url_exists(url_str).await {
+                                                            match news_verification::validate_url_exists(url_str).await {
                                                                 Ok((true, Some(final_url))) => {
                                                                     // URL exists, return the cleaned response with the final URL
                                                                     info!("URL validation successful: {} exists", final_url);

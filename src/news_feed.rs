@@ -79,6 +79,30 @@ async fn fetch_all_feeds() -> Vec<Headline> {
         all.append(&mut items);
     }
 
+    // Gizmodo RSS (tech/science/pop culture)
+    if let Some(mut items) = fetch_rss(&client, "https://gizmodo.com/feed", "Gizmodo").await {
+        items.truncate(10);
+        all.append(&mut items);
+    }
+
+    // NYT Top Stories RSS (general/breaking news)
+    if let Some(mut items) = fetch_rss(
+        &client,
+        "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml",
+        "NYT",
+    )
+    .await
+    {
+        items.truncate(10);
+        all.append(&mut items);
+    }
+
+    // them.us RSS (LGBTQ+ news)
+    if let Some(mut items) = fetch_rss(&client, "https://www.them.us/feed/rss", "them.").await {
+        items.truncate(10);
+        all.append(&mut items);
+    }
+
     all
 }
 

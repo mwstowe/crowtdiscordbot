@@ -213,3 +213,40 @@ pub fn extract_article_info(text: &str) -> Option<(String, String)> {
         None
     }
 }
+
+/// Validate if a URL actually exists, follow redirects, and check content type
+pub async fn validate_url_exists(url: &str) -> anyhow::Result<(bool, Option<String>)> {
+    info!("Validating URL exists: {}", url);
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+        .build()?;
+
+    match client.get(url).send().await {
+        Ok(response) => {
+            let status = response.status();
+            let final_url = response.url().to_string();
+
+            let content_type = response
+                .headers()
+                .get(reqwest::header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("");
+
+            let is_html = content_type.contains("text/html")
+                || content_type.contains("application/xhtml+xml");
+
+            if !is_html {
+                return Ok((false, None));
+            }
+
+            if status.is_success() {
+                Ok((true, Some(final_url)))
+            } else {
+                Ok((false, None))
+            }
+        }
+        Err(_) => Ok((false, None)),
+    }
+}
