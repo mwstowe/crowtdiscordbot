@@ -2244,7 +2244,7 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
 
             if let Some(gemini_client) = &self.gemini_client {
                 if let Some(interjection_prompt) = &self.gemini_interjection_prompt {
-                    info!("Processing AI interjection with custom prompt");
+                    info!("Processing AI interjection");
 
                     // We'll start typing indicator only after we decide to send a message
 
