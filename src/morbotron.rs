@@ -454,10 +454,11 @@ impl MorbotronClient {
                     && !s.text.ends_with('?')
                     && !s.text.ends_with('"'))
         });
+        let last_start = result.subtitles.last().map(|s| s.start).unwrap_or(0);
         let last_end = result.subtitles.last().map(|s| s.end).unwrap_or(0);
 
         if last_ends_mid {
-            let later_ts = last_end + 500;
+            let later_ts = last_start;
             if let Ok(Some(later)) = self.get_caption_for_frame(&episode, later_ts).await {
                 for sub in &later.subtitles {
                     if sub.start >= last_end {
