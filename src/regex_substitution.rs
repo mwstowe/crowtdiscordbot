@@ -94,7 +94,7 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
     // Get the bot's user ID
     let bot_id = ctx.http.get_current_user().await?.id;
 
-    // Check if the most recent message is a bot regex response
+    // Check if the most recent message is a bot regex response (for filtering purposes)
     let is_bot_regex_response = messages
         .first()
         .map(|m| {
@@ -102,42 +102,6 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
                 && (m.content.contains(" meant: ") || m.content.contains(" *really* meant: "))
         })
         .unwrap_or(false);
-
-    // Count how many "really" are in the message if it's a bot regex response
-    let really_count = if is_bot_regex_response {
-        if let Some(msg_content) = messages.first().map(|m| &m.content) {
-            // Count occurrences of "*really*" in the message
-            let re = Regex::new(r"\*really\*").unwrap_or_else(|_| Regex::new(r"").unwrap());
-            re.find_iter(msg_content).count()
-        } else {
-            0
-        }
-    } else {
-        0
-    };
-
-    // Extract the original author's name from the bot regex response if applicable
-    let original_author = if is_bot_regex_response {
-        if let Some(first_msg) = messages.first() {
-            // Use regex to extract the original author's name
-            let re = Regex::new(r"^(.*?) (?:\*really\* )*meant: ").unwrap_or_else(|_| {
-                error!("Failed to compile regex for extracting author name");
-                Regex::new(r".*").unwrap() // Fallback regex that matches everything
-            });
-
-            if let Some(captures) = re.captures(&first_msg.content) {
-                captures
-                    .get(1)
-                    .map(|name_match| name_match.as_str().to_string())
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    } else {
-        None
-    };
 
     // Filter out commands and bot messages (except regex responses if they're the most recent)
     let valid_messages: Vec<&Message> = messages
@@ -182,11 +146,23 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
     match regex_result {
         Ok(re) => {
             // Try each message in order from most recent to least recent
-            for (i, prev_msg) in valid_messages.iter().enumerate() {
+            let really_re = Regex::new(r"\*really\*").unwrap_or_else(|_| Regex::new(r"").unwrap());
+            for prev_msg in valid_messages.iter() {
+                // Check if this specific message is a bot regex response
+                let is_this_bot_regex = prev_msg.author.id == bot_id
+                    && (prev_msg.content.contains(" meant: ")
+                        || prev_msg.content.contains(" *really* meant: "));
+
+                // Count "really" occurrences if it's a bot regex response
+                let this_really_count = if is_this_bot_regex {
+                    really_re.find_iter(&prev_msg.content).count()
+                } else {
+                    0
+                };
+
                 // Extract the content to modify
-                let content_to_modify = if i == 0 && is_bot_regex_response {
+                let content_to_modify = if is_this_bot_regex {
                     // If this is a bot regex response, extract just the message content without the prefix
-                    // Use regex to handle any number of "really" occurrences
                     if let Some(captures) = extract_content_regex.captures(&prev_msg.content) {
                         if let Some(content_match) = captures.get(1) {
                             content_match.as_str().to_string()
@@ -230,22 +206,16 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
                     }
 
                     // Get the display name of the original message author
-                    let display_name = if i == 0 && is_bot_regex_response {
-                        // If this is a bot regex response, use the extracted original author's name
-                        if let Some(ref author_name) = original_author {
-                            author_name.clone()
-                        } else {
-                            // Fallback to extracting from the message content
-                            if let Some(captures) = extract_author_regex.captures(&prev_msg.content)
-                            {
-                                if let Some(name_match) = captures.get(1) {
-                                    name_match.as_str().to_string()
-                                } else {
-                                    get_best_display_name(ctx, prev_msg).await
-                                }
+                    let display_name = if is_this_bot_regex {
+                        // Extract the original author's name from the bot's response
+                        if let Some(captures) = extract_author_regex.captures(&prev_msg.content) {
+                            if let Some(name_match) = captures.get(1) {
+                                name_match.as_str().to_string()
                             } else {
                                 get_best_display_name(ctx, prev_msg).await
                             }
+                        } else {
+                            get_best_display_name(ctx, prev_msg).await
                         }
                     } else if prev_msg.author.bot {
                         // Check if this is the bot's own message
@@ -324,11 +294,10 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
                         .to_string();
 
                     // Format and send the response
-                    let response = if i == 0 && is_bot_regex_response {
-                        // For a bot regex response, we need to keep the original author's name
+                    let response = if is_this_bot_regex {
+                        // For a bot regex response, keep the original author's name
                         // and add one more "really" to indicate another substitution
-                        // The clean_display_name here should be the original author, not "Crow"
-                        let really_part = "*really* ".repeat(really_count + 1);
+                        let really_part = "*really* ".repeat(this_really_count + 1);
                         format!("{clean_display_name} {really_part}meant: {new_content}")
                     } else {
                         format!("{clean_display_name} meant: {new_content}")
