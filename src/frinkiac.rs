@@ -526,6 +526,71 @@ impl FrinkiacClient {
             gif_url: None,
         }))
     }
+
+    /// Expand subtitles to sentence boundaries by fetching adjacent captions.
+    /// If the first subtitle starts mid-sentence, fetches earlier context.
+    /// If the last subtitle ends mid-sentence, fetches later context.
+    pub async fn expand_to_sentence_boundaries(&self, result: &mut FrinkiacResult) {
+        let episode = result._episode.clone();
+
+        // Check if first subtitle starts mid-sentence (lowercase first char)
+        let first_starts_mid = result
+            .subtitles
+            .first()
+            .is_some_and(|s| s.text.chars().next().is_some_and(|c| c.is_lowercase()));
+        let first_start = result.subtitles.first().map(|s| s.start).unwrap_or(0);
+
+        if first_starts_mid {
+            let earlier_ts = first_start.saturating_sub(2000);
+            if let Ok(Some(earlier)) = self.get_caption_for_frame(&episode, earlier_ts).await {
+                let mut to_prepend = Vec::new();
+                for sub in earlier.subtitles.iter().rev() {
+                    if sub.end <= first_start {
+                        to_prepend.push(sub.clone());
+                        if sub.text.chars().next().is_some_and(|c| c.is_uppercase()) {
+                            break;
+                        }
+                    }
+                }
+                to_prepend.reverse();
+                if let Some(first_new) = to_prepend.first() {
+                    result.start_timestamp = first_new.start;
+                }
+                for (i, sub) in to_prepend.into_iter().enumerate() {
+                    result.subtitles.insert(i, sub);
+                }
+            }
+        }
+
+        // Check if last subtitle ends mid-sentence
+        let last_ends_mid = result.subtitles.last().is_some_and(|s| {
+            s.text.ends_with(',')
+                || (!s.text.ends_with('.')
+                    && !s.text.ends_with('!')
+                    && !s.text.ends_with('?')
+                    && !s.text.ends_with('"'))
+        });
+        let last_end = result.subtitles.last().map(|s| s.end).unwrap_or(0);
+
+        if last_ends_mid {
+            let later_ts = last_end + 500;
+            if let Ok(Some(later)) = self.get_caption_for_frame(&episode, later_ts).await {
+                for sub in &later.subtitles {
+                    if sub.start >= last_end {
+                        result.end_timestamp = sub.end;
+                        result.subtitles.push(sub.clone());
+                        if sub.text.ends_with('.')
+                            || sub.text.ends_with('!')
+                            || sub.text.ends_with('?')
+                            || sub.text.ends_with('"')
+                        {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 // Format a caption to proper sentence case and separate different speakers
@@ -757,6 +822,9 @@ pub async fn handle_frinkiac_command(
 
         match frinkiac_client.random().await {
             Ok(Some(mut result)) => {
+                frinkiac_client
+                    .expand_to_sentence_boundaries(&mut result)
+                    .await;
                 result.gif_url = generate_gif(
                     "https://frinkiac.com",
                     &result._episode,
@@ -799,6 +867,9 @@ pub async fn handle_frinkiac_command(
                 if filtered_out {
                     let _ = msg.channel_id.say(http, format!("Couldn't find any Simpsons screenshots matching \"{term}\" in the specified season/episode.")).await;
                 } else {
+                    frinkiac_client
+                        .expand_to_sentence_boundaries(&mut result)
+                        .await;
                     result.gif_url = generate_gif(
                         "https://frinkiac.com",
                         &result._episode,
