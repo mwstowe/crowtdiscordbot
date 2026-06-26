@@ -483,7 +483,7 @@ pub async fn handle_morbotron_command(
                     &result._episode,
                     result.start_timestamp,
                     result.end_timestamp,
-                    &result.subtitles,
+                    &crate::frinkiac::merge_subtitle_fragments(&result.subtitles),
                     0,
                     "impact",
                 )
@@ -517,7 +517,7 @@ pub async fn handle_morbotron_command(
                     &result._episode,
                     result.start_timestamp,
                     result.end_timestamp,
-                    &result.subtitles,
+                    &crate::frinkiac::merge_subtitle_fragments(&result.subtitles),
                     0,
                     "impact",
                 )

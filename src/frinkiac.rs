@@ -541,6 +541,36 @@ pub struct TimedSubtitle {
     pub end: u64,
 }
 
+/// Merge subtitle fragments that are continuations of the same sentence.
+/// If a subtitle starts with lowercase or continues a sentence ending with a comma,
+/// merge it with the previous one.
+pub fn merge_subtitle_fragments(subs: &[TimedSubtitle]) -> Vec<TimedSubtitle> {
+    if subs.is_empty() {
+        return Vec::new();
+    }
+
+    let mut merged: Vec<TimedSubtitle> = Vec::new();
+
+    for sub in subs {
+        let should_merge = if let Some(prev) = merged.last() {
+            // Merge if: previous ends with comma, or current starts with lowercase
+            prev.text.ends_with(',') || sub.text.chars().next().is_some_and(|c| c.is_lowercase())
+        } else {
+            false
+        };
+
+        if should_merge {
+            let prev = merged.last_mut().unwrap();
+            prev.text = format!("{} {}", prev.text, sub.text);
+            prev.end = sub.end;
+        } else {
+            merged.push(sub.clone());
+        }
+    }
+
+    merged
+}
+
 // Generate a GIF from a Frinkiac result using the render API
 pub async fn generate_gif(
     base_url: &str,
@@ -732,7 +762,7 @@ pub async fn handle_frinkiac_command(
                     &result._episode,
                     result.start_timestamp,
                     result.end_timestamp,
-                    &result.subtitles,
+                    &merge_subtitle_fragments(&result.subtitles),
                     0,
                     "ComicNeue-Bold",
                 )
@@ -774,7 +804,7 @@ pub async fn handle_frinkiac_command(
                         &result._episode,
                         result.start_timestamp,
                         result.end_timestamp,
-                        &result.subtitles,
+                        &merge_subtitle_fragments(&result.subtitles),
                         0,
                         "ComicNeue-Bold",
                     )
