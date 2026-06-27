@@ -427,22 +427,35 @@ impl MorbotronClient {
 
         if first_starts_mid {
             let earlier_ts = first_start.saturating_sub(2000);
-            if let Ok(Some(earlier)) = self.get_caption_for_frame(&episode, earlier_ts).await {
-                let mut to_prepend = Vec::new();
-                for sub in earlier.subtitles.iter().rev() {
-                    if sub.end <= first_start {
-                        to_prepend.push(sub.clone());
-                        if sub.text.chars().next().is_some_and(|c| c.is_uppercase()) {
-                            break;
+            let expanded =
+                if let Ok(Some(earlier)) = self.get_caption_for_frame(&episode, earlier_ts).await {
+                    let mut to_prepend = Vec::new();
+                    for sub in earlier.subtitles.iter().rev() {
+                        if sub.end <= first_start {
+                            to_prepend.push(sub.clone());
+                            if sub.text.chars().next().is_some_and(|c| c.is_uppercase()) {
+                                break;
+                            }
                         }
                     }
-                }
-                to_prepend.reverse();
-                if let Some(first_new) = to_prepend.first() {
-                    result.start_timestamp = first_new.start;
-                }
-                for (i, sub) in to_prepend.into_iter().enumerate() {
-                    result.subtitles.insert(i, sub);
+                    to_prepend.reverse();
+                    if let Some(first_new) = to_prepend.first() {
+                        result.start_timestamp = first_new.start;
+                        for (i, sub) in to_prepend.into_iter().enumerate() {
+                            result.subtitles.insert(i, sub);
+                        }
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                };
+
+            if !expanded && !result.subtitles.is_empty() {
+                result.subtitles.remove(0);
+                if let Some(new_first) = result.subtitles.first() {
+                    result.start_timestamp = new_first.start;
                 }
             }
         }
