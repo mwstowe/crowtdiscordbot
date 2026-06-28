@@ -3826,7 +3826,7 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                                     );
 
                                                     // Convert to the format expected by generate_response_with_context_and_pronouns
-                                                    let context_for_api: Vec<(String, String, Option<String>, String)> = context_messages
+                                                    let _context_for_api: Vec<(String, String, Option<String>, String)> = context_messages
                                                         .iter()
                                                         .map(|(author, display_name, pronouns, content, _reply_context)| {
                                                             (author.clone(), display_name.clone(), pronouns.clone(), content.clone())
@@ -3834,12 +3834,7 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                                         .collect();
 
                                                     match gemini
-                                                        .generate_response_with_context_and_pronouns(
-                                                            &memory_prompt,
-                                                            "",
-                                                            &context_for_api,
-                                                            None,
-                                                        )
+                                                        .generate_content(&memory_prompt)
                                                         .await
                                                     {
                                                         Ok(response) => {
@@ -3950,7 +3945,7 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                     );
 
                                     // Convert to the format expected by generate_response_with_context_and_pronouns
-                                    let context_for_api: Vec<(
+                                    let _context_for_api: Vec<(
                                         String,
                                         String,
                                         Option<String>,
@@ -3975,15 +3970,7 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                         )
                                         .collect();
 
-                                    match gemini_client
-                                        .generate_response_with_context_and_pronouns(
-                                            &ai_prompt,
-                                            "",
-                                            &context_for_api,
-                                            None,
-                                        )
-                                        .await
-                                    {
+                                    match gemini_client.generate_content(&ai_prompt).await {
                                         Ok(response) => {
                                             // Check if the response is "pass" - if so, don't send anything
                                             if response.trim().to_lowercase() == "pass" {
