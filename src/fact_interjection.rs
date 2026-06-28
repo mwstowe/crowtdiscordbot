@@ -96,7 +96,7 @@ pub async fn handle_fact_interjection(
     ctx: &Context,
     msg: &Message,
     gemini_client: &GeminiClient,
-    multi_response_generator: &Option<MultiResponseGenerator>,
+    _multi_response_generator: &Option<MultiResponseGenerator>,
     message_db: &Option<Arc<tokio::sync::Mutex<Connection>>>,
     bot_name: &str,
     gemini_context_messages: usize,
@@ -126,7 +126,7 @@ pub async fn handle_fact_interjection(
         &ctx.http,
         msg.channel_id,
         gemini_client,
-        multi_response_generator,
+        _multi_response_generator,
         &context_messages,
         bot_name,
     )
@@ -138,7 +138,7 @@ pub async fn handle_spontaneous_fact_interjection(
     http: &Http,
     channel_id: ChannelId,
     gemini_client: &GeminiClient,
-    multi_response_generator: &Option<MultiResponseGenerator>,
+    _multi_response_generator: &Option<MultiResponseGenerator>,
     message_db: &Option<Arc<tokio::sync::Mutex<Connection>>>,
     bot_name: &str,
     gemini_context_messages: usize,
@@ -168,7 +168,7 @@ pub async fn handle_spontaneous_fact_interjection(
         http,
         channel_id,
         gemini_client,
-        multi_response_generator,
+        _multi_response_generator,
         &context_messages,
         bot_name,
     )
@@ -200,7 +200,7 @@ async fn handle_fact_interjection_common(
     http: &Http,
     channel_id: ChannelId,
     gemini_client: &GeminiClient,
-    multi_response_generator: &Option<MultiResponseGenerator>,
+    _multi_response_generator: &Option<MultiResponseGenerator>,
     context_messages: &[(String, String, Option<String>, String, Option<String>)],
     _bot_name: &str,
 ) -> Result<()> {
@@ -234,36 +234,18 @@ async fn handle_fact_interjection_common(
         .prompt_templates()
         .format_fact_interjection(&context_text);
 
-    let response_result = if let Some(multi_gen) = multi_response_generator {
-        let context_for_api: Vec<(String, String, Option<String>, String)> = context_messages
-            .iter()
-            .map(
-                |(author, display_name, pronouns, content, _reply_context)| {
-                    (
-                        author.clone(),
-                        display_name.clone(),
-                        pronouns.clone(),
-                        content.clone(),
-                    )
-                },
-            )
-            .collect();
-        multi_gen
-            .generate_best_response_with_context(&fact_prompt, &context_for_api)
-            .await
-    } else {
-        // Prompt is already fully formed — send directly
-        match gemini_client.generate_content(&fact_prompt).await {
-            Ok(response) => {
-                let trimmed = response.trim();
-                if trimmed.to_lowercase() == "pass" {
-                    Ok(None)
-                } else {
-                    Ok(Some(trimmed.to_string()))
-                }
+    // fact_prompt is already fully formed (personality + context baked in).
+    // Always use generate_content directly to avoid re-wrapping with personality.
+    let response_result = match gemini_client.generate_content(&fact_prompt).await {
+        Ok(response) => {
+            let trimmed = response.trim().to_string();
+            if trimmed.to_lowercase() == "pass" {
+                Ok(None)
+            } else {
+                Ok(Some(trimmed))
             }
-            Err(e) => Err(e),
         }
+        Err(e) => Err(e),
     };
 
     match response_result {

@@ -271,8 +271,10 @@ impl GeminiClient {
         context_messages: &[(String, String, Option<String>, String)],
         _user_pronouns: Option<&str>,
     ) -> Result<String> {
-        // Check if the prompt already contains context (like in interjection prompts)
-        let has_context_in_prompt = prompt.contains("{context}");
+        // Check if the prompt already contains context placeholder (meaning it's a template
+        // that needs format_custom) or if it's already fully formatted (preformatted=true
+        // means it already has personality/context baked in and should not be re-wrapped)
+        let has_context_placeholder = prompt.contains("{context}");
 
         // Format the context messages
         let context = if !context_messages.is_empty() {
@@ -307,7 +309,7 @@ impl GeminiClient {
                 context_messages.len()
             );
             formatted_messages
-        } else if has_context_in_prompt {
+        } else if has_context_placeholder {
             // If the prompt already contains context placeholder but we have no messages,
             // use an empty string to avoid adding "No context available"
             info!("No database context available, but prompt contains context placeholder");
@@ -321,7 +323,7 @@ impl GeminiClient {
         };
 
         // Format the prompt using the wrapper or custom template
-        let formatted_prompt = if has_context_in_prompt {
+        let formatted_prompt = if has_context_placeholder {
             // If the prompt already contains {context}, use it as a custom template
             let mut values = HashMap::new();
             values.insert("context".to_string(), context);
