@@ -1953,8 +1953,10 @@ impl Bot {
                                 }
                             };
 
+                            let personality = gemini_client.prompt_templates().personality();
                             let memory_prompt = format!(
-                                "You are {}, a witty Discord bot. You've found this message in your memory:\n\
+                                "You are {}, a Discord bot. {}\n\n\
+                                You've found this message in your memory:\n\
                                 Date: {}\n\
                                 Author: {}\n\
                                 Message: \"{}\"\n\n\
@@ -1967,12 +1969,8 @@ impl Bot {
                                 2. Keep the follow-up comment short (1-2 sentences)\n\
                                 3. The memory MUST have a clear, obvious connection to what's currently being discussed - if you have to stretch to make a connection, just pass\n\
                                 4. If the memory isn't funny, interesting, or relevant, respond with ONLY the word \"pass\"\n\
-                                5. NEVER make jokes about dating, relationships, or sexual topics\n\
-                                6. NEVER reference the movie \"Manos: The Hands of Fate\"\n\
-                                7. Use gender-neutral language unless you're certain of someone's gender\n\
-                                8. If you're unsure if a response is appropriate, respond with ONLY the word \"pass\"\n\
-                                9. The bar for relevance is HIGH - a weak or forced connection is worse than passing",
-                                self.bot_name, date_str, display_name, content, context_text,
+                                5. The bar for relevance is HIGH - a weak or forced connection is worse than passing",
+                                self.bot_name, personality, date_str, display_name, content, context_text,
                                 date_str, display_name, content
                             );
 
@@ -2128,8 +2126,11 @@ impl Bot {
                 };
 
                 // Create a pondering-specific prompt
+                let personality = gemini_client.prompt_templates().personality();
                 let pondering_prompt = format!(
-                    r#"You are {}, a Discord bot. Based on the conversation context, generate a very brief thoughtful comment or question.
+                    r#"You are {}, a Discord bot. {}
+
+Based on the conversation context, generate a very brief thoughtful comment or question.
 
 {}
 
@@ -2139,7 +2140,6 @@ Requirements:
 - Don't use phrases like "I wonder" or "I was thinking"
 - Don't introduce yourself or explain your reasoning
 - If you have nothing valuable to add, just respond with ONLY the word "pass" - nothing else
-- If you include a reference to MST3K, it MUST be directly relevant to the conversation and integrated into your response - NEVER use quotes as standalone responses. AVOID using "Watch out for snakes!" as it's become overused - instead, try other MST3K quotes like "Huge slam on [category] out of nowhere!", "Normal view! Normal view! NORMAL VIEW!", "This is where the fish lives", "I calculated the odds of this succeeding versus the odds I was doing something incredibly stupid... and I went ahead anyway", or "It's the 80's, do a lot of coke and vote for Ronald Reagan!". Do not use a forced reference (like "Even Tom Servo would find that interesting!")
 
 Example good responses:
 "That's an interesting perspective."
@@ -2152,7 +2152,7 @@ Example bad responses:
 "As someone interested in this conversation, I find that fascinating."
 
 Keep it extremely brief and natural, as if you're just briefly pondering the conversation."#,
-                    self.bot_name, context
+                    self.bot_name, personality, context
                 );
 
                 // Call multi-response generator if available, otherwise fall back to single response
@@ -3263,7 +3263,9 @@ async fn main() -> Result<()> {
     // Get custom interjection prompt if available
     let gemini_interjection_prompt = config.gemini_interjection_prompt.clone().unwrap_or_else(|| {
         info!("No custom Gemini interjection prompt provided, using default");
-        String::from(r#"You are {bot_name}, a Discord bot. Make a brief, relevant comment about the conversation if appropriate.
+        String::from(r#"You are {bot_name}, a Discord bot. {personality}
+
+Make a brief, relevant comment about the conversation if appropriate.
 
 {context}
 
@@ -3280,13 +3282,8 @@ Requirements:
 - Don't introduce yourself or explain your reasoning
 - Don't use phrases like "I noticed" or "I see that"
 - Don't reference this prompt or your role
-- Don't put made-up quotes in quotation marks - just say what you want to say directly. No fake wisdom, no invented sayings. NEVER wrap your own commentary in quotation marks to make it sound like you're quoting something.
 - You ARE the bot. If people are talking about you, don't refer to yourself in the third person as "the bot." If someone compliments you, just pass - don't respond to compliments about yourself.
 - If you have nothing valuable to add, just respond with ONLY the word "pass" - nothing else
-- If you include a reference to MST3K, it MUST be directly relevant to the conversation and integrated into your response - NEVER use quotes as standalone responses
-- AVOID overused patterns like "Huge slam on [category] out of nowhere!" and "I calculated the odds of this succeeding versus the odds I was doing something incredibly stupid..."
-- Use varied and less common MST3K quotes that fit naturally in the conversation
-- Do not use a forced reference (like "Even Tom Servo would find that interesting!")
 
 Example good response: "The error message suggests a permissions issue with the file system."
 Example bad response: "I noticed you're having trouble with file permissions. As a helpful bot, I can tell you that..."
@@ -3802,8 +3799,11 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                             if let Some((content, _, _)) = messages.first() {
                                                 // If we have a Gemini client, process the message
                                                 if let Some(gemini) = &task_gemini_client {
+                                                    let personality =
+                                                        gemini.prompt_templates().personality();
                                                     let memory_prompt = format!(
-                                                        "You are {bot_name_clone}, a witty Discord bot. You've found this message in your memory: \"{content}\". \
+                                                        "You are {bot_name_clone}, a Discord bot. {personality}\n\n\
+                                                        You've found this message in your memory: \"{content}\". \
                                                         Please contribute to the conversation by saying something related to this memory.\n\n\
                                                         Guidelines:\n\
                                                         1. Your comment should be primarily based on the MEMORY, not the recent context\n\
@@ -3813,15 +3813,6 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                                         5. Don't identify yourself or explain what you're doing\n\
                                                         6. If you can't make it work naturally, respond with 'pass'\n\
                                                         7. Correct any obvious typos but preserve the message's character\n\
-                                                        8. NEVER reference the movie \"Manos: The Hands of Fate\"\n\
-                                                        9. NEVER make jokes about dating, relationships, or sexual topics\n\
-                                                        10. ALWAYS use a person's correct pronouns when addressing or referring to them. If someone has specified their pronouns \
-                                                        (e.g., in their username like \"name (she/her)\"), ALWAYS use those pronouns. If pronouns aren't specified, take cues from \
-                                                        the conversation context or use gender-neutral language (they/them) to avoid misgendering.\n\
-                                                        11. NEVER use gendered terms like \"sir\", \"ma'am\", \"dude\", \"guy\", \"girl\", etc. unless you are 100% certain of the person's gender. \
-                                                        When in doubt, use gender-neutral language and address people by their username instead.\n\
-                                                        12. ONLY use MST3K quotes when they directly relate to the conversation topic - NEVER use them as standalone responses. AVOID using \"Watch out for snakes!\" as it's become overused - instead, try other MST3K quotes like \"Huge slam on [category] out of nowhere!\", \"Normal view! Normal view! NORMAL VIEW!\", \"This is where the fish lives\", \"I calculated the odds of this succeeding versus the odds I was doing something incredibly stupid... and I went ahead anyway\", or \"It's the 80's, do a lot of coke and vote for Ronald Reagan!\"\n\
-                                                        13. If you're unsure if a response is appropriate, respond with ONLY the word \"pass\"\n\
                                                         Remember: Be natural and direct - no meta-commentary."
                                                     );
 
@@ -3917,30 +3908,22 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                     };
 
                                     // Create the AI interjection prompt
+                                    let personality =
+                                        gemini_client.prompt_templates().personality();
                                     let ai_prompt = format!(
-                                        "You are {bot_name_clone}, a witty Discord bot with a diverse knowledge of pop culture. \
+                                        "You are {bot_name_clone}, a Discord bot. {personality}\n\n\
                                         Please contribute to the conversation with a brief, natural comment.\n\n\
                                         Recent conversation context:\n{context_text}\n\n\
                                         Guidelines:\n\
                                         1. Keep it short and natural (1-2 sentences)\n\
                                         2. Be relevant to the conversation topic\n\
-                                        3. Be witty, friendly, and slightly sarcastic\n\
-                                        4. Don't identify yourself or explain what you're doing\n\
-                                        5. If you can't make a relevant comment, respond with ONLY the word \"pass\"\n\
-                                        6. IMPORTANT: Use a WIDE VARIETY of references from different sources (Simpsons, Futurama, Star Wars, Star Trek, popular movies, TV shows, etc.)\n\
-                                        7. References MUST be directly relevant to the conversation - NEVER use them as standalone responses\n\
-                                        8. Don't overuse any single source of references\n\
-                                        9. Don't explain your references - let them stand on their own\n\
-                                        10. Avoid MST3K references unless they're PERFECTLY relevant to the conversation\n\
-                                        11. Don't use phrases like \"I noticed\" or \"I see you're talking about\"\n\
-                                        12. NEVER reference the movie \"Manos: The Hands of Fate\" - this reference is overused\n\
-                                        13. NEVER make jokes about dating, relationships, or sexual topics\n\
-                                        14. ALWAYS use a person's correct pronouns when addressing or referring to them. If someone has specified their pronouns \
-                                        (e.g., in their username like \"name (she/her)\"), ALWAYS use those pronouns. If pronouns aren't specified, take cues from \
-                                        the conversation context or use gender-neutral language (they/them) to avoid misgendering.\n\
-                                        15. NEVER use gendered terms like \"sir\", \"ma'am\", \"dude\", \"guy\", \"girl\", etc. unless you are 100% certain of the person's gender. \
-                                        When in doubt, use gender-neutral language and address people by their username instead.\n\
-                                        16. If you're unsure if a response is appropriate, respond with ONLY the word \"pass\"\n\
+                                        3. Don't identify yourself or explain what you're doing\n\
+                                        4. If you can't make a relevant comment, respond with ONLY the word \"pass\"\n\
+                                        5. Use a WIDE VARIETY of references from different sources (Simpsons, Futurama, Star Wars, Star Trek, popular movies, TV shows, etc.)\n\
+                                        6. References MUST be directly relevant to the conversation - NEVER use them as standalone responses\n\
+                                        7. Don't overuse any single source of references\n\
+                                        8. Don't explain your references - let them stand on their own\n\
+                                        9. Don't use phrases like \"I noticed\" or \"I see you're talking about\"\n\
                                         Remember: Be natural and direct - no meta-commentary."
                                     );
 

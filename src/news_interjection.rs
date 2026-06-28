@@ -61,8 +61,10 @@ pub async fn handle_news_interjection(
         .collect::<Vec<_>>()
         .join("\n");
 
+    let personality = gemini_client.prompt_templates().personality();
     let prompt = format!(
-        "You are a witty Discord bot. Below are real headlines from news feeds, and the recent conversation.\n\n\
+        "You are {_bot_name}, a Discord bot. {personality}\n\n\
+        Below are real headlines from news feeds, and the recent conversation.\n\n\
         HEADLINES:\n{headline_list}\n\n\
         RECENT CONVERSATION:\n{context_text}\n\n\
         Pick ONE headline that is either:\n\

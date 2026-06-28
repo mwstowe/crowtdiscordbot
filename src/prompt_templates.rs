@@ -188,6 +188,11 @@ impl PromptTemplates {
         }
     }
 
+    /// Get the default personality description
+    pub fn personality(&self) -> &str {
+        &self.default_personality
+    }
+
     /// Set a personality trait
     #[allow(dead_code)]
     pub fn set_trait(&mut self, trait_name: &str, trait_value: &str) {
