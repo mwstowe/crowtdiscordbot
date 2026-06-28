@@ -18,12 +18,12 @@ pub async fn handle_news_interjection(
     _bot_name: &str,
     gemini_context_messages: usize,
     headline_cache: &HeadlineCache,
-) -> Result<()> {
+) -> Result<bool> {
     // Get cached headlines
     let headlines = headline_cache.read().await;
     if headlines.is_empty() {
         info!("News interjection: no headlines cached yet");
-        return Ok(());
+        return Ok(false);
     }
 
     // Get recent conversation context
@@ -88,7 +88,7 @@ pub async fn handle_news_interjection(
 
             if trimmed.to_lowercase().starts_with("pass") {
                 info!("News interjection: AI decided to pass");
-                return Ok(());
+                return Ok(false);
             }
 
             // Parse the response
@@ -105,6 +105,7 @@ pub async fn handle_news_interjection(
                     error!("Error sending news interjection: {:?}", e);
                 } else {
                     info!("News interjection sent: {}", final_message);
+                    return Ok(true);
                 }
             } else {
                 info!(
@@ -118,7 +119,7 @@ pub async fn handle_news_interjection(
         }
     }
 
-    Ok(())
+    Ok(false)
 }
 
 /// Parse the AI's selection response to extract the chosen headline and comment

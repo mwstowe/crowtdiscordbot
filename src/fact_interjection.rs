@@ -100,7 +100,7 @@ pub async fn handle_fact_interjection(
     message_db: &Option<Arc<tokio::sync::Mutex<Connection>>>,
     bot_name: &str,
     gemini_context_messages: usize,
-) -> Result<()> {
+) -> Result<bool> {
     let context_messages = if let Some(db) = message_db {
         match db_utils::get_recent_messages_with_reply_context(
             db.clone(),
@@ -142,7 +142,7 @@ pub async fn handle_spontaneous_fact_interjection(
     message_db: &Option<Arc<tokio::sync::Mutex<Connection>>>,
     bot_name: &str,
     gemini_context_messages: usize,
-) -> Result<()> {
+) -> Result<bool> {
     let context_messages = if let Some(db) = message_db {
         match db_utils::get_recent_messages_with_reply_context(
             db.clone(),
@@ -203,7 +203,7 @@ async fn handle_fact_interjection_common(
     _multi_response_generator: &Option<MultiResponseGenerator>,
     context_messages: &[(String, String, Option<String>, String, Option<String>)],
     _bot_name: &str,
-) -> Result<()> {
+) -> Result<bool> {
     // Format context for the prompt
     let context_text = if !context_messages.is_empty() {
         let mut chronological_messages = context_messages.to_owned();
@@ -248,7 +248,7 @@ async fn handle_fact_interjection_common(
         Err(e) => Err(e),
     };
 
-    match response_result {
+    let sent = match response_result {
         Ok(Some(response)) => {
             // Check if the response looks like the prompt itself
             if response.contains("{bot_name}")
@@ -256,7 +256,7 @@ async fn handle_fact_interjection_common(
                 || response.contains("Guidelines:")
             {
                 error!("Fact interjection: API returned prompt template instead of response");
-                return Ok(());
+                return Ok(false);
             }
 
             // Extract topic and use search-first approach
@@ -274,7 +274,7 @@ async fn handle_fact_interjection_common(
                         "Fact interjection skipped: response is incomplete after stripping TOPIC: '{}'",
                         display_response
                     );
-                    return Ok(());
+                    return Ok(false);
                 }
 
                 if let Some(url) = try_search_for_article(&topic).await {
@@ -305,14 +305,17 @@ async fn handle_fact_interjection_common(
                 info!("No TOPIC found in fact response - sending as-is");
                 send_fact_response(http, channel_id, &response).await;
             }
+            true
         }
         Ok(None) => {
             info!("Fact interjection evaluation: decided to PASS - no response sent");
+            false
         }
         Err(e) => {
             error!("Error generating fact interjection: {:?}", e);
+            false
         }
-    }
+    };
 
-    Ok(())
+    Ok(sent)
 }

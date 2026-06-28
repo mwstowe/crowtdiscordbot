@@ -214,6 +214,8 @@ struct Bot {
     giphy_client: Option<giphy::GiphyClient>,
     headline_cache: news_feed::HeadlineCache,
     news_feeds_config: Option<String>,
+    /// Tracks when the last spontaneous interjection was sent
+    last_interjection_time: Arc<RwLock<Option<Instant>>>,
 }
 
 /// Configuration for creating a Bot instance
@@ -476,6 +478,7 @@ impl Bot {
             giphy_client: parsed_config.giphy_api_key.map(giphy::GiphyClient::new),
             headline_cache: news_feed::new_cache(),
             news_feeds_config: config.news_feeds,
+            last_interjection_time: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -958,6 +961,12 @@ impl Bot {
     }
 }
 impl Bot {
+    /// Record that a spontaneous interjection was sent (for recency dampening)
+    async fn mark_interjection_sent(&self) {
+        let mut last = self.last_interjection_time.write().await;
+        *last = Some(Instant::now());
+    }
+
     // Function to check if the bot is being addressed
     fn is_bot_addressed(&self, content: &str) -> bool {
         let bot_name = &self.bot_name.to_lowercase();
@@ -1789,8 +1798,22 @@ impl Bot {
             .get_probability_multiplier(msg.channel_id, current_user_id)
             .await;
 
+        // Recency dampener: reduce interjection probability based on how recently
+        // the last one fired. Ramps from 0% at t=0 to 100% at t=10 minutes.
+        let recency_multiplier = {
+            let last = self.last_interjection_time.read().await;
+            match *last {
+                Some(t) => {
+                    let elapsed_secs = t.elapsed().as_secs_f64();
+                    (elapsed_secs / 600.0).min(1.0) // linear ramp over 10 minutes
+                }
+                None => 1.0, // no previous interjection
+            }
+        };
+
         // MST3K Quote interjection
-        let adjusted_mst3k_probability = self.interjection_mst3k_probability * silence_multiplier;
+        let adjusted_mst3k_probability =
+            self.interjection_mst3k_probability * silence_multiplier * recency_multiplier;
         if rand::rng().random_bool(adjusted_mst3k_probability) {
             let probability_percent = self.interjection_mst3k_probability * 100.0;
             let adjusted_percent = adjusted_mst3k_probability * 100.0;
@@ -1815,6 +1838,7 @@ impl Bot {
                                 // Silently fail - no fallback
                             } else {
                                 info!("MST3K quote interjection sent: {}", quote);
+                                self.mark_interjection_sent().await;
                             }
                         }
                         None => {
@@ -1832,7 +1856,8 @@ impl Bot {
             }
         }
         // Memory interjection
-        let adjusted_memory_probability = self.interjection_memory_probability * silence_multiplier;
+        let adjusted_memory_probability =
+            self.interjection_memory_probability * silence_multiplier * recency_multiplier;
         if rand::rng().random_bool(adjusted_memory_probability) {
             let probability_percent = self.interjection_memory_probability * 100.0;
             let adjusted_percent = adjusted_memory_probability * 100.0;
@@ -2049,6 +2074,7 @@ impl Bot {
                                         error!("Error sending memory interjection: {:?}", e);
                                     } else {
                                         info!("Memory interjection sent: {}", response);
+                                        self.mark_interjection_sent().await;
                                     }
                                 }
                                 Err(e) => {
@@ -2066,7 +2092,7 @@ impl Bot {
 
         // Pondering interjection
         let adjusted_pondering_probability =
-            self.interjection_pondering_probability * silence_multiplier;
+            self.interjection_pondering_probability * silence_multiplier * recency_multiplier;
         if rand::rng().random_bool(adjusted_pondering_probability) {
             let probability_percent = self.interjection_pondering_probability * 100.0;
             let adjusted_percent = adjusted_pondering_probability * 100.0;
@@ -2230,6 +2256,7 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                         } else {
                             info!("Pondering interjection sent: {}", response_text);
                         }
+                        self.mark_interjection_sent().await;
                     }
                     Ok(None) => {
                         info!(
@@ -2251,7 +2278,8 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
         }
 
         // AI interjection
-        let adjusted_ai_probability = self.interjection_ai_probability * silence_multiplier;
+        let adjusted_ai_probability =
+            self.interjection_ai_probability * silence_multiplier * recency_multiplier;
         if rand::rng().random_bool(adjusted_ai_probability) {
             let probability_percent = self.interjection_ai_probability * 100.0;
             let adjusted_percent = adjusted_ai_probability * 100.0;
@@ -2359,6 +2387,7 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                                         error!("Error sending GIF interjection: {:?}", e);
                                     } else {
                                         info!("GIF interjection sent: {}", gif_url);
+                                        self.mark_interjection_sent().await;
                                     }
                                     return Ok(());
                                 }
@@ -2377,6 +2406,7 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                                     } else {
                                         info!("Embedded GIF interjection sent: {}", gif_url);
                                     }
+                                    self.mark_interjection_sent().await;
                                     return Ok(());
                                 }
                             }
@@ -2391,6 +2421,7 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                             } else {
                                 info!("AI interjection sent: {}", response_text);
                             }
+                            self.mark_interjection_sent().await;
                         }
                         Ok(None) => {
                             info!("AI interjection evaluation: decided to PASS - no response sent");
@@ -2413,7 +2444,8 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
         }
 
         // Fact interjection
-        let adjusted_fact_probability = self.interjection_fact_probability * silence_multiplier;
+        let adjusted_fact_probability =
+            self.interjection_fact_probability * silence_multiplier * recency_multiplier;
         if rand::rng().random_bool(adjusted_fact_probability) {
             let probability_percent = self.interjection_fact_probability * 100.0;
             let adjusted_percent = adjusted_fact_probability * 100.0;
@@ -2428,7 +2460,7 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
 
             if let Some(gemini_client) = &self.gemini_client {
                 // We'll use our dedicated fact interjection module
-                if let Err(e) = fact_interjection::handle_fact_interjection(
+                match fact_interjection::handle_fact_interjection(
                     ctx,
                     msg,
                     gemini_client,
@@ -2439,7 +2471,9 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                 )
                 .await
                 {
-                    error!("Error handling fact interjection: {:?}", e);
+                    Ok(true) => self.mark_interjection_sent().await,
+                    Err(e) => error!("Error handling fact interjection: {:?}", e),
+                    _ => {}
                 }
             } else {
                 // If Gemini API is not configured
@@ -2448,7 +2482,8 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
         }
 
         // News interjection
-        let adjusted_news_probability = self.interjection_news_probability * silence_multiplier;
+        let adjusted_news_probability =
+            self.interjection_news_probability * silence_multiplier * recency_multiplier;
         if rand::rng().random_bool(adjusted_news_probability) {
             let probability_percent = self.interjection_news_probability * 100.0;
             let adjusted_percent = adjusted_news_probability * 100.0;
@@ -2463,7 +2498,7 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
 
             if let Some(gemini_client) = &self.gemini_client {
                 // Call the news interjection handler
-                if let Err(e) = handle_news_interjection(
+                match handle_news_interjection(
                     ctx,
                     msg,
                     gemini_client,
@@ -2474,7 +2509,9 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                 )
                 .await
                 {
-                    error!("Error in news interjection: {:?}", e);
+                    Ok(true) => self.mark_interjection_sent().await,
+                    Err(e) => error!("Error in news interjection: {:?}", e),
+                    _ => {}
                 }
             } else {
                 // If Gemini API is not configured
