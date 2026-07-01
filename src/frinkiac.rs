@@ -590,11 +590,13 @@ impl FrinkiacClient {
 
         if last_ends_mid {
             let later_ts = last_start;
+            let mut expanded = false;
             if let Ok(Some(later)) = self.get_caption_for_frame(&episode, later_ts).await {
                 for sub in &later.subtitles {
                     if sub.start >= last_end {
                         result.end_timestamp = sub.end;
                         result.subtitles.push(sub.clone());
+                        expanded = true;
                         if sub.text.ends_with('.')
                             || sub.text.ends_with('!')
                             || sub.text.ends_with('?')
@@ -603,6 +605,14 @@ impl FrinkiacClient {
                             break;
                         }
                     }
+                }
+            }
+
+            // If we couldn't find the sentence end, drop the trailing fragment
+            if !expanded && result.subtitles.len() > 1 {
+                result.subtitles.pop();
+                if let Some(new_last) = result.subtitles.last() {
+                    result.end_timestamp = new_last.end;
                 }
             }
         }
