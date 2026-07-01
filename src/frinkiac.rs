@@ -281,12 +281,26 @@ impl FrinkiacClient {
             return Ok(None);
         }
 
+        // Bias toward classic seasons (1-11): show those first, then later seasons
+        let (classic, later): (Vec<&serde_json::Value>, Vec<&serde_json::Value>) =
+            unique_results.into_iter().partition(|r| {
+                let ep = r.get("Episode").and_then(|v| v.as_str()).unwrap_or("");
+                // Parse season number from "S01E02" format
+                let season: u32 = ep
+                    .strip_prefix('S')
+                    .and_then(|s| s.split('E').next())
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(99);
+                season <= 11
+            });
+        let ordered_results: Vec<&serde_json::Value> = classic.into_iter().chain(later).collect();
+
         // Pick the next result, rotating through results for repeated queries
         let index = {
             let mut last_q = self.last_query.write().unwrap();
             let mut idx = self.current_index.write().unwrap();
             if last_q.as_deref() == Some(query) {
-                *idx = (*idx + 1) % unique_results.len();
+                *idx = (*idx + 1) % ordered_results.len();
             } else {
                 *last_q = Some(query.to_string());
                 *idx = 0;
@@ -294,7 +308,7 @@ impl FrinkiacClient {
             *idx
         };
 
-        let result = unique_results[index];
+        let result = ordered_results[index];
 
         // Extract the episode and timestamp
         let episode = result
