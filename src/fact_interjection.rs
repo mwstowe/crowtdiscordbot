@@ -42,30 +42,24 @@ fn extract_topic_from_response(response: &str) -> Option<String> {
 fn strip_topic_from_response(response: &str) -> String {
     if let Some(topic_start) = response.find("TOPIC:") {
         let before = &response[..topic_start];
-
         let after_topic = &response[topic_start + 6..];
-        let rest = if let Some(end_pos) = after_topic.find("ENDTOPIC") {
-            // Skip past "ENDTOPIC" and any trailing whitespace
-            after_topic[end_pos + 8..].trim_start()
-        } else {
-            // Fallback: skip first 8 words (assumed topic) and keep the rest
-            let mut words = 0;
-            let skip_pos = after_topic
-                .char_indices()
-                .find(|(_, c)| {
-                    if c.is_whitespace() {
-                        words += 1;
-                    }
-                    words >= 8
-                })
-                .map(|(i, _)| i)
-                .unwrap_or(after_topic.len());
-            after_topic[skip_pos..].trim_start()
-        };
 
-        let cleaned = format!("{} {}", before.trim_end(), rest);
-        // Clean up any double/triple spaces
-        cleaned.split_whitespace().collect::<Vec<_>>().join(" ")
+        if let Some(end_pos) = after_topic.find("ENDTOPIC") {
+            let topic_text = after_topic[..end_pos].trim();
+            let rest = after_topic[end_pos + 8..].trim_start();
+
+            // If TOPIC is inline (text before and after), keep the topic text in place
+            if !before.trim().is_empty() && !rest.is_empty() {
+                format!("{}{}{}", before.trim_end(), topic_text, rest)
+            } else {
+                // TOPIC is at end or standalone — just use the before text
+                let cleaned = before.trim_end_matches([',', ' ', ';', ':']);
+                cleaned.to_string()
+            }
+        } else {
+            // No ENDTOPIC found — return everything before TOPIC
+            before.trim().to_string()
+        }
     } else {
         response.to_string()
     }
