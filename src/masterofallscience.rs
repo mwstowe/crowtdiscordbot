@@ -209,7 +209,7 @@ struct MasterOfAllScienceSubtitle {
     #[serde(rename = "Id")]
     _id: u64,
     #[serde(rename = "RepresentativeTimestamp")]
-    _representative_timestamp: u64,
+    representative_timestamp: u64,
     #[serde(rename = "Episode")]
     _episode: String,
     #[serde(rename = "StartTimestamp")]
@@ -463,6 +463,7 @@ impl MasterOfAllScienceClient {
                 text: s.content.clone(),
                 start: s.start_timestamp,
                 end: s.end_timestamp,
+                representative_ts: s.representative_timestamp,
             })
             .collect();
 

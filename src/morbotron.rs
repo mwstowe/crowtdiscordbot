@@ -78,7 +78,7 @@ struct MorbotronSubtitle {
     #[serde(rename = "Id")]
     _id: u64,
     #[serde(rename = "RepresentativeTimestamp")]
-    _representative_timestamp: u64,
+    representative_timestamp: u64,
     #[serde(rename = "Episode")]
     _episode: String,
     #[serde(rename = "StartTimestamp")]
@@ -332,6 +332,7 @@ impl MorbotronClient {
                 text: s.content.clone(),
                 start: s.start_timestamp,
                 end: s.end_timestamp,
+                representative_ts: s.representative_timestamp,
             })
             .collect();
 
@@ -467,11 +468,15 @@ impl MorbotronClient {
                     && !s.text.ends_with('?')
                     && !s.text.ends_with('"'))
         });
-        let last_start = result.subtitles.last().map(|s| s.start).unwrap_or(0);
+        let last_rep_ts = result
+            .subtitles
+            .last()
+            .map(|s| s.representative_ts)
+            .unwrap_or(0);
         let last_end = result.subtitles.last().map(|s| s.end).unwrap_or(0);
 
         if last_ends_mid {
-            let later_ts = last_start;
+            let later_ts = last_rep_ts;
             let mut expanded = false;
             if let Ok(Some(later)) = self.get_caption_for_frame(&episode, later_ts).await {
                 for sub in &later.subtitles {

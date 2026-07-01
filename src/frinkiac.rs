@@ -415,6 +415,7 @@ impl FrinkiacClient {
                             text: s.get("Content")?.as_str()?.to_string(),
                             start: s.get("StartTimestamp")?.as_u64()?,
                             end: s.get("EndTimestamp")?.as_u64()?,
+                            representative_ts: s.get("RepresentativeTimestamp")?.as_u64()?,
                         })
                     })
                     .collect();
@@ -497,6 +498,7 @@ impl FrinkiacClient {
                     text: s.get("Content")?.as_str()?.to_string(),
                     start: s.get("StartTimestamp")?.as_u64()?,
                     end: s.get("EndTimestamp")?.as_u64()?,
+                    representative_ts: s.get("RepresentativeTimestamp")?.as_u64()?,
                 })
             })
             .collect();
@@ -585,12 +587,17 @@ impl FrinkiacClient {
                     && !s.text.ends_with('?')
                     && !s.text.ends_with('"'))
         });
-        let last_start = result.subtitles.last().map(|s| s.start).unwrap_or(0);
+        let last_rep_ts = result
+            .subtitles
+            .last()
+            .map(|s| s.representative_ts)
+            .unwrap_or(0);
         let last_end = result.subtitles.last().map(|s| s.end).unwrap_or(0);
 
         if last_ends_mid {
-            let later_ts = last_start;
+            let later_ts = last_rep_ts;
             let mut expanded = false;
+
             if let Ok(Some(later)) = self.get_caption_for_frame(&episode, later_ts).await {
                 for sub in &later.subtitles {
                     if sub.start >= last_end {
@@ -630,6 +637,8 @@ pub struct TimedSubtitle {
     pub text: String,
     pub start: u64,
     pub end: u64,
+    /// A valid frame timestamp for this subtitle (always maps to an indexed frame)
+    pub representative_ts: u64,
 }
 
 /// Merge subtitle fragments that are continuations of the same sentence.
