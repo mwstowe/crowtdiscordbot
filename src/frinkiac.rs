@@ -4,7 +4,7 @@ use anyhow::{anyhow, Result};
 use rand::seq::IndexedRandom;
 use reqwest::Client as HttpClient;
 use serenity::all::Http;
-use serenity::builder::CreateEmbed;
+
 use serenity::builder::CreateMessage;
 use serenity::model::channel::Message;
 use std::time::Duration;
@@ -673,7 +673,7 @@ pub async fn generate_gif(
                 "x": 50,
                 "y": 90,
                 "text_align": "c",
-                "all_caps": false,
+                "all_caps": true,
                 "size": font_size,
                 "color": [255, 255, 255, 255],
                 "start": sub.start.saturating_sub(start),
@@ -744,21 +744,32 @@ pub fn format_frinkiac_result(result: &FrinkiacResult) -> String {
 /// Send a frinkiac result as a Discord embed (GIF with clickable title) or plain text fallback
 async fn send_frinkiac_result(http: &Http, msg: &Message, result: &FrinkiacResult) {
     if let Some(gif_url) = &result.gif_url {
-        let caption_url = format!(
-            "https://frinkiac.com/caption/{}/{}",
-            result._episode, result._timestamp
-        );
         let title = format!(
             "{} (Season {}, Episode {})",
             result.episode_title, result.season, result.episode_number
         );
-        let embed = CreateEmbed::new()
-            .title(title)
-            .url(caption_url)
-            .image(gif_url);
-        let message = CreateMessage::new().embed(embed);
-        if let Err(e) = msg.channel_id.send_message(http, message).await {
-            error!("Error sending Frinkiac embed: {:?}", e);
+
+        // Download the GIF and upload as attachment for reliable display
+        match reqwest::Client::new().get(gif_url.as_str()).send().await {
+            Ok(resp) if resp.status().is_success() => {
+                if let Ok(bytes) = resp.bytes().await {
+                    let attachment = serenity::builder::CreateAttachment::bytes(
+                        bytes.to_vec(),
+                        "frinkiac.gif".to_string(),
+                    );
+                    let message = CreateMessage::new().content(title).add_file(attachment);
+                    if let Err(e) = msg.channel_id.send_message(http, message).await {
+                        error!("Error sending Frinkiac GIF attachment: {:?}", e);
+                    }
+                }
+            }
+            _ => {
+                // Fallback: send the URL as text
+                let response = format!("{}\n{}", title, gif_url);
+                if let Err(e) = msg.channel_id.say(http, &response).await {
+                    error!("Error sending Frinkiac result: {:?}", e);
+                }
+            }
         }
     } else {
         let response = format_frinkiac_result(result);
@@ -848,7 +859,7 @@ pub async fn handle_frinkiac_command(
                     result.end_timestamp,
                     &merge_subtitle_fragments(&result.subtitles),
                     0,
-                    "ComicNeue-Bold",
+                    "akbar",
                 )
                 .await;
                 send_frinkiac_result(http, msg, &result).await;
@@ -893,7 +904,7 @@ pub async fn handle_frinkiac_command(
                         result.end_timestamp,
                         &merge_subtitle_fragments(&result.subtitles),
                         0,
-                        "ComicNeue-Bold",
+                        "akbar",
                     )
                     .await;
                     send_frinkiac_result(http, msg, &result).await;

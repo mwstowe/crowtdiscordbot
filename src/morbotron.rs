@@ -5,7 +5,7 @@ use rand::seq::IndexedRandom;
 use reqwest::Client as HttpClient;
 use serde::Deserialize;
 use serenity::all::Http;
-use serenity::builder::{CreateEmbed, CreateMessage};
+use serenity::builder::CreateMessage;
 use serenity::model::channel::Message;
 use std::sync::RwLock;
 use std::time::Duration;
@@ -512,21 +512,32 @@ fn format_morbotron_result(result: &MorbotronResult) -> String {
 
 async fn send_morbotron_result(http: &Http, msg: &Message, result: &MorbotronResult) {
     if let Some(gif_url) = &result.gif_url {
-        let caption_url = format!(
-            "https://morbotron.com/caption/{}/{}",
-            result._episode, result._timestamp
-        );
         let title = format!(
             "S{:02}E{:02} - {}",
             result.season, result.episode_number, result.episode_title
         );
-        let embed = CreateEmbed::new()
-            .title(title)
-            .url(caption_url)
-            .image(gif_url);
-        let message = CreateMessage::new().embed(embed);
-        if let Err(e) = msg.channel_id.send_message(http, message).await {
-            error!("Error sending Morbotron embed: {:?}", e);
+
+        // Download the GIF and upload as attachment for reliable display
+        match reqwest::Client::new().get(gif_url.as_str()).send().await {
+            Ok(resp) if resp.status().is_success() => {
+                if let Ok(bytes) = resp.bytes().await {
+                    let attachment = serenity::builder::CreateAttachment::bytes(
+                        bytes.to_vec(),
+                        "morbotron.gif".to_string(),
+                    );
+                    let message = CreateMessage::new().content(title).add_file(attachment);
+                    if let Err(e) = msg.channel_id.send_message(http, message).await {
+                        error!("Error sending Morbotron GIF attachment: {:?}", e);
+                    }
+                }
+            }
+            _ => {
+                // Fallback: send the URL as text
+                let response = format!("{}\n{}", title, gif_url);
+                if let Err(e) = msg.channel_id.say(http, &response).await {
+                    error!("Error sending Morbotron result: {:?}", e);
+                }
+            }
         }
     } else {
         let response = format_morbotron_result(result);
@@ -563,7 +574,7 @@ pub async fn handle_morbotron_command(
                     result.end_timestamp,
                     &crate::frinkiac::merge_subtitle_fragments(&result.subtitles),
                     0,
-                    "impact",
+                    "fr",
                 )
                 .await;
                 send_morbotron_result(http, msg, &result).await;
@@ -600,7 +611,7 @@ pub async fn handle_morbotron_command(
                     result.end_timestamp,
                     &crate::frinkiac::merge_subtitle_fragments(&result.subtitles),
                     0,
-                    "impact",
+                    "fr",
                 )
                 .await;
                 send_morbotron_result(http, msg, &result).await;
