@@ -127,7 +127,7 @@ async fn fetch_feeds(feeds: &[(String, String)]) -> Vec<Headline> {
         .user_agent("Mozilla/5.0 (compatible; CrowBot/1.0)")
         .redirect(reqwest::redirect::Policy::limited(3))
         .build()
-        .unwrap_or_default();
+        .expect("Failed to create news feed HTTP client");
 
     for (url, name) in feeds {
         if let Some(mut items) = fetch_rss(&client, url, name).await {

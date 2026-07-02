@@ -1,8 +1,20 @@
 use anyhow::Result;
 use base64::Engine;
+use lazy_static::lazy_static;
 use regex::Regex;
 use serenity::model::channel::Message;
 use tracing::{error, info};
+
+lazy_static! {
+    static ref YOUTUBE_URL_REGEX: Regex = Regex::new(
+        r"(?:https?://)?(?:www\.)?(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/shorts/)[\w\-]+"
+    )
+    .unwrap();
+    static ref MEDIA_URL_REGEX: Regex =
+        Regex::new(r"\[(Image|Video): [^|]+ \| ([^|]+) \| (https?://[^\]]+)\]").unwrap();
+    static ref MEDIA_STRIP_REGEX: Regex =
+        Regex::new(r"\[(Image|Video): ([^|]+) \| [^|]+ \| https?://[^\]]+\]").unwrap();
+}
 
 /// A media item extracted from a Discord message
 #[derive(Debug, Clone)]
@@ -29,7 +41,10 @@ const VIDEO_TYPES: &[&str] = &[
 ];
 
 /// Extract downloadable image/video attachments from a message
-pub async fn extract_media_from_message(msg: &Message) -> Vec<MediaItem> {
+pub async fn extract_media_from_message(
+    http_client: &reqwest::Client,
+    msg: &Message,
+) -> Vec<MediaItem> {
     let mut items = Vec::new();
 
     for attachment in &msg.attachments {
@@ -50,7 +65,7 @@ pub async fn extract_media_from_message(msg: &Message) -> Vec<MediaItem> {
             continue;
         }
 
-        match download_and_encode(&attachment.url).await {
+        match download_and_encode(http_client, &attachment.url).await {
             Ok(data) => {
                 items.push(MediaItem {
                     mime_type: content_type.to_string(),
@@ -86,7 +101,7 @@ pub async fn extract_media_from_message(msg: &Message) -> Vec<MediaItem> {
                 continue;
             }
 
-            match download_and_encode(&attachment.url).await {
+            match download_and_encode(http_client, &attachment.url).await {
                 Ok(data) => {
                     items.push(MediaItem {
                         mime_type: content_type.to_string(),
@@ -112,11 +127,8 @@ pub async fn extract_media_from_message(msg: &Message) -> Vec<MediaItem> {
 
 /// Extract YouTube URLs from message text
 pub fn extract_youtube_urls(text: &str) -> Vec<YouTubeUrl> {
-    let re = Regex::new(
-        r"(?:https?://)?(?:www\.)?(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/shorts/)[\w\-]+"
-    ).unwrap();
-
-    re.find_iter(text)
+    YOUTUBE_URL_REGEX
+        .find_iter(text)
         .map(|m| YouTubeUrl {
             url: m.as_str().to_string(),
         })
@@ -149,8 +161,7 @@ pub fn describe_attachments(msg: &Message) -> String {
 /// Returns up to `max_items` most recent items (from end of text).
 pub fn extract_media_urls_from_context(text: &str, max_items: usize) -> Vec<(String, String)> {
     // Match [Image: name | mime | url] and [Video: name | mime | url]
-    let re = Regex::new(r"\[(Image|Video): [^|]+ \| ([^|]+) \| (https?://[^\]]+)\]").unwrap();
-    let mut items: Vec<(String, String)> = re
+    let mut items: Vec<(String, String)> = MEDIA_URL_REGEX
         .captures_iter(text)
         .map(|cap| {
             let mime = cap[2].trim().to_string();
@@ -167,22 +178,26 @@ pub fn extract_media_urls_from_context(text: &str, max_items: usize) -> Vec<(Str
 
 /// Strip media URLs from context text for display (keep just filename)
 pub fn strip_media_urls_from_context(text: &str) -> String {
-    let re = Regex::new(r"\[(Image|Video): ([^|]+) \| [^|]+ \| https?://[^\]]+\]").unwrap();
-    re.replace_all(text, |caps: &regex::Captures| {
-        let kind = &caps[1];
-        let name = caps[2].trim();
-        format!("[{kind}: {name}]")
-    })
-    .to_string()
+    MEDIA_STRIP_REGEX
+        .replace_all(text, |caps: &regex::Captures| {
+            let kind = &caps[1];
+            let name = caps[2].trim();
+            format!("[{kind}: {name}]")
+        })
+        .to_string()
 }
 
 /// Download media items from URLs found in context text.
 /// Returns up to max_items MediaItems, silently skipping failures.
-pub async fn fetch_media_from_context(text: &str, max_items: usize) -> Vec<MediaItem> {
+pub async fn fetch_media_from_context(
+    http_client: &reqwest::Client,
+    text: &str,
+    max_items: usize,
+) -> Vec<MediaItem> {
     let urls = extract_media_urls_from_context(text, max_items);
     let mut items = Vec::new();
     for (mime, url) in urls {
-        match download_and_encode(&url).await {
+        match download_and_encode(http_client, &url).await {
             Ok(data) => {
                 info!("Fetched context media: {} ({})", url, mime);
                 items.push(MediaItem {
@@ -202,12 +217,8 @@ pub async fn fetch_media_from_context(text: &str, max_items: usize) -> Vec<Media
 }
 
 /// Download a URL and return base64-encoded content
-async fn download_and_encode(url: &str) -> Result<String> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()?;
-
-    let response = client.get(url).send().await?;
+async fn download_and_encode(http_client: &reqwest::Client, url: &str) -> Result<String> {
+    let response = http_client.get(url).send().await?;
     if !response.status().is_success() {
         return Err(anyhow::anyhow!("HTTP {}", response.status()));
     }

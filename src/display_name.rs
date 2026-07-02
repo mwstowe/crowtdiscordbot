@@ -12,6 +12,15 @@ lazy_static! {
 
     // Match patterns like "<username>" in the author name
     static ref AUTHOR_USERNAME_REGEX: Regex = Regex::new(r"<([^>]+)>").unwrap();
+
+    // IRC formatting codes (bold, italic, underline, color)
+    static ref IRC_FORMATTING_REGEX: Regex = Regex::new(r"[\x02\x1D\x1F\x03\x0F](?:\d{1,2}(?:,\d{1,2})?)?").unwrap();
+
+    // Pronouns in parentheses at the end of a name
+    static ref PRONOUNS_STRIP_REGEX: Regex = Regex::new(r"\s*\([^)]+\)\s*$").unwrap();
+
+    // Pronouns capture in parentheses at the end of a name
+    static ref PRONOUNS_CAPTURE_REGEX: Regex = Regex::new(r"\s*\(([^)]+)\)\s*$").unwrap();
 }
 
 // Helper function to check if a message is from a gateway bot and extract the real username
@@ -202,12 +211,12 @@ pub fn clean_display_name(name: &str) -> String {
     let mut clean_name = name.to_string();
 
     // Remove IRC formatting codes (bold, italic, underline, color)
-    let irc_formatting = Regex::new(r"[\x02\x1D\x1F\x03\x0F](?:\d{1,2}(?:,\d{1,2})?)?").unwrap();
-    clean_name = irc_formatting.replace_all(&clean_name, "").to_string();
+    clean_name = IRC_FORMATTING_REGEX
+        .replace_all(&clean_name, "")
+        .to_string();
 
     // Remove pronouns in parentheses at the end of the name
-    let pronouns_regex = Regex::new(r"\s*\([^)]+\)\s*$").unwrap();
-    clean_name = pronouns_regex.replace(&clean_name, "").to_string();
+    clean_name = PRONOUNS_STRIP_REGEX.replace(&clean_name, "").to_string();
 
     clean_name
 }
@@ -215,8 +224,7 @@ pub fn clean_display_name(name: &str) -> String {
 // Extract pronouns from a display name
 pub fn extract_pronouns(name: &str) -> Option<String> {
     // Look for pronouns in parentheses at the end of the name
-    let pronouns_regex = Regex::new(r"\s*\(([^)]+)\)\s*$").unwrap();
-    if let Some(captures) = pronouns_regex.captures(name) {
+    if let Some(captures) = PRONOUNS_CAPTURE_REGEX.captures(name) {
         if let Some(pronouns) = captures.get(1) {
             return Some(pronouns.as_str().to_string());
         }

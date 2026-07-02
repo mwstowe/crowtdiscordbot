@@ -322,20 +322,24 @@ impl MasterOfAllScienceClient {
         let result_to_use;
 
         {
-            let last_query = self.last_query.read().unwrap();
-            let last_results = self.last_results.read().unwrap();
+            let last_query = self.last_query.read().unwrap_or_else(|e| e.into_inner());
+            let last_results = self.last_results.read().unwrap_or_else(|e| e.into_inner());
             let last_results_len = last_results.len();
 
             if let Some(last_q) = last_query.as_ref() {
                 if last_q == query && last_results_len > 0 {
                     // Same query, increment the index to cycle through results
-                    let mut index = *self.current_index.read().unwrap() + 1;
+                    let mut index =
+                        *self.current_index.read().unwrap_or_else(|e| e.into_inner()) + 1;
                     if index >= last_results_len {
                         index = 0; // Wrap around to the beginning
                     }
 
                     // Update the current index
-                    *self.current_index.write().unwrap() = index;
+                    *self
+                        .current_index
+                        .write()
+                        .unwrap_or_else(|e| e.into_inner()) = index;
                     info!(
                         "Same query as last time, using result {} of {}",
                         index + 1,
@@ -366,14 +370,17 @@ impl MasterOfAllScienceClient {
         }
 
         // New query, reset the index and fetch new results
-        *self.current_index.write().unwrap() = 0;
+        *self
+            .current_index
+            .write()
+            .unwrap_or_else(|e| e.into_inner()) = 0;
 
         // Try a direct search first
         let results = self.search_api(query).await?;
         if !results.is_empty() {
             // Store the query and results for next time
-            *self.last_query.write().unwrap() = Some(query.to_string());
-            *self.last_results.write().unwrap() = results.clone();
+            *self.last_query.write().unwrap_or_else(|e| e.into_inner()) = Some(query.to_string());
+            *self.last_results.write().unwrap_or_else(|e| e.into_inner()) = results.clone();
 
             info!("Found {} results with direct search", results.len());
             let first_result = &results[0];
@@ -388,8 +395,9 @@ impl MasterOfAllScienceClient {
             let results = self.search_api(&quoted_query).await?;
             if !results.is_empty() {
                 // Store the query and results for next time
-                *self.last_query.write().unwrap() = Some(query.to_string());
-                *self.last_results.write().unwrap() = results.clone();
+                *self.last_query.write().unwrap_or_else(|e| e.into_inner()) =
+                    Some(query.to_string());
+                *self.last_results.write().unwrap_or_else(|e| e.into_inner()) = results.clone();
 
                 info!("Found {} results with quoted search", results.len());
                 let first_result = &results[0];

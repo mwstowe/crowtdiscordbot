@@ -2,7 +2,6 @@ use anyhow::Result;
 use serenity::all::Message;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tokio::sync::Mutex;
 use tokio_rusqlite::Connection as SqliteConnection;
 use tracing::error;
 
@@ -16,13 +15,12 @@ impl LastSeenFinder {
     // Find the last message from a user by author_id
     pub async fn find_last_message_by_id(
         &self,
-        conn: Arc<Mutex<SqliteConnection>>,
+        conn: Arc<SqliteConnection>,
         author_id: &str,
     ) -> Result<Option<(String, String, String, u64)>, anyhow::Error> {
         let author_id = author_id.to_string();
-        let conn_guard = conn.lock().await;
 
-        let result = conn_guard
+        let result = conn
             .call(move |conn| {
                 let mut stmt = conn.prepare(
                     "SELECT author, display_name, content, timestamp FROM messages
@@ -51,15 +49,14 @@ impl LastSeenFinder {
     // Find the last message from a user by name (nickname, display name, or username)
     pub async fn find_last_message(
         &self,
-        conn: Arc<Mutex<SqliteConnection>>,
+        conn: Arc<SqliteConnection>,
         name: &str,
     ) -> Result<Option<(String, String, String, u64)>, anyhow::Error> {
         let name_lower = name.to_lowercase();
         let name_pattern = format!("%{name_lower}%");
-        let conn_guard = conn.lock().await;
 
         // Query the database for the most recent message from a user matching the name pattern
-        let result = conn_guard
+        let result = conn
             .call(move |conn| {
                 let mut stmt = conn.prepare(
                     "SELECT author, display_name, content, timestamp FROM messages
@@ -162,7 +159,7 @@ pub async fn handle_lastseen_command(
     msg: &Message,
     name: &str,
     user_id: Option<&str>,
-    db_conn: &Option<Arc<Mutex<SqliteConnection>>>,
+    db_conn: &Option<Arc<SqliteConnection>>,
 ) -> Result<()> {
     if name.is_empty() && user_id.is_none() {
         if let Err(e) = msg.channel_id.say(http, "Usage: !lastseen [name]").await {

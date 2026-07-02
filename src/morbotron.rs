@@ -191,20 +191,24 @@ impl MorbotronClient {
         let result_to_use;
 
         {
-            let last_query = self.last_query.read().unwrap();
-            let last_results = self.last_results.read().unwrap();
+            let last_query = self.last_query.read().unwrap_or_else(|e| e.into_inner());
+            let last_results = self.last_results.read().unwrap_or_else(|e| e.into_inner());
             let last_results_len = last_results.len();
 
             if let Some(last_q) = last_query.as_ref() {
                 if last_q == query && last_results_len > 0 {
                     // Same query, increment the index to cycle through results
-                    let mut index = *self.current_index.read().unwrap() + 1;
+                    let mut index =
+                        *self.current_index.read().unwrap_or_else(|e| e.into_inner()) + 1;
                     if index >= last_results_len {
                         index = 0; // Wrap around to the beginning
                     }
 
                     // Update the current index
-                    *self.current_index.write().unwrap() = index;
+                    *self
+                        .current_index
+                        .write()
+                        .unwrap_or_else(|e| e.into_inner()) = index;
                     info!(
                         "Same query as last time, using result {} of {}",
                         index + 1,
@@ -235,14 +239,17 @@ impl MorbotronClient {
         }
 
         // New query, reset the index and fetch new results
-        *self.current_index.write().unwrap() = 0;
+        *self
+            .current_index
+            .write()
+            .unwrap_or_else(|e| e.into_inner()) = 0;
 
         // Try a direct search first
         let results = self.search_api(query).await?;
         if !results.is_empty() {
             // Store the query and results for next time
-            *self.last_query.write().unwrap() = Some(query.to_string());
-            *self.last_results.write().unwrap() = results.clone();
+            *self.last_query.write().unwrap_or_else(|e| e.into_inner()) = Some(query.to_string());
+            *self.last_results.write().unwrap_or_else(|e| e.into_inner()) = results.clone();
 
             info!("Found {} results with direct search", results.len());
             let first_result = &results[0];
@@ -257,8 +264,9 @@ impl MorbotronClient {
             let results = self.search_api(&quoted_query).await?;
             if !results.is_empty() {
                 // Store the query and results for next time
-                *self.last_query.write().unwrap() = Some(query.to_string());
-                *self.last_results.write().unwrap() = results.clone();
+                *self.last_query.write().unwrap_or_else(|e| e.into_inner()) =
+                    Some(query.to_string());
+                *self.last_results.write().unwrap_or_else(|e| e.into_inner()) = results.clone();
 
                 info!("Found {} results with quoted search", results.len());
                 let first_result = &results[0];
@@ -524,7 +532,12 @@ fn format_morbotron_result(result: &MorbotronResult) -> String {
     }
 }
 
-async fn send_morbotron_result(http: &Http, msg: &Message, result: &MorbotronResult) {
+async fn send_morbotron_result(
+    http: &Http,
+    msg: &Message,
+    result: &MorbotronResult,
+    http_client: &reqwest::Client,
+) {
     if let Some(gif_url) = &result.gif_url {
         let title = format!(
             "S{:02}E{:02} - {}",
@@ -532,7 +545,7 @@ async fn send_morbotron_result(http: &Http, msg: &Message, result: &MorbotronRes
         );
 
         // Download the GIF and upload as attachment for reliable display
-        match reqwest::Client::new().get(gif_url.as_str()).send().await {
+        match http_client.get(gif_url.as_str()).send().await {
             Ok(resp) if resp.status().is_success() => {
                 if let Ok(bytes) = resp.bytes().await {
                     let attachment = serenity::builder::CreateAttachment::bytes(
@@ -582,6 +595,7 @@ pub async fn handle_morbotron_command(
                     .expand_to_sentence_boundaries(&mut result)
                     .await;
                 result.gif_url = crate::frinkiac::generate_gif(
+                    &morbotron_client.http_client,
                     "https://morbotron.com",
                     &result._episode,
                     result.start_timestamp,
@@ -591,7 +605,7 @@ pub async fn handle_morbotron_command(
                     "fr",
                 )
                 .await;
-                send_morbotron_result(http, msg, &result).await;
+                send_morbotron_result(http, msg, &result, &morbotron_client.http_client).await;
                 return Ok(());
             }
             Ok(None) => {
@@ -619,6 +633,7 @@ pub async fn handle_morbotron_command(
                     .expand_to_sentence_boundaries(&mut result)
                     .await;
                 result.gif_url = crate::frinkiac::generate_gif(
+                    &morbotron_client.http_client,
                     "https://morbotron.com",
                     &result._episode,
                     result.start_timestamp,
@@ -628,7 +643,7 @@ pub async fn handle_morbotron_command(
                     "fr",
                 )
                 .await;
-                send_morbotron_result(http, msg, &result).await;
+                send_morbotron_result(http, msg, &result, &morbotron_client.http_client).await;
             }
             Ok(None) => {
                 let _ = msg

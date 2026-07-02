@@ -1,9 +1,10 @@
 use anyhow::Result;
 use scraper::{Html, Selector};
-use std::time::Duration;
 use tracing::{error, info};
 
-pub struct DuckDuckGoSearchClient {}
+pub struct DuckDuckGoSearchClient {
+    http_client: reqwest::Client,
+}
 
 pub struct SearchResult {
     pub title: String,
@@ -13,17 +14,16 @@ pub struct SearchResult {
 
 impl DuckDuckGoSearchClient {
     pub fn new() -> Self {
-        Self {}
+        let http_client = reqwest::Client::builder()
+            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36")
+            .timeout(std::time::Duration::from_secs(10))
+            .build()
+            .expect("Failed to create DuckDuckGo HTTP client");
+        Self { http_client }
     }
 
     // Helper method to fetch raw HTML for debugging
     pub async fn fetch_raw_html(&self, query: &str) -> Result<String> {
-        // Create the client with custom user agent to avoid being blocked
-        let client = reqwest::Client::builder()
-            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36")
-            .timeout(Duration::from_secs(10))
-            .build()?;
-
         // Build the URL with query parameters
         let encoded_query = urlencoding::encode(query);
         let url = format!("https://duckduckgo.com/html/?q={encoded_query}");
@@ -31,7 +31,7 @@ impl DuckDuckGoSearchClient {
         info!("Fetching search results from: {}", url);
 
         // Make the request
-        let response = client.get(&url).send().await?;
+        let response = self.http_client.get(&url).send().await?;
 
         // Check if the request was successful
         if !response.status().is_success() {
@@ -50,13 +50,6 @@ impl DuckDuckGoSearchClient {
 
         // Get the HTML content from DuckDuckGo
         let html_content = self.fetch_raw_html(query).await?;
-
-        // Debug: Save the HTML content to a file for inspection
-        if query.contains("site:frinkiac.com") {
-            info!("Saving DuckDuckGo HTML response for debugging");
-            std::fs::write("/tmp/duckduckgo_response.html", &html_content)
-                .map_err(|e| anyhow::anyhow!("Failed to save debug HTML: {}", e))?;
-        }
 
         // Parse the HTML
         let document = Html::parse_document(&html_content);

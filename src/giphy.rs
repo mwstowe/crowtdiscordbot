@@ -3,11 +3,19 @@ use tracing::{error, info};
 
 pub struct GiphyClient {
     api_key: String,
+    http_client: reqwest::Client,
 }
 
 impl GiphyClient {
     pub fn new(api_key: String) -> Self {
-        Self { api_key }
+        let http_client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .build()
+            .expect("Failed to create Giphy HTTP client");
+        Self {
+            api_key,
+            http_client,
+        }
     }
 
     /// Search Giphy for a GIF and return the URL of the top result
@@ -20,12 +28,7 @@ impl GiphyClient {
             urlencoding::encode(query),
         );
 
-        let client = reqwest::Client::new();
-        let response = client
-            .get(&url)
-            .timeout(std::time::Duration::from_secs(10))
-            .send()
-            .await?;
+        let response = self.http_client.get(&url).send().await?;
 
         let json: serde_json::Value = response.json().await?;
 

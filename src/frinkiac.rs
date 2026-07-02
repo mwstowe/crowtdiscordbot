@@ -280,8 +280,11 @@ impl FrinkiacClient {
 
         // Pick the next result, rotating through results for repeated queries
         let index = {
-            let mut last_q = self.last_query.write().unwrap();
-            let mut idx = self.current_index.write().unwrap();
+            let mut last_q = self.last_query.write().unwrap_or_else(|e| e.into_inner());
+            let mut idx = self
+                .current_index
+                .write()
+                .unwrap_or_else(|e| e.into_inner());
             if last_q.as_deref() == Some(query) {
                 *idx = (*idx + 1) % ordered_results.len();
             } else {
@@ -691,7 +694,9 @@ pub fn merge_subtitle_fragments(subs: &[TimedSubtitle]) -> Vec<TimedSubtitle> {
 }
 
 // Generate a GIF from a Frinkiac result using the render API
+#[allow(clippy::too_many_arguments)]
 pub async fn generate_gif(
+    http_client: &reqwest::Client,
     base_url: &str,
     episode: &str,
     start: u64,
@@ -727,12 +732,7 @@ pub async fn generate_gif(
         "overlays": overlays
     }]);
 
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(30))
-        .build()
-        .ok()?;
-
-    let response = client
+    let response = http_client
         .post(&url)
         .header("Content-Type", "application/json")
         .body(body.to_string())
@@ -780,7 +780,12 @@ pub fn format_frinkiac_result(result: &FrinkiacResult) -> String {
 }
 
 /// Send a frinkiac result as a Discord embed (GIF with clickable title) or plain text fallback
-async fn send_frinkiac_result(http: &Http, msg: &Message, result: &FrinkiacResult) {
+async fn send_frinkiac_result(
+    http: &Http,
+    msg: &Message,
+    result: &FrinkiacResult,
+    http_client: &reqwest::Client,
+) {
     if let Some(gif_url) = &result.gif_url {
         let title = format!(
             "{} (Season {}, Episode {})",
@@ -788,7 +793,7 @@ async fn send_frinkiac_result(http: &Http, msg: &Message, result: &FrinkiacResul
         );
 
         // Download the GIF and upload as attachment for reliable display
-        match reqwest::Client::new().get(gif_url.as_str()).send().await {
+        match http_client.get(gif_url.as_str()).send().await {
             Ok(resp) if resp.status().is_success() => {
                 if let Ok(bytes) = resp.bytes().await {
                     let attachment = serenity::builder::CreateAttachment::bytes(
@@ -891,6 +896,7 @@ pub async fn handle_frinkiac_command(
                     .expand_to_sentence_boundaries(&mut result)
                     .await;
                 result.gif_url = generate_gif(
+                    &frinkiac_client.http_client,
                     "https://frinkiac.com",
                     &result._episode,
                     result.start_timestamp,
@@ -900,7 +906,7 @@ pub async fn handle_frinkiac_command(
                     "akbar",
                 )
                 .await;
-                send_frinkiac_result(http, msg, &result).await;
+                send_frinkiac_result(http, msg, &result, &frinkiac_client.http_client).await;
             }
             Ok(None) => {
                 let _ = msg
@@ -936,6 +942,7 @@ pub async fn handle_frinkiac_command(
                         .expand_to_sentence_boundaries(&mut result)
                         .await;
                     result.gif_url = generate_gif(
+                        &frinkiac_client.http_client,
                         "https://frinkiac.com",
                         &result._episode,
                         result.start_timestamp,
@@ -945,7 +952,7 @@ pub async fn handle_frinkiac_command(
                         "akbar",
                     )
                     .await;
-                    send_frinkiac_result(http, msg, &result).await;
+                    send_frinkiac_result(http, msg, &result, &frinkiac_client.http_client).await;
                 }
             }
             Ok(None) => {

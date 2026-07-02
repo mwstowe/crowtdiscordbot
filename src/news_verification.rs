@@ -5,6 +5,7 @@ use tracing::{error, info};
 /// Verify that a news article title and summary match the content at the URL
 pub async fn verify_news_article(
     gemini_client: &GeminiClient,
+    http_client: &reqwest::Client,
     article_title: &str,
     article_url: &str,
     article_summary: &str,
@@ -12,13 +13,7 @@ pub async fn verify_news_article(
     // First, fetch the actual page content
     info!("Fetching page content from: {}", article_url);
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(15))
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36")
-        .redirect(reqwest::redirect::Policy::limited(3))
-        .build()?;
-
-    let response = match client.get(article_url).send().await {
+    let response = match http_client.get(article_url).send().await {
         Ok(resp) => resp,
         Err(e) => {
             error!("Failed to fetch URL {}: {:?}", article_url, e);
@@ -215,15 +210,13 @@ pub fn extract_article_info(text: &str) -> Option<(String, String)> {
 }
 
 /// Validate if a URL actually exists, follow redirects, and check content type
-pub async fn validate_url_exists(url: &str) -> anyhow::Result<(bool, Option<String>)> {
+pub async fn validate_url_exists(
+    http_client: &reqwest::Client,
+    url: &str,
+) -> anyhow::Result<(bool, Option<String>)> {
     info!("Validating URL exists: {}", url);
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-        .build()?;
-
-    match client.get(url).send().await {
+    match http_client.get(url).send().await {
         Ok(response) => {
             let status = response.status();
             let final_url = response.url().to_string();

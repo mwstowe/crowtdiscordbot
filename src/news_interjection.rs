@@ -14,7 +14,7 @@ pub async fn handle_news_interjection(
     ctx: &Context,
     msg: &Message,
     gemini_client: &GeminiClient,
-    message_db: &Option<Arc<tokio::sync::Mutex<Connection>>>,
+    message_db: &Option<Arc<Connection>>,
     _bot_name: &str,
     gemini_context_messages: usize,
     headline_cache: &HeadlineCache,

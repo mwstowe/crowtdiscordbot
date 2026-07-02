@@ -183,7 +183,7 @@ struct Bot {
     morbotron_client: MorbotronClient,
     masterofallscience_client: MasterOfAllScienceClient,
     bot_name: String,
-    message_db: Option<Arc<tokio::sync::Mutex<Connection>>>,
+    message_db: Option<Arc<Connection>>,
     message_history_limit: usize,
     commands: HashMap<String, String>,
     keyword_triggers: Vec<(Vec<String>, String)>,
@@ -230,7 +230,7 @@ pub struct BotConfig {
     pub gemini_api_endpoint: Option<String>,
     pub gemini_prompt_wrapper: Option<String>,
     pub gemini_interjection_prompt: Option<String>,
-    pub message_db: Option<Arc<tokio::sync::Mutex<Connection>>>,
+    pub message_db: Option<Arc<Connection>>,
     pub log_prompts: bool,
     pub interjection_fact_probability: f64,
     pub gemini_personality_description: Option<String>,
@@ -530,8 +530,6 @@ impl Bot {
         // Get message history count
         let message_count = if let Some(db) = &self.message_db {
             match db
-                .lock()
-                .await
                 .call(|conn| {
                     let mut stmt = conn.prepare("SELECT COUNT(*) FROM messages")?;
                     let count: i64 = stmt.query_row([], |row| row.get(0))?;
@@ -828,7 +826,7 @@ impl Bot {
                 info!("Quote -dud request for user: {}", user_clone);
 
                 // Query the database for messages from this user
-                db_clone.lock().await.call(move |conn| {
+                db_clone.call(move |conn| {
                     // First check if display_name column exists
                     let has_display_name = conn
                         .prepare("PRAGMA table_info(messages)")
@@ -882,7 +880,7 @@ impl Bot {
                 info!("Quote -dud request for random user");
 
                 // Query the database for a random message from any user
-                db_clone.lock().await.call(move |conn| {
+                db_clone.call(move |conn| {
                     // First check if display_name column exists
                     let has_display_name = conn
                         .prepare("PRAGMA table_info(messages)")
@@ -1154,157 +1152,152 @@ impl Bot {
             let parts: Vec<&str> = msg.content[1..].split_whitespace().collect();
             if !parts.is_empty() {
                 let command = parts[0].to_lowercase();
+                let args = if parts.len() > 1 { &parts[1..] } else { &[] };
 
-                if command == "hello" {
-                    // Simple hello command
-                    if let Err(e) = msg.channel_id.say(&ctx.http, "world!").await {
-                        error!("Error sending hello response: {:?}", e);
-                    }
-                } else if command == "trump" {
-                    // Generate a Trump insult
-                    let insult = self.trump_insult_generator.generate_insult();
-                    if let Err(e) = msg.channel_id.say(&ctx.http, insult).await {
-                        error!("Error sending Trump insult: {:?}", e);
-                    }
-                } else if command == "bandname" {
-                    // Generate a band genre
-                    if parts.len() > 1 {
-                        let band_name = parts[1..].join(" ");
-                        let genre = self.band_genre_generator.generate_genre(&band_name);
-                        if let Err(e) = msg.channel_id.say(&ctx.http, genre).await {
-                            error!("Error sending band genre: {:?}", e);
+                match command.as_str() {
+                    "hello" => {
+                        if let Err(e) = msg.channel_id.say(&ctx.http, "world!").await {
+                            error!("Error sending hello response: {:?}", e);
                         }
-                    } else if let Err(e) = msg.reply(&ctx.http, "Please provide a band name.").await
-                    {
-                        error!("Error sending usage message: {:?}", e);
                     }
-                } else if command == "imagine" && !self.imagine_channels.is_empty() {
-                    // Extract the image prompt
-                    if parts.len() > 1 {
-                        let prompt = parts[1..].join(" ");
-                        if let Err(e) = handle_imagine_command(
-                            ctx,
-                            msg,
-                            &prompt,
-                            &self.imagine_channels,
-                            self.pollinations_api_key.as_deref(),
-                            &self.image_rate_limiter,
-                            &self.http_client,
-                        )
-                        .await
-                        {
-                            error!("Error handling imagine command: {:?}", e);
+                    "trump" => {
+                        let insult = self.trump_insult_generator.generate_insult();
+                        if let Err(e) = msg.channel_id.say(&ctx.http, insult).await {
+                            error!("Error sending Trump insult: {:?}", e);
                         }
-                    } else if let Err(e) = msg
-                        .reply(
-                            &ctx.http,
-                            "Please provide a description of what you want me to show you.",
-                        )
-                        .await
-                    {
-                        error!("Error sending usage message: {:?}", e);
                     }
-                } else if command == "alive" || command == "dead" {
-                    // Check if a celebrity name was provided
-                    if parts.len() > 1 {
-                        let celebrity_name = parts[1..].join(" ");
-                        if let Err(e) =
-                            handle_aliveordead_command(&ctx.http, msg, &celebrity_name).await
-                        {
-                            error!("Error handling alive command: {:?}", e);
-                            if let Err(e) = msg
-                                .channel_id
-                                .say(&ctx.http, "Error checking celebrity status")
-                                .await
-                            {
-                                error!("Error sending error message: {:?}", e);
+                    "bandname" => {
+                        if !args.is_empty() {
+                            let band_name = args.join(" ");
+                            let genre = self.band_genre_generator.generate_genre(&band_name);
+                            if let Err(e) = msg.channel_id.say(&ctx.http, genre).await {
+                                error!("Error sending band genre: {:?}", e);
                             }
-                        }
-                    } else if let Err(e) = msg
-                        .reply(&ctx.http, "Please provide a celebrity name.")
-                        .await
-                    {
-                        error!("Error sending usage message: {:?}", e);
-                    }
-                } else if command == "help" {
-                    // Help command - use the help message from our commands HashMap
-                    if let Some(help_text) = self.commands.get("help") {
-                        if let Err(e) = msg.channel_id.say(&ctx.http, help_text).await {
-                            error!("Error sending help message: {:?}", e);
+                        } else if let Err(e) =
+                            msg.reply(&ctx.http, "Please provide a band name.").await
+                        {
+                            error!("Error sending usage message: {:?}", e);
                         }
                     }
-                } else if command == "info" {
-                    // Handle the info command
-                    if let Err(e) = self.handle_info_command(ctx, msg).await {
-                        error!("Error handling info command: {:?}", e);
-                    }
-                } else if command == "slogan" {
-                    // Extract search term if provided
-                    let search_term = if parts.len() > 1 {
-                        Some(parts[1..].join(" "))
-                    } else {
-                        None
-                    };
-
-                    // Generate a slogan response
-                    if let Err(e) = self
-                        .handle_slogan_command(&ctx.http, msg, search_term)
-                        .await
-                    {
-                        error!("Error handling slogan command: {:?}", e);
-                        if let Err(e) = msg
-                            .channel_id
-                            .say(&ctx.http, "Error accessing slogan database")
+                    "imagine" if !self.imagine_channels.is_empty() => {
+                        if !args.is_empty() {
+                            let prompt = args.join(" ");
+                            if let Err(e) = handle_imagine_command(
+                                ctx,
+                                msg,
+                                &prompt,
+                                &self.imagine_channels,
+                                self.pollinations_api_key.as_deref(),
+                                &self.image_rate_limiter,
+                                &self.http_client,
+                            )
+                            .await
+                            {
+                                error!("Error handling imagine command: {:?}", e);
+                            }
+                        } else if let Err(e) = msg
+                            .reply(
+                                &ctx.http,
+                                "Please provide a description of what you want me to show you.",
+                            )
                             .await
                         {
-                            error!("Error sending error message: {:?}", e);
+                            error!("Error sending usage message: {:?}", e);
                         }
                     }
-                } else if command == "quote" {
-                    // Extract all arguments after the command
-                    let args: Vec<&str> = if parts.len() > 1 {
-                        parts[1..].to_vec()
-                    } else {
-                        Vec::new()
-                    };
-
-                    // Check if this is a -dud request (quote a user)
-                    if args.contains(&"-dud") {
-                        let username_index = args.iter().position(|&r| r == "-dud").unwrap() + 1;
-                        let username = if username_index < args.len() {
-                            Some(args[username_index].to_string())
+                    "alive" | "dead" => {
+                        if !args.is_empty() {
+                            let celebrity_name = args.join(" ");
+                            if let Err(e) =
+                                handle_aliveordead_command(&ctx.http, msg, &celebrity_name).await
+                            {
+                                error!("Error handling alive command: {:?}", e);
+                                if let Err(e) = msg
+                                    .channel_id
+                                    .say(&ctx.http, "Error checking celebrity status")
+                                    .await
+                                {
+                                    error!("Error sending error message: {:?}", e);
+                                }
+                            }
+                        } else if let Err(e) = msg
+                            .reply(&ctx.http, "Please provide a celebrity name.")
+                            .await
+                        {
+                            error!("Error sending usage message: {:?}", e);
+                        }
+                    }
+                    "help" => {
+                        if let Some(help_text) = self.commands.get("help") {
+                            if let Err(e) = msg.channel_id.say(&ctx.http, help_text).await {
+                                error!("Error sending help message: {:?}", e);
+                            }
+                        }
+                    }
+                    "info" => {
+                        if let Err(e) = self.handle_info_command(ctx, msg).await {
+                            error!("Error handling info command: {:?}", e);
+                        }
+                    }
+                    "slogan" => {
+                        let search_term = if !args.is_empty() {
+                            Some(args.join(" "))
                         } else {
                             None
                         };
-
                         if let Err(e) = self
-                            .handle_quote_dud_command(&ctx.http, msg, username)
+                            .handle_slogan_command(&ctx.http, msg, search_term)
                             .await
                         {
-                            error!("Error handling quote -dud command: {:?}", e);
+                            error!("Error handling slogan command: {:?}", e);
                             if let Err(e) = msg
                                 .channel_id
-                                .say(&ctx.http, "Error retrieving user quotes")
-                                .await
-                            {
-                                error!("Error sending error message: {:?}", e);
-                            }
-                        }
-                    } else {
-                        // Regular quote command with possible -show flag
-                        if let Err(e) = self.handle_quote_command(&ctx.http, msg, args).await {
-                            error!("Error handling quote command: {:?}", e);
-                            if let Err(e) = msg
-                                .channel_id
-                                .say(&ctx.http, "Error accessing quote database")
+                                .say(&ctx.http, "Error accessing slogan database")
                                 .await
                             {
                                 error!("Error sending error message: {:?}", e);
                             }
                         }
                     }
-                } else if command == "fightcrime" {
-                    match self.generate_crime_fighting_duo(ctx, msg).await {
+                    "quote" => {
+                        if args.contains(&"-dud") {
+                            let username_index =
+                                args.iter().position(|&r| r == "-dud").unwrap() + 1;
+                            let username = if username_index < args.len() {
+                                Some(args[username_index].to_string())
+                            } else {
+                                None
+                            };
+                            if let Err(e) = self
+                                .handle_quote_dud_command(&ctx.http, msg, username)
+                                .await
+                            {
+                                error!("Error handling quote -dud command: {:?}", e);
+                                if let Err(e) = msg
+                                    .channel_id
+                                    .say(&ctx.http, "Error retrieving user quotes")
+                                    .await
+                                {
+                                    error!("Error sending error message: {:?}", e);
+                                }
+                            }
+                        } else {
+                            let args_vec: Vec<&str> = args.to_vec();
+                            if let Err(e) =
+                                self.handle_quote_command(&ctx.http, msg, args_vec).await
+                            {
+                                error!("Error handling quote command: {:?}", e);
+                                if let Err(e) = msg
+                                    .channel_id
+                                    .say(&ctx.http, "Error accessing quote database")
+                                    .await
+                                {
+                                    error!("Error sending error message: {:?}", e);
+                                }
+                            }
+                        }
+                    }
+                    "fightcrime" => match self.generate_crime_fighting_duo(ctx, msg).await {
                         Ok(duo) => {
                             if let Err(e) = msg.channel_id.say(&ctx.http, duo).await {
                                 error!("Error sending crime fighting duo: {:?}", e);
@@ -1320,158 +1313,153 @@ impl Bot {
                                 error!("Error sending error message: {:?}", e);
                             }
                         }
-                    }
-                } else if command == "buzz" {
-                    // Handle the buzz command
-                    if let Err(e) = handle_buzz_command(&ctx.http, msg).await {
-                        error!("Error handling buzz command: {:?}", e);
-                        if let Err(e) = msg
-                            .channel_id
-                            .say(&ctx.http, "Error generating buzzword")
-                            .await
-                        {
-                            error!("Error sending error message: {:?}", e);
+                    },
+                    "buzz" => {
+                        if let Err(e) = handle_buzz_command(&ctx.http, msg).await {
+                            error!("Error handling buzz command: {:?}", e);
+                            if let Err(e) = msg
+                                .channel_id
+                                .say(&ctx.http, "Error generating buzzword")
+                                .await
+                            {
+                                error!("Error sending error message: {:?}", e);
+                            }
                         }
                     }
-                } else if command == "lastseen" || command == "seen" {
-                    // Extract name or user ID to search for
-                    let (name, user_id) = if parts.len() > 1 {
-                        let raw = parts[1..].join(" ");
-                        // Handle Discord mention format <@123456> or <@!123456>
-                        if raw.starts_with("<@") && raw.ends_with('>') {
-                            let id_str = raw
-                                .trim_start_matches("<@")
-                                .trim_start_matches('!')
-                                .trim_end_matches('>');
-                            if let Ok(uid) = id_str.parse::<u64>() {
-                                (String::new(), Some(uid.to_string()))
+                    "lastseen" | "seen" => {
+                        let (name, user_id) = if !args.is_empty() {
+                            let raw = args.join(" ");
+                            if raw.starts_with("<@") && raw.ends_with('>') {
+                                let id_str = raw
+                                    .trim_start_matches("<@")
+                                    .trim_start_matches('!')
+                                    .trim_end_matches('>');
+                                if let Ok(uid) = id_str.parse::<u64>() {
+                                    (String::new(), Some(uid.to_string()))
+                                } else {
+                                    (raw, None)
+                                }
                             } else {
-                                (raw, None)
+                                (raw.trim_start_matches('@').to_string(), None)
                             }
                         } else {
-                            (raw.trim_start_matches('@').to_string(), None)
-                        }
-                    } else {
-                        (String::new(), None)
-                    };
+                            (String::new(), None)
+                        };
 
-                    // Determine search term: use author_id if we have a mention, otherwise name
-                    let search_name = if let Some(ref uid) = user_id {
-                        uid.clone()
-                    } else {
-                        name.clone()
-                    };
+                        let search_name = if let Some(ref uid) = user_id {
+                            uid.clone()
+                        } else {
+                            name.clone()
+                        };
 
-                    // Handle the lastseen command
-                    if let Err(e) = handle_lastseen_command(
-                        &ctx.http,
-                        msg,
-                        &search_name,
-                        user_id.as_deref(),
-                        &self.message_db,
-                    )
-                    .await
-                    {
-                        error!("Error handling lastseen command: {:?}", e);
-                        if let Err(e) = msg
-                            .channel_id
-                            .say(&ctx.http, "Error searching message history")
-                            .await
+                        if let Err(e) = handle_lastseen_command(
+                            &ctx.http,
+                            msg,
+                            &search_name,
+                            user_id.as_deref(),
+                            &self.message_db,
+                        )
+                        .await
                         {
-                            error!("Error sending error message: {:?}", e);
+                            error!("Error handling lastseen command: {:?}", e);
+                            if let Err(e) = msg
+                                .channel_id
+                                .say(&ctx.http, "Error searching message history")
+                                .await
+                            {
+                                error!("Error sending error message: {:?}", e);
+                            }
                         }
                     }
-                } else if command == "frinkiac" {
-                    // Extract search term if provided
-                    let args = if parts.len() > 1 {
-                        Some(parts[1..].join(" "))
-                    } else {
-                        None
-                    };
-
-                    // Handle the frinkiac command
-                    if let Err(e) = handle_frinkiac_command(
-                        &ctx.http,
-                        msg,
-                        args,
-                        &self.frinkiac_client,
-                        self.gemini_client.as_ref(),
-                    )
-                    .await
-                    {
-                        error!("Error handling frinkiac command: {:?}", e);
-                        if let Err(e) = msg
-                            .channel_id
-                            .say(&ctx.http, "Error searching Frinkiac")
-                            .await
+                    "frinkiac" => {
+                        let search_term = if !args.is_empty() {
+                            Some(args.join(" "))
+                        } else {
+                            None
+                        };
+                        if let Err(e) = handle_frinkiac_command(
+                            &ctx.http,
+                            msg,
+                            search_term,
+                            &self.frinkiac_client,
+                            self.gemini_client.as_ref(),
+                        )
+                        .await
                         {
-                            error!("Error sending error message: {:?}", e);
+                            error!("Error handling frinkiac command: {:?}", e);
+                            if let Err(e) = msg
+                                .channel_id
+                                .say(&ctx.http, "Error searching Frinkiac")
+                                .await
+                            {
+                                error!("Error sending error message: {:?}", e);
+                            }
                         }
                     }
-                } else if command == "morbotron" {
-                    // Extract search term if provided
-                    let search_term = if parts.len() > 1 {
-                        Some(parts[1..].join(" "))
-                    } else {
-                        None
-                    };
-
-                    // Handle the morbotron command
-                    if let Err(e) = handle_morbotron_command(
-                        &ctx.http,
-                        msg,
-                        search_term,
-                        &self.morbotron_client,
-                        self.gemini_client.as_ref(),
-                    )
-                    .await
-                    {
-                        error!("Error handling morbotron command: {:?}", e);
-                        if let Err(e) = msg
-                            .channel_id
-                            .say(&ctx.http, "Error searching Morbotron")
-                            .await
+                    "morbotron" => {
+                        let search_term = if !args.is_empty() {
+                            Some(args.join(" "))
+                        } else {
+                            None
+                        };
+                        if let Err(e) = handle_morbotron_command(
+                            &ctx.http,
+                            msg,
+                            search_term,
+                            &self.morbotron_client,
+                            self.gemini_client.as_ref(),
+                        )
+                        .await
                         {
-                            error!("Error sending error message: {:?}", e);
+                            error!("Error handling morbotron command: {:?}", e);
+                            if let Err(e) = msg
+                                .channel_id
+                                .say(&ctx.http, "Error searching Morbotron")
+                                .await
+                            {
+                                error!("Error sending error message: {:?}", e);
+                            }
                         }
                     }
-                } else if command == "masterofallscience" {
-                    // Extract search term if provided
-                    let search_term = if parts.len() > 1 {
-                        Some(parts[1..].join(" "))
-                    } else {
-                        None
-                    };
-
-                    // Handle the masterofallscience command
-                    if let Err(e) = handle_masterofallscience_command(
-                        &ctx.http,
-                        msg,
-                        search_term,
-                        &self.masterofallscience_client,
-                        self.gemini_client.as_ref(),
-                    )
-                    .await
-                    {
-                        error!("Error handling masterofallscience command: {:?}", e);
-                        if let Err(e) = msg
-                            .channel_id
-                            .say(&ctx.http, "Error searching Master of All Science")
-                            .await
+                    "masterofallscience" => {
+                        let search_term = if !args.is_empty() {
+                            Some(args.join(" "))
+                        } else {
+                            None
+                        };
+                        if let Err(e) = handle_masterofallscience_command(
+                            &ctx.http,
+                            msg,
+                            search_term,
+                            &self.masterofallscience_client,
+                            self.gemini_client.as_ref(),
+                        )
+                        .await
                         {
-                            error!("Error sending error message: {:?}", e);
+                            error!("Error handling masterofallscience command: {:?}", e);
+                            if let Err(e) = msg
+                                .channel_id
+                                .say(&ctx.http, "Error searching Master of All Science")
+                                .await
+                            {
+                                error!("Error sending error message: {:?}", e);
+                            }
                         }
                     }
-                } else if let Some(response) = self.commands.get(&command) {
-                    if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
-                        error!("Error sending command response: {:?}", e);
-                    }
-                } else if let Some(gemini_client) = &self.gemini_client {
-                    // Handle unknown command with Gemini API
-                    if let Err(e) =
-                        handle_unknown_command(&ctx.http, msg, &command, gemini_client, ctx).await
-                    {
-                        error!("Error handling unknown command: {:?}", e);
+                    _ => {
+                        // Check static commands HashMap, then fall back to AI
+                        if let Some(response) = self.commands.get(&command) {
+                            if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
+                                error!("Error sending command response: {:?}", e);
+                            }
+                        } else if let Some(gemini_client) = &self.gemini_client {
+                            if let Err(e) =
+                                handle_unknown_command(&ctx.http, msg, &command, gemini_client, ctx)
+                                    .await
+                            {
+                                error!("Error handling unknown command: {:?}", e);
+                            }
+                        }
                     }
                 }
             }
@@ -1610,7 +1598,8 @@ impl Bot {
                             .collect();
 
                     // Extract media (images/video) from the message and any replied-to message
-                    let media_items = media_utils::extract_media_from_message(msg).await;
+                    let media_items =
+                        media_utils::extract_media_from_message(&self.http_client, msg).await;
                     let youtube_urls = media_utils::extract_youtube_urls(&content);
                     let has_media = !media_items.is_empty() || !youtube_urls.is_empty();
 
@@ -1895,8 +1884,6 @@ impl Bot {
                 // Uses sqrt(RANDOM()) * timestamp to bias toward newer messages
                 let bot_name_for_query = self.bot_name.clone();
                 let result = db_clone
-                    .lock()
-                    .await
                     .call(move |conn| {
                         let query =
                             "SELECT content, author, display_name, timestamp FROM messages \
@@ -2658,7 +2645,8 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                             .collect();
 
                     // Extract media (images/video) from the message and any replied-to message
-                    let media_items = media_utils::extract_media_from_message(msg).await;
+                    let media_items =
+                        media_utils::extract_media_from_message(&self.http_client, msg).await;
                     let youtube_urls = media_utils::extract_youtube_urls(&content);
                     let has_media = !media_items.is_empty() || !youtube_urls.is_empty();
 
@@ -3660,6 +3648,7 @@ Keep it brief and natural, as if you're just another participant in the conversa
 
     // Clone what we need for the spontaneous interjection task
     let fill_silence_manager = bot.fill_silence_manager.clone();
+    let task_gemini_client = bot.gemini_client.clone();
 
     let mut client = Client::builder(token, intents).event_handler(bot).await?;
 
@@ -3743,25 +3732,8 @@ Keep it brief and natural, as if you're just another participant in the conversa
             info!("- Interjection channel ID: {}", channel_id);
         }
 
-        // Create a new Gemini client for the task if we have an API key
-        let task_gemini_client = if let Some(api_key) = &gemini_api_key {
-            info!("Creating Gemini client for spontaneous interjection task");
-            Some(GeminiClient::new(GeminiConfig {
-                api_key: api_key.clone(),
-                api_endpoint: gemini_api_endpoint.clone(),
-                prompt_wrapper: gemini_prompt_wrapper.clone(),
-                bot_name: parsed_config.bot_name.clone(),
-                rate_limit_minute: parsed_config.gemini_rate_limit_minute,
-                rate_limit_day: parsed_config.gemini_rate_limit_day,
-                image_rate_limit_minute: parsed_config.gemini_image_rate_limit_minute,
-                image_rate_limit_day: parsed_config.gemini_image_rate_limit_day,
-                context_messages: parsed_config.gemini_context_messages,
-                log_prompts: gemini_log_prompts,
-                personality_description: gemini_personality_description.clone(),
-            }))
-        } else {
-            None
-        };
+        // Use the cloned Gemini client (shares rate limiter with the main handler)
+        // task_gemini_client was cloned from bot.gemini_client before the bot was consumed
 
         // Create multi-response generator for the task if Gemini client is available
         let task_multi_response_generator = task_gemini_client.as_ref().map(|client| {
@@ -3831,7 +3803,7 @@ Keep it brief and natural, as if you're just another participant in the conversa
 
                                     // Context is already in correct format: (author, display_name, pronouns, content)
                                     // Query the database for a random message with minimum length of 20 characters
-                                    let query_result = db.lock().await.call(|conn| {
+                                    let query_result = db.call(|conn| {
                                         let query = "SELECT content, author, display_name FROM messages WHERE length(content) >= 20 ORDER BY RANDOM() LIMIT 1";
                                         let mut stmt = conn.prepare(query)?;
 
@@ -4156,7 +4128,7 @@ Be creative but realistic with your article title and URL."#)
                                                             String::new()
                                                         } else {
                                                             // Validate that the URL actually exists
-                                                            match news_verification::validate_url_exists(url_str).await {
+                                                            match news_verification::validate_url_exists(gemini_client.http_client(), url_str).await {
                                                                 Ok((true, Some(final_url))) => {
                                                                     // URL exists, return the cleaned response with the final URL
                                                                     info!("URL validation successful: {} exists", final_url);
@@ -4172,7 +4144,7 @@ Be creative but realistic with your article title and URL."#)
                                                                         };
 
                                                                         // Verify that the title and summary match the content at the URL
-                                                                        match news_verification::verify_news_article(gemini_client, &title, &final_url, &summary).await {
+                                                                        match news_verification::verify_news_article(gemini_client, gemini_client.http_client(), &title, &final_url, &summary).await {
                                                                             Ok(true) => {
                                                                                 // Title and summary match the URL content
                                                                                 info!("News verification successful: Title and summary match URL content");
@@ -4302,8 +4274,48 @@ Be creative but realistic with your article title and URL."#)
     }
 
     info!("Press Ctrl+C to stop the bot");
-    client.start().await?;
 
+    // Get a handle to the shard manager for graceful shutdown
+    let shard_manager = client.shard_manager.clone();
+
+    // Spawn a task to listen for shutdown signals
+    tokio::spawn(async move {
+        #[cfg(unix)]
+        {
+            use tokio::signal::unix::{signal, SignalKind};
+            let mut sigterm =
+                signal(SignalKind::terminate()).expect("Failed to register SIGTERM handler");
+            let mut sigint =
+                signal(SignalKind::interrupt()).expect("Failed to register SIGINT handler");
+
+            tokio::select! {
+                _ = sigterm.recv() => {
+                    info!("Received SIGTERM, initiating graceful shutdown...");
+                }
+                _ = sigint.recv() => {
+                    info!("Received SIGINT (Ctrl+C), initiating graceful shutdown...");
+                }
+            }
+        }
+
+        #[cfg(not(unix))]
+        {
+            tokio::signal::ctrl_c()
+                .await
+                .expect("Failed to listen for Ctrl+C");
+            info!("Received Ctrl+C, initiating graceful shutdown...");
+        }
+
+        shard_manager.shutdown_all().await;
+        info!("All shards shut down.");
+    });
+
+    // Start the client — this blocks until all shards are shut down
+    if let Err(e) = client.start().await {
+        error!("Client error: {:?}", e);
+    }
+
+    info!("Bot has shut down gracefully.");
     Ok(())
 }
 

@@ -542,8 +542,12 @@ async fn search_celebrity(name: &str) -> Result<Option<(String, Option<String>)>
     const MAX_RETRIES: usize = 5;
     const INITIAL_DELAY_MS: u64 = 1000; // 1 second
 
+    let http_client = Client::builder()
+        .user_agent("CrowBot/1.0 (https://github.com/mwstowe/crowtdiscordbot)")
+        .build()?;
+
     for attempt in 0..MAX_RETRIES {
-        match search_celebrity_attempt(name).await {
+        match search_celebrity_attempt(&http_client, name).await {
             Ok(result) => return Ok(result),
             Err(e) => {
                 if attempt == MAX_RETRIES - 1 {
@@ -568,11 +572,10 @@ async fn search_celebrity(name: &str) -> Result<Option<(String, Option<String>)>
     unreachable!()
 }
 
-async fn search_celebrity_attempt(name: &str) -> Result<Option<(String, Option<String>)>> {
-    let client = Client::builder()
-        .user_agent("CrowBot/1.0 (https://github.com/mwstowe/crowtdiscordbot)")
-        .build()?;
-
+async fn search_celebrity_attempt(
+    http_client: &Client,
+    name: &str,
+) -> Result<Option<(String, Option<String>)>> {
     // First, search for the page - get multiple results to find the best match
     let search_url = format!(
         "https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch={}&format=json&srlimit=5",
@@ -580,7 +583,7 @@ async fn search_celebrity_attempt(name: &str) -> Result<Option<(String, Option<S
     );
 
     info!("Searching Wikipedia for: {}", name);
-    let search_response = client.get(&search_url).send().await?;
+    let search_response = http_client.get(&search_url).send().await?;
 
     // Check if we got a successful HTTP response
     if !search_response.status().is_success() {
@@ -709,7 +712,7 @@ async fn search_celebrity_attempt(name: &str) -> Result<Option<(String, Option<S
         urlencoding::encode(page_title)
     );
 
-    let page_response = client.get(&page_url).send().await?;
+    let page_response = http_client.get(&page_url).send().await?;
 
     // Check if we got a successful HTTP response
     if !page_response.status().is_success() {
@@ -804,7 +807,8 @@ async fn search_celebrity_attempt(name: &str) -> Result<Option<(String, Option<S
         info!("Detected fictional character: {}", page_title);
 
         // Try to find the actor associated with this character
-        if let Some(actor_info) = find_actor_for_character(raw_extract, page_title, &client).await?
+        if let Some(actor_info) =
+            find_actor_for_character(raw_extract, page_title, http_client).await?
         {
             return Ok(Some((
                 format!("**{page_title}** is a fictional character. {actor_info}"),
@@ -827,7 +831,7 @@ async fn search_celebrity_attempt(name: &str) -> Result<Option<(String, Option<S
 
     // Fetch structured data from Wikidata
     let wikidata = if let Some(qid) = wikidata_id {
-        fetch_wikidata_person_info(&client, qid).await
+        fetch_wikidata_person_info(http_client, qid).await
     } else {
         None
     };

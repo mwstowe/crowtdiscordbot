@@ -1,5 +1,6 @@
 use crate::display_name::get_best_display_name;
 use anyhow::Result;
+use lazy_static::lazy_static;
 use regex::Regex;
 use serenity::model::channel::Message;
 use serenity::prelude::*;
@@ -12,6 +13,14 @@ const URL_PATTERN: &str = r"https?://[^\s/$.?#].[^\s]*";
 const REGEX_SPECIAL_CHARS: &[char] = &[
     '.', '+', '*', '?', '^', '$', '(', ')', '[', ']', '{', '}', '|', '\\',
 ];
+
+lazy_static! {
+    static ref URL_REGEX: Regex = Regex::new(URL_PATTERN).expect("Invalid URL pattern regex");
+    static ref EXTRACT_CONTENT_REGEX: Regex =
+        Regex::new(r".*? (?:\*really\* )*meant: (.*)").unwrap();
+    static ref EXTRACT_AUTHOR_REGEX: Regex = Regex::new(r"^(.*?) (?:\*really\* )*meant: ").unwrap();
+    static ref REALLY_REGEX: Regex = Regex::new(r"\*really\*").unwrap();
+}
 
 // Function to handle potential regex special characters in user input
 fn sanitize_regex_pattern(pattern: &str) -> String {
@@ -128,25 +137,18 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
         regex::RegexBuilder::new(&sanitized_pattern).build()
     };
 
-    // Compile URL detection regex
-    let url_regex = Regex::new(URL_PATTERN).expect("Invalid URL pattern regex");
+    // Use pre-compiled URL detection regex
+    let url_regex = &*URL_REGEX;
 
-    // Compile regexes used inside the loop
-    let extract_content_regex =
-        Regex::new(r".*? (?:\*really\* )*meant: (.*)").unwrap_or_else(|_| {
-            error!("Failed to compile regex for extracting message content");
-            Regex::new(r".*").unwrap() // Fallback regex that matches everything
-        });
+    // Use pre-compiled regexes for content extraction
+    let extract_content_regex = &*EXTRACT_CONTENT_REGEX;
 
-    let extract_author_regex = Regex::new(r"^(.*?) (?:\*really\* )*meant: ").unwrap_or_else(|_| {
-        error!("Failed to compile regex for extracting author name");
-        Regex::new(r".*").unwrap() // Fallback regex that matches everything
-    });
+    let extract_author_regex = &*EXTRACT_AUTHOR_REGEX;
 
     match regex_result {
         Ok(re) => {
             // Try each message in order from most recent to least recent
-            let really_re = Regex::new(r"\*really\*").unwrap_or_else(|_| Regex::new(r"").unwrap());
+            let really_re = &*REALLY_REGEX;
             for prev_msg in valid_messages.iter() {
                 // Check if this specific message is a bot regex response
                 let is_this_bot_regex = prev_msg.author.id == bot_id

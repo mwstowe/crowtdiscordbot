@@ -2,7 +2,6 @@ use serenity::model::channel::Message;
 use serenity::model::id::{ChannelId, GuildId, MessageId, UserId};
 use std::collections::HashSet;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 use tokio_rusqlite::Connection as SqliteConnection;
 use tracing::{error, info};
 // Removed unused imports
@@ -10,9 +9,19 @@ use tracing::{error, info};
 // Initialize the SQLite database with enhanced schema
 pub async fn initialize_database(
     path: &str,
-) -> Result<Arc<Mutex<SqliteConnection>>, Box<dyn std::error::Error>> {
+) -> Result<Arc<SqliteConnection>, Box<dyn std::error::Error>> {
     // Connect to the database
     let conn = SqliteConnection::open(path).await?;
+
+    // Enable WAL mode and set busy timeout for better concurrent access
+    conn.call(|conn| {
+        conn.execute_batch(
+            "PRAGMA journal_mode=WAL;
+             PRAGMA busy_timeout=5000;",
+        )?;
+        Ok::<_, rusqlite::Error>(())
+    })
+    .await?;
 
     // First check if the table exists at all
     let table_exists = conn
@@ -78,16 +87,10 @@ pub async fn initialize_database(
         if needs_migration {
             info!("Migrating messages database to enhanced schema...");
 
-            // Create a backup of the old table
             conn.call(|conn| {
-                conn.execute("ALTER TABLE messages RENAME TO messages_backup", [])?;
-                Ok::<_, rusqlite::Error>(())
-            })
-            .await?;
-
-            // Create the new table with the enhanced schema
-            conn.call(|conn| {
-                conn.execute(
+                let tx = conn.transaction()?;
+                tx.execute("ALTER TABLE messages RENAME TO messages_backup", [])?;
+                tx.execute(
                     "CREATE TABLE messages (
                         id INTEGER PRIMARY KEY,
                         message_id TEXT NOT NULL,
@@ -102,17 +105,12 @@ pub async fn initialize_database(
                     )",
                     [],
                 )?;
-                Ok::<_, rusqlite::Error>(())
-            })
-            .await?;
-
-            // Migrate data from backup with default values for new columns
-            conn.call(|conn| {
-                conn.execute(
+                tx.execute(
                     "INSERT INTO messages (id, author, display_name, content, timestamp, message_id, channel_id, author_id)
                      SELECT id, author, display_name, content, timestamp, '0', '0', '0' FROM messages_backup",
                     [],
                 )?;
+                tx.commit()?;
                 Ok::<_, rusqlite::Error>(())
             }).await?;
         }
@@ -133,13 +131,13 @@ pub async fn initialize_database(
         .await?;
     }
 
-    // Return the connection wrapped in an Arc<Mutex>
-    Ok(Arc::new(Mutex::new(conn)))
+    // Return the connection wrapped in an Arc
+    Ok(Arc::new(conn))
 }
 
 // Save a message to the SQLite database with enhanced fields
 pub async fn save_message(
-    conn: Arc<Mutex<SqliteConnection>>,
+    conn: Arc<SqliteConnection>,
     author: &str,
     display_name: &str,
     content: &str,
@@ -155,8 +153,6 @@ pub async fn save_message(
     let clean_display_name = crate::display_name::clean_display_name(display_name);
     let content = content.to_string();
 
-    let conn_guard = conn.lock().await;
-
     // If we have a Message object, save all fields
     if let Some(msg) = message {
         // Clone the values we need from the Message
@@ -171,7 +167,7 @@ pub async fn save_message(
             .unwrap_or_default();
 
         // Check if this message already exists in the database
-        let exists = conn_guard
+        let exists = conn
             .call({
                 let message_id = message_id.clone();
                 move |conn| {
@@ -187,18 +183,17 @@ pub async fn save_message(
 
         if exists {
             // Message already exists, update it instead of inserting a new record
-            conn_guard
-                .call(move |conn| {
-                    conn.execute(
-                        "UPDATE messages SET content = ? WHERE message_id = ?",
-                        [&content, &message_id],
-                    )?;
-                    Ok::<_, rusqlite::Error>(())
-                })
-                .await?;
+            conn.call(move |conn| {
+                conn.execute(
+                    "UPDATE messages SET content = ? WHERE message_id = ?",
+                    [&content, &message_id],
+                )?;
+                Ok::<_, rusqlite::Error>(())
+            })
+            .await?;
         } else {
             // Message doesn't exist, insert it
-            conn_guard.call(move |conn| {
+            conn.call(move |conn| {
                 conn.execute(
                     "INSERT INTO messages (
                         message_id, channel_id, guild_id, author_id, author, display_name, content, timestamp, referenced_message_id
@@ -220,25 +215,24 @@ pub async fn save_message(
         }
     } else {
         // Fallback to basic fields if no Message object is provided
-        conn_guard
-            .call(move |conn| {
-                conn.execute(
-                    "INSERT INTO messages (
+        conn.call(move |conn| {
+            conn.execute(
+                "INSERT INTO messages (
                     message_id, channel_id, author_id, author, display_name, content, timestamp
                 ) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    [
-                        "0", // Default message_id
-                        "0", // Default channel_id
-                        "0", // Default author_id
-                        &author,
-                        &clean_display_name,
-                        &content,
-                        &timestamp.to_string(),
-                    ],
-                )?;
-                Ok::<_, rusqlite::Error>(())
-            })
-            .await?;
+                [
+                    "0", // Default message_id
+                    "0", // Default channel_id
+                    "0", // Default author_id
+                    &author,
+                    &clean_display_name,
+                    &content,
+                    &timestamp.to_string(),
+                ],
+            )?;
+            Ok::<_, rusqlite::Error>(())
+        })
+        .await?;
     }
 
     Ok(())
@@ -246,13 +240,11 @@ pub async fn save_message(
 
 // Trim the database to keep only the most recent messages
 pub async fn trim_database(
-    conn: Arc<Mutex<SqliteConnection>>,
+    conn: Arc<SqliteConnection>,
     limit: usize,
 ) -> Result<usize, Box<dyn std::error::Error>> {
-    let conn_guard = conn.lock().await;
-
     // First, count how many messages we have
-    let count = conn_guard
+    let count = conn
         .call(move |conn| {
             let mut stmt = conn.prepare("SELECT COUNT(*) FROM messages")?;
             let count: i64 = stmt.query_row([], |row| row.get(0))?;
@@ -264,17 +256,16 @@ pub async fn trim_database(
     if count as usize > limit {
         let to_delete = count as usize - limit;
 
-        conn_guard
-            .call(move |conn| {
-                conn.execute(
-                    "DELETE FROM messages WHERE id IN (
+        conn.call(move |conn| {
+            conn.execute(
+                "DELETE FROM messages WHERE id IN (
                     SELECT id FROM messages ORDER BY timestamp ASC LIMIT ?
                 )",
-                    [to_delete],
-                )?;
-                Ok::<_, rusqlite::Error>(())
-            })
-            .await?;
+                [to_delete],
+            )?;
+            Ok::<_, rusqlite::Error>(())
+        })
+        .await?;
 
         return Ok(to_delete);
     }
@@ -285,13 +276,11 @@ pub async fn trim_database(
 // Get recent messages from the database in chronological order
 // Get recent messages from the database with reply context
 pub async fn get_recent_messages_with_reply_context(
-    conn: Arc<Mutex<SqliteConnection>>,
+    conn: Arc<SqliteConnection>,
     limit: usize,
     channel_id: Option<&str>,
 ) -> Result<Vec<(String, String, Option<String>, String, Option<String>)>, Box<dyn std::error::Error>>
 {
-    let conn_guard = conn.lock().await;
-
     // If channel_id is provided, filter by it
     let raw_messages: Vec<(String, String, String, String, Option<String>)> = if let Some(channel) =
         channel_id
@@ -299,7 +288,7 @@ pub async fn get_recent_messages_with_reply_context(
         let channel_str = channel.to_string();
 
         // Get the most recent messages with their referenced message content
-        let result = conn_guard
+        let result = conn
             .call({
                 let channel_str = channel_str.clone();
                 move |conn| {
@@ -342,7 +331,7 @@ pub async fn get_recent_messages_with_reply_context(
         result
     } else {
         // If no channel_id is provided, get messages from all channels
-        conn_guard.call(move |conn| {
+        conn.call(move |conn| {
             let mut stmt = conn.prepare(
                 "SELECT m.message_id, m.channel_id, m.guild_id, m.author_id, m.author,
                         m.display_name, m.content, m.timestamp, m.referenced_message_id,
@@ -398,276 +387,74 @@ pub async fn get_recent_messages_with_reply_context(
 // Get recent messages from the database in chronological order with pronouns
 #[allow(dead_code)]
 pub async fn get_recent_messages_with_pronouns(
-    conn: Arc<Mutex<SqliteConnection>>,
+    conn: Arc<SqliteConnection>,
     limit: usize,
     channel_id: Option<&str>,
 ) -> Result<Vec<(String, String, Option<String>, String)>, Box<dyn std::error::Error>> {
-    let conn_guard = conn.lock().await;
-
-    // Add debug logging
-    info!(
-        "Getting recent messages with pronouns. Limit: {}, Channel ID: {:?}",
-        limit, channel_id
-    );
-
-    // Debug: Check which database file we're using
-    let db_path = conn_guard
-        .call(move |conn| {
-            let path = conn
-                .query_row("PRAGMA database_list", [], |row| row.get::<_, String>(2))
-                .unwrap_or_else(|_| "Unknown".to_string());
-            Ok::<_, rusqlite::Error>(path)
-        })
-        .await?;
-
-    info!("Using database file: {}", db_path);
-
-    // Debug: List all tables in the database
-    let tables = conn_guard
-        .call(move |conn| {
-            let mut stmt = conn.prepare("SELECT name FROM sqlite_master WHERE type='table'")?;
-            let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
-            let result: Vec<_> = rows.flatten().collect();
-            Ok::<_, rusqlite::Error>(result)
-        })
-        .await?;
-
-    info!("Tables in database: {:?}", tables);
-
-    // Debug: List all distinct channel IDs in the database
-    let channels = conn_guard
-        .call(move |conn| {
-            let mut stmt = conn.prepare("SELECT DISTINCT channel_id FROM messages")?;
-            let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
-            let result: Vec<_> = rows.flatten().collect();
-            Ok::<_, rusqlite::Error>(result)
-        })
-        .await?;
-
-    info!("Channel IDs in database: {:?}", channels);
-
-    // If channel_id is provided, filter by it
     let raw_messages: Vec<(String, String, String, String)> = if let Some(channel) = channel_id {
         let channel_str = channel.to_string();
 
-        // First get the total count of messages for this channel
-        let count = conn_guard
-            .call({
-                let channel_str = channel_str.clone();
-                move |conn| {
-                    let mut stmt =
-                        conn.prepare("SELECT COUNT(*) FROM messages WHERE channel_id = ?")?;
-                    let count: i64 = stmt.query_row([&channel_str], |row| row.get(0))?;
-                    Ok::<_, rusqlite::Error>(count)
-                }
-            })
-            .await?;
-
-        info!("Found {} messages in channel {}", count, channel_str);
-
-        // Debug: Check if there are any messages with non-zero message_id
-        let valid_count = conn_guard
-            .call({
-                let channel_str = channel_str.clone();
-                move |conn| {
-                    let mut stmt = conn.prepare(
-                        "SELECT COUNT(*) FROM messages WHERE channel_id = ? AND message_id != '0'",
-                    )?;
-                    let count: i64 = stmt.query_row([&channel_str], |row| row.get(0))?;
-                    Ok::<_, rusqlite::Error>(count)
-                }
-            })
-            .await?;
-
-        info!(
-            "Found {} messages with valid message_id in channel {}",
-            valid_count, channel_str
-        );
-
-        // Calculate the offset to get only the most recent messages
-        let offset = if count > limit as i64 {
-            count - limit as i64
-        } else {
-            0
-        };
-
-        info!(
-            "Using offset {} to get the most recent {} messages",
-            offset, limit
-        );
-
-        // Get the most recent messages in chronological order
-        // TEMPORARILY REMOVED message_id != '0' filter for debugging
-        let result = conn_guard
-            .call({
-                let channel_str = channel_str.clone();
-                move |conn| {
-                    // Debug: Print the exact channel_id string we're using in the query
-                    info!("Querying messages with channel_id = '{}'", channel_str);
-
-                    // Debug: Check if the channel_id exists in the database with an exact match
-                    let channel_exists = conn
-                        .query_row(
-                            "SELECT 1 FROM messages WHERE channel_id = ? LIMIT 1",
-                            [&channel_str],
-                            |_| Ok(true),
-                        )
-                        .unwrap_or(false);
-
-                    info!(
-                        "Channel ID '{}' exists in database: {}",
-                        channel_str, channel_exists
-                    );
-
-                    // If the channel doesn't exist with an exact match, try to find similar channel IDs
-                    if !channel_exists {
-                        let mut stmt = conn.prepare("SELECT DISTINCT channel_id FROM messages")?;
-                        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
-                        let similar_channels: Vec<_> = rows
-                            .flatten()
-                            .filter(|id| id.contains(&channel_str) || channel_str.contains(id))
-                            .collect();
-
-                        if !similar_channels.is_empty() {
-                            info!("Found similar channel IDs: {:?}", similar_channels);
-                        }
-                    }
-
-                    let mut stmt = conn.prepare(
-                        "SELECT message_id, author, display_name, content FROM messages
+        conn.call(move |conn| {
+            let mut stmt = conn.prepare(
+                "SELECT message_id, author, display_name, content FROM messages
                      WHERE channel_id = ?
                      ORDER BY timestamp DESC
                      LIMIT ?",
-                    )?;
+            )?;
 
-                    let rows = stmt.query_map([&channel_str, &limit.to_string()], |row| {
-                        let msg_id = row.get::<_, String>(0)?;
-                        let author = row.get::<_, String>(1)?;
-                        let display_name =
-                            row.get::<_, String>(2).unwrap_or_else(|_| "".to_string());
-                        let content = row.get::<_, String>(3)?;
+            let rows = stmt.query_map([&channel_str, &limit.to_string()], |row| {
+                let msg_id = row.get::<_, String>(0)?;
+                let author = row.get::<_, String>(1)?;
+                let display_name = row.get::<_, String>(2).unwrap_or_default();
+                let content = row.get::<_, String>(3)?;
+                Ok((msg_id, author, display_name, content))
+            })?;
 
-                        // Debug log to show both author and display_name
-                        info!(
-                            "Retrieved message: ID={}, Author={}, DisplayName={}, Content={}",
-                            msg_id, author, display_name, content
-                        );
-
-                        Ok((msg_id, author, display_name, content))
-                    })?;
-
-                    let result: Vec<_> = rows.flatten().collect();
-
-                    Ok::<_, rusqlite::Error>(result)
-                }
-            })
-            .await?;
-
-        info!("Retrieved {} messages for context", result.len());
-        result
+            let result: Vec<_> = rows.flatten().collect();
+            Ok::<_, rusqlite::Error>(result)
+        })
+        .await?
     } else {
-        // If no channel_id is provided, get messages from all channels
+        conn.call(move |conn| {
+            let mut stmt = conn.prepare(
+                "SELECT message_id, author, display_name, content FROM messages
+                     ORDER BY timestamp DESC
+                     LIMIT ?",
+            )?;
 
-        // First get the total count of messages
-        let count = conn_guard
-            .call(move |conn| {
-                let mut stmt = conn.prepare("SELECT COUNT(*) FROM messages")?;
-                let count: i64 = stmt.query_row([], |row| row.get(0))?;
-                Ok::<_, rusqlite::Error>(count)
-            })
-            .await?;
+            let rows = stmt.query_map([&limit.to_string()], |row| {
+                let msg_id = row.get::<_, String>(0)?;
+                let author = row.get::<_, String>(1)?;
+                let display_name = row.get::<_, String>(2).unwrap_or_default();
+                let content = row.get::<_, String>(3)?;
+                Ok((msg_id, author, display_name, content))
+            })?;
 
-        info!("Found {} total messages across all channels", count);
-
-        // Debug: Check if there are any messages with non-zero message_id
-        let valid_count = conn_guard
-            .call(move |conn| {
-                let mut stmt =
-                    conn.prepare("SELECT COUNT(*) FROM messages WHERE message_id != '0'")?;
-                let count: i64 = stmt.query_row([], |row| row.get(0))?;
-                Ok::<_, rusqlite::Error>(count)
-            })
-            .await?;
-
-        info!(
-            "Found {} messages with valid message_id across all channels",
-            valid_count
-        );
-
-        // Calculate the offset to get only the most recent messages
-        let offset = if count > limit as i64 {
-            count - limit as i64
-        } else {
-            0
-        };
-
-        info!(
-            "Using offset {} to get the most recent {} messages",
-            offset, limit
-        );
-
-        // Get the most recent messages in chronological order
-        // TEMPORARILY REMOVED message_id != '0' filter for debugging
-        let result = conn_guard
-            .call(move |conn| {
-                let mut stmt = conn.prepare(
-                    "SELECT message_id, author, display_name, content FROM messages
-                 ORDER BY timestamp ASC
-                 LIMIT ? OFFSET ?",
-                )?;
-
-                let rows = stmt.query_map([&limit.to_string(), &offset.to_string()], |row| {
-                    let msg_id = row.get::<_, String>(0)?;
-                    let author = row.get::<_, String>(1)?;
-                    let display_name = row.get::<_, String>(2).unwrap_or_else(|_| "".to_string());
-                    let content = row.get::<_, String>(3)?;
-
-                    // Debug log to show both author and display_name
-                    info!(
-                        "Retrieved message: ID={}, Author={}, DisplayName={}, Content={}",
-                        msg_id, author, display_name, content
-                    );
-
-                    Ok((msg_id, author, display_name, content))
-                })?;
-
-                let result: Vec<_> = rows.flatten().collect();
-
-                Ok::<_, rusqlite::Error>(result)
-            })
-            .await?;
-
-        info!("Retrieved {} messages for context", result.len());
-        result
+            let result: Vec<_> = rows.flatten().collect();
+            Ok::<_, rusqlite::Error>(result)
+        })
+        .await?
     };
 
-    // Deduplicate messages based on content
-    info!("Before deduplication: {} messages", raw_messages.len());
+    info!("Retrieved {} messages for context", raw_messages.len());
 
-    // Use a HashSet to track seen content
+    // Deduplicate messages based on content
     let mut seen_content = HashSet::new();
     let mut deduplicated_messages = Vec::new();
 
     for (_msg_id, author, display_name, content) in raw_messages {
         if seen_content.insert(content.clone()) {
-            // This is a new message content, add it to the result
-            // Extract pronouns from display name
             let pronouns = crate::utils::extract_pronouns(&display_name);
             deduplicated_messages.push((author, display_name, pronouns, content));
         }
     }
-
-    info!(
-        "After deduplication: {} messages",
-        deduplicated_messages.len()
-    );
 
     Ok(deduplicated_messages)
 }
 
 // Trim the message history to keep only the most recent messages
 pub async fn trim_message_history(
-    conn: Arc<tokio::sync::Mutex<SqliteConnection>>,
+    conn: Arc<SqliteConnection>,
     limit: usize,
 ) -> Result<usize, Box<dyn std::error::Error>> {
     // This is just an alias for trim_database for backward compatibility
@@ -676,17 +463,15 @@ pub async fn trim_message_history(
 
 // Load message history from the database
 pub async fn load_message_history(
-    conn: Arc<tokio::sync::Mutex<SqliteConnection>>,
+    conn: Arc<SqliteConnection>,
     history: &mut std::collections::VecDeque<serenity::model::channel::Message>,
     limit: usize,
     channel_id: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let conn_guard = conn.lock().await;
-
     // Get messages from the database, filtered by channel_id if provided
     let db_messages = if let Some(channel) = channel_id {
         let channel = channel.to_string();
-        conn_guard.call(move |conn| {
+        conn.call(move |conn| {
             let mut stmt = conn.prepare(
                 "SELECT message_id, channel_id, guild_id, author_id, author, content, timestamp, referenced_message_id
                  FROM messages
@@ -713,7 +498,7 @@ pub async fn load_message_history(
         }).await?
     } else {
         // If no channel_id is provided, get messages from all channels
-        conn_guard.call(move |conn| {
+        conn.call(move |conn| {
             let mut stmt = conn.prepare(
                 "SELECT message_id, channel_id, guild_id, author_id, author, content, timestamp, referenced_message_id
                  FROM messages ORDER BY timestamp DESC LIMIT ?"
@@ -783,37 +568,32 @@ pub async fn load_message_history(
 // Update an existing message in the database when it's edited
 #[allow(dead_code)]
 pub async fn update_message(
-    conn: Arc<Mutex<SqliteConnection>>,
+    conn: Arc<SqliteConnection>,
     message_id: String,
     new_content: String,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let conn_guard = conn.lock().await;
+    conn.call(move |conn| {
+        // Update only the content field, keeping all other fields the same
+        conn.execute(
+            "UPDATE messages SET content = ? WHERE message_id = ?",
+            [&new_content, &message_id],
+        )?;
 
-    conn_guard
-        .call(move |conn| {
-            // Update only the content field, keeping all other fields the same
-            conn.execute(
-                "UPDATE messages SET content = ? WHERE message_id = ?",
-                [&new_content, &message_id],
-            )?;
-
-            Ok::<_, rusqlite::Error>(())
-        })
-        .await?;
+        Ok::<_, rusqlite::Error>(())
+    })
+    .await?;
 
     Ok(())
 }
 
 // Add a function to clean up duplicate messages and add a unique index
 pub async fn clean_up_duplicates(
-    conn: Arc<Mutex<SqliteConnection>>,
+    conn: Arc<SqliteConnection>,
 ) -> Result<usize, Box<dyn std::error::Error>> {
-    let conn_guard = conn.lock().await;
-
     info!("Starting database cleanup to remove duplicate messages...");
 
     // First, identify duplicate message_ids
-    let duplicate_count = conn_guard.call(move |conn| {
+    let duplicate_count = conn.call(move |conn| {
         // Count how many duplicates we have
         let count: i64 = conn.query_row(
             "SELECT COUNT(*) - COUNT(DISTINCT message_id) FROM messages WHERE message_id != '0'",
@@ -898,14 +678,12 @@ pub async fn clean_up_duplicates(
 }
 // Get the last message for each channel from the messages table
 pub async fn get_last_messages_by_channel(
-    conn: Arc<Mutex<SqliteConnection>>,
+    conn: Arc<SqliteConnection>,
 ) -> Result<
     std::collections::HashMap<ChannelId, (serenity::model::Timestamp, MessageId)>,
     Box<dyn std::error::Error + Send + Sync>,
 > {
     let result = conn
-        .lock()
-        .await
         .call(|conn| {
             // This query gets the most recent message for each channel
             let query = "

@@ -13,7 +13,7 @@ use tracing::{error, info};
 pub struct GeminiClient {
     api_key: String,
     api_endpoint: String,
-    http_client: reqwest::Client,
+    pub http_client: reqwest::Client,
     prompt_templates: PromptTemplates,
     rate_limiter: RateLimiter,
     image_rate_limiter: RateLimiter,
@@ -81,6 +81,11 @@ impl GeminiClient {
             log_prompts: config.log_prompts,
             image_quota_exhausted_until: Arc::new(Mutex::new(None)),
         }
+    }
+
+    /// Get a reference to the HTTP client
+    pub fn http_client(&self) -> &reqwest::Client {
+        &self.http_client
     }
 
     /// Get API quota usage statistics
@@ -346,7 +351,8 @@ impl GeminiClient {
     // Automatically detects image/video URLs in context and upgrades to multimodal.
     pub async fn generate_content(&self, prompt: &str) -> Result<String> {
         // Check if the prompt contains embedded media URLs from context
-        let context_media = crate::media_utils::fetch_media_from_context(prompt, 3).await;
+        let context_media =
+            crate::media_utils::fetch_media_from_context(&self.http_client, prompt, 3).await;
 
         if !context_media.is_empty() {
             info!(
@@ -401,6 +407,42 @@ impl GeminiClient {
 
             // Request was sent successfully — record it for rate limiting
             self.rate_limiter.record_request().await;
+
+            // Check HTTP status before parsing JSON
+            let status = response.status();
+            if !status.is_success() && status != reqwest::StatusCode::OK {
+                let error_text = response
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| "<no body>".to_string());
+                if status == reqwest::StatusCode::TOO_MANY_REQUESTS
+                    || status == reqwest::StatusCode::SERVICE_UNAVAILABLE
+                    || status == reqwest::StatusCode::INTERNAL_SERVER_ERROR
+                {
+                    // Retryable error
+                    tracing::warn!(
+                        "Gemini API returned {} (attempt {}): {}",
+                        status,
+                        attempt,
+                        &error_text[..error_text.len().min(200)]
+                    );
+                    if attempt < MAX_RETRIES {
+                        tokio::time::sleep(Duration::from_secs(delay_secs)).await;
+                        delay_secs *= 2;
+                        continue;
+                    }
+                    return Err(anyhow::anyhow!(
+                        "Gemini API returned {} after {} retries",
+                        status,
+                        MAX_RETRIES
+                    ));
+                }
+                return Err(anyhow::anyhow!(
+                    "Gemini API returned {}: {}",
+                    status,
+                    &error_text[..error_text.len().min(500)]
+                ));
+            }
 
             // Parse the response
             let response_json: serde_json::Value = response.json().await?;
@@ -602,18 +644,55 @@ impl GeminiClient {
             "contents": [{"parts": parts}]
         });
 
-        let url = format!("{}?key={}", self.api_endpoint, self.api_key);
-
         const MAX_RETRIES: usize = 5;
         let mut delay_secs = 10u64;
 
         for attempt in 1..=MAX_RETRIES {
-            let response = reqwest::Client::new()
-                .post(&url)
+            let response = self
+                .http_client
+                .post(&self.api_endpoint)
+                .header("x-goog-api-key", &self.api_key)
                 .json(&request_body)
                 .timeout(Duration::from_secs(60))
                 .send()
                 .await?;
+
+            // Check HTTP status before parsing JSON
+            let status = response.status();
+            if !status.is_success() && status != reqwest::StatusCode::OK {
+                let error_text = response
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| "<no body>".to_string());
+                if status == reqwest::StatusCode::TOO_MANY_REQUESTS
+                    || status == reqwest::StatusCode::SERVICE_UNAVAILABLE
+                    || status == reqwest::StatusCode::INTERNAL_SERVER_ERROR
+                {
+                    // Retryable error
+                    tracing::warn!(
+                        "Gemini multimodal API returned {} (attempt {}): {}",
+                        status,
+                        attempt,
+                        &error_text[..error_text.len().min(200)]
+                    );
+                    if attempt < MAX_RETRIES {
+                        tokio::time::sleep(Duration::from_secs(delay_secs)).await;
+                        delay_secs *= 2;
+                        self.rate_limiter.acquire().await?;
+                        continue;
+                    }
+                    return Err(anyhow::anyhow!(
+                        "Gemini API returned {} after {} retries",
+                        status,
+                        MAX_RETRIES
+                    ));
+                }
+                return Err(anyhow::anyhow!(
+                    "Gemini API returned {}: {}",
+                    status,
+                    &error_text[..error_text.len().min(500)]
+                ));
+            }
 
             let response_json: serde_json::Value = response.json().await?;
 

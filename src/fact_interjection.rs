@@ -91,7 +91,7 @@ pub async fn handle_fact_interjection(
     msg: &Message,
     gemini_client: &GeminiClient,
     _multi_response_generator: &Option<MultiResponseGenerator>,
-    message_db: &Option<Arc<tokio::sync::Mutex<Connection>>>,
+    message_db: &Option<Arc<Connection>>,
     bot_name: &str,
     gemini_context_messages: usize,
 ) -> Result<bool> {
@@ -133,7 +133,7 @@ pub async fn handle_spontaneous_fact_interjection(
     channel_id: ChannelId,
     gemini_client: &GeminiClient,
     _multi_response_generator: &Option<MultiResponseGenerator>,
-    message_db: &Option<Arc<tokio::sync::Mutex<Connection>>>,
+    message_db: &Option<Arc<Connection>>,
     bot_name: &str,
     gemini_context_messages: usize,
 ) -> Result<bool> {
@@ -275,6 +275,7 @@ async fn handle_fact_interjection_common(
                     // Validate the search result
                     match news_verification::verify_news_article(
                         gemini_client,
+                        gemini_client.http_client(),
                         &topic,
                         &url,
                         &display_response,
