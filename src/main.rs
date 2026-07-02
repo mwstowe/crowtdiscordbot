@@ -966,7 +966,23 @@ impl Bot {
         let mut last = self.last_interjection_time.write().await;
         *last = Some(Instant::now());
     }
+}
 
+/// Spawn a background task that refreshes the typing indicator every 8 seconds.
+/// Returns a JoinHandle that should be aborted when the API call completes.
+fn keep_typing(
+    http: Arc<serenity::http::Http>,
+    channel_id: ChannelId,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_secs(8)).await;
+            let _ = channel_id.broadcast_typing(&http).await;
+        }
+    })
+}
+
+impl Bot {
     // Function to check if the bot is being addressed
     fn is_bot_addressed(&self, content: &str) -> bool {
         let bot_name = &self.bot_name.to_lowercase();
@@ -1605,6 +1621,7 @@ impl Bot {
                         ""
                     };
 
+                    let typing_task = keep_typing(ctx.http.clone(), msg.channel_id);
                     // Use multimodal path if media is present, otherwise standard text path
                     let response_result = if has_media {
                         info!(
@@ -1638,6 +1655,7 @@ impl Bot {
                             .await
                     };
 
+                    typing_task.abort();
                     match response_result {
                         Ok(Some(response)) => {
                             // Check if the response is a GIF request
@@ -2651,6 +2669,7 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                         ""
                     };
 
+                    let typing_task = keep_typing(ctx.http.clone(), msg.channel_id);
                     // Use multimodal path if media is present, otherwise standard text path
                     let response_result = if has_media {
                         info!(
@@ -2684,6 +2703,7 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                             .await
                     };
 
+                    typing_task.abort();
                     match response_result {
                         Ok(Some(response)) => {
                             // Check if the response looks like the prompt itself (API error)
