@@ -183,8 +183,13 @@ impl GeminiClient {
         should_respond: bool,
     ) -> Result<Option<String>> {
         // Create a modified prompt that asks for multiple responses
+        let pass_instruction = if should_respond {
+            "You MUST respond — do not pass. If you're stuck, respond with 'GIF: [search term]' for a reaction GIF instead. Generate at least 3 options."
+        } else {
+            "If you decide not to respond at all, just respond with 'PASS'."
+        };
         let multi_response_prompt = format!(
-            "{}\n\nIMPORTANT: You are responding to {user_name}. Do not address anyone else by name unless directly relevant to your response.\n\nGenerate exactly 3-5 different response options, each on a separate line starting with 'OPTION:'. Make each response unique in tone and approach while staying in character. Make your responses about 10% funnier than usual - add wit, unexpected turns, or clever observations. If you decide not to respond at all, just respond with 'PASS'.",
+            "{}\n\nIMPORTANT: You are responding to {user_name}. Do not address anyone else by name unless directly relevant to your response.\n\nGenerate exactly 3-5 different response options, each on a separate line starting with 'OPTION:'. Make each response unique in tone and approach while staying in character. Make your responses about 10% funnier than usual - add wit, unexpected turns, or clever observations. {pass_instruction}",
             prompt
         );
 
