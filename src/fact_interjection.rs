@@ -45,16 +45,16 @@ fn strip_topic_from_response(response: &str) -> String {
         let after_topic = &response[topic_start + 6..];
 
         if let Some(end_pos) = after_topic.find("ENDTOPIC") {
-            let topic_text = after_topic[..end_pos].trim();
             let rest = after_topic[end_pos + 8..].trim_start();
 
-            // If TOPIC is inline (text before and after), keep the topic text in place
-            if !before.trim().is_empty() && !rest.is_empty() {
-                format!("{}{}{}", before.trim_end(), topic_text, rest)
+            // Always strip the TOPIC tag — it's a search hint, not display text
+            let before_clean = before.trim_end();
+            if before_clean.is_empty() {
+                rest.to_string()
+            } else if rest.is_empty() {
+                before_clean.to_string()
             } else {
-                // TOPIC is at end or standalone — just use the before text
-                let cleaned = before.trim_end_matches([',', ' ', ';', ':']);
-                cleaned.to_string()
+                format!("{} {}", before_clean, rest)
             }
         } else {
             // No ENDTOPIC found — return everything before TOPIC
