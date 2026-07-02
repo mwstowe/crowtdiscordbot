@@ -602,51 +602,88 @@ impl GeminiClient {
             "contents": [{"parts": parts}]
         });
 
-        let response = self
-            .http_client
-            .post(&self.api_endpoint)
-            .header("x-goog-api-key", &self.api_key)
-            .json(&request_body)
-            .timeout(Duration::from_secs(60)) // longer timeout for media
-            .send()
-            .await?;
+        let url = format!("{}?key={}", self.api_endpoint, self.api_key);
 
-        let response_json: serde_json::Value = response.json().await?;
+        const MAX_RETRIES: usize = 5;
+        let mut delay_secs = 10u64;
 
-        if self.log_prompts {
-            if let Ok(pretty) = serde_json::to_string_pretty(&response_json) {
-                info!("Gemini API Multimodal Response: {}", pretty);
+        for attempt in 1..=MAX_RETRIES {
+            let response = reqwest::Client::new()
+                .post(&url)
+                .json(&request_body)
+                .timeout(Duration::from_secs(60))
+                .send()
+                .await?;
+
+            let response_json: serde_json::Value = response.json().await?;
+
+            if self.log_prompts {
+                if let Ok(pretty) = serde_json::to_string_pretty(&response_json) {
+                    info!("Gemini API Multimodal Response: {}", pretty);
+                }
             }
-        }
 
-        // Check for errors
-        if let Some(error) = response_json.get("error") {
-            let msg = error
-                .get("message")
-                .and_then(|m| m.as_str())
-                .unwrap_or("Unknown API error");
-            // Check for billing/spending cap errors
-            if msg.contains("spending cap") || msg.contains("BillingHardLimit") {
-                error!("Gemini multimodal API billing error: {}", msg);
+            // Check for errors
+            if let Some(error) = response_json.get("error") {
+                let msg = error
+                    .get("message")
+                    .and_then(|m| m.as_str())
+                    .unwrap_or("Unknown API error");
+                let error_code = error.get("code").and_then(|c| c.as_u64()).unwrap_or(0);
+
+                // Check for billing/spending cap errors (not retryable)
+                if msg.contains("spending cap") || msg.contains("BillingHardLimit") {
+                    error!("Gemini multimodal API billing error: {}", msg);
+                    return Err(anyhow::anyhow!(
+                        "BILLING_ERROR: The Gemini API quota or billing limit has been reached."
+                    ));
+                }
+
+                // Check if retryable
+                if msg.contains("overloaded")
+                    || msg.contains("try again later")
+                    || msg.contains("high demand")
+                    || (error_code == 500 && msg.contains("Internal error encountered"))
+                {
+                    if attempt < MAX_RETRIES {
+                        info!(
+                            "Gemini multimodal retryable error (attempt {}/{}): {}, retrying in {}s...",
+                            attempt, MAX_RETRIES, msg, delay_secs
+                        );
+                        tokio::time::sleep(Duration::from_secs(delay_secs)).await;
+                        delay_secs *= 2;
+                        self.rate_limiter.acquire().await?;
+                        continue;
+                    } else {
+                        error!(
+                            "Gemini multimodal retryable error, max retries exceeded: {}",
+                            msg
+                        );
+                        return Err(anyhow::anyhow!(
+                            "SILENT_ERROR: Gemini API overloaded after {} retries",
+                            MAX_RETRIES
+                        ));
+                    }
+                }
+
+                error!("Gemini multimodal API error: {}", msg);
+                return Err(anyhow::anyhow!("Gemini API error: {}", msg));
+            }
+
+            // Extract text from response
+            if let Some(text) = response_json
+                .pointer("/candidates/0/content/parts/0/text")
+                .and_then(|t| t.as_str())
+            {
+                return Ok(crate::text_formatting::fix_sentence_spacing(text));
+            } else {
                 return Err(anyhow::anyhow!(
-                    "BILLING_ERROR: The Gemini API quota or billing limit has been reached. The bot will continue working once the limit resets."
+                    "Failed to extract text from multimodal response"
                 ));
             }
-            error!("Gemini multimodal API error: {}", msg);
-            return Err(anyhow::anyhow!("Gemini API error: {}", msg));
         }
 
-        // Extract text from response
-        if let Some(text) = response_json
-            .pointer("/candidates/0/content/parts/0/text")
-            .and_then(|t| t.as_str())
-        {
-            Ok(crate::text_formatting::fix_sentence_spacing(text))
-        } else {
-            Err(anyhow::anyhow!(
-                "Failed to extract text from multimodal response"
-            ))
-        }
+        Err(anyhow::anyhow!("Maximum retry attempts exceeded"))
     }
 }
 
