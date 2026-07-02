@@ -238,62 +238,45 @@ impl FrinkiacClient {
     async fn search_with_strategy(&self, query: &str) -> Result<Option<FrinkiacResult>> {
         // URL encode the query
         let encoded_query = urlencoding::encode(query);
-        let search_url = format!("{FRINKIAC_BASE_URL}?q={encoded_query}");
 
-        // Make the search request
-        let search_response = self
-            .http_client
-            .get(&search_url)
-            .send()
-            .await
-            .map_err(|e| anyhow!("Failed to search Frinkiac: {}", e))?;
+        // First try classic seasons (1-11) with API filter
+        let classic_url = format!("{FRINKIAC_BASE_URL}?q={encoded_query}&smin=1&smax=11");
+        let classic_results = self.fetch_search_results(&classic_url).await?;
 
-        if !search_response.status().is_success() {
-            return Err(anyhow!(
-                "Frinkiac search failed with status: {}",
-                search_response.status()
-            ));
-        }
+        // Then get unfiltered results (for later seasons fallback)
+        let all_url = format!("{FRINKIAC_BASE_URL}?q={encoded_query}");
+        let all_results = self.fetch_search_results(&all_url).await?;
 
-        // Parse the search results
-        let search_results: Vec<serde_json::Value> = search_response
-            .json()
-            .await
-            .map_err(|e| anyhow!("Failed to parse Frinkiac search results: {}", e))?;
-
-        // If no results, return None
-        if search_results.is_empty() {
-            info!("No results found for query: {}", query);
-            return Ok(None);
-        }
-
-        // Deduplicate results by episode (API returns many frames from same scene)
-        let mut seen_episodes = std::collections::HashSet::new();
-        let unique_results: Vec<&serde_json::Value> = search_results
-            .iter()
+        // Deduplicate each set by episode
+        let classic_unique = Self::dedupe_by_episode(&classic_results);
+        let later_unique: Vec<&serde_json::Value> = Self::dedupe_by_episode(&all_results)
+            .into_iter()
             .filter(|r| {
                 let ep = r.get("Episode").and_then(|v| v.as_str()).unwrap_or("");
-                seen_episodes.insert(ep.to_string())
-            })
-            .collect();
-
-        if unique_results.is_empty() {
-            return Ok(None);
-        }
-
-        // Bias toward classic seasons (1-11): show those first, then later seasons
-        let (classic, later): (Vec<&serde_json::Value>, Vec<&serde_json::Value>) =
-            unique_results.into_iter().partition(|r| {
-                let ep = r.get("Episode").and_then(|v| v.as_str()).unwrap_or("");
-                // Parse season number from "S01E02" format
                 let season: u32 = ep
                     .strip_prefix('S')
                     .and_then(|s| s.split('E').next())
                     .and_then(|s| s.parse().ok())
                     .unwrap_or(99);
-                season <= 11
-            });
-        let ordered_results: Vec<&serde_json::Value> = classic.into_iter().chain(later).collect();
+                season > 11
+            })
+            .collect();
+
+        // Shuffle within each partition for variety
+        use rand::seq::SliceRandom;
+        let mut classic_shuffled = classic_unique;
+        let mut later_shuffled = later_unique;
+        classic_shuffled.shuffle(&mut rand::rng());
+        later_shuffled.shuffle(&mut rand::rng());
+
+        // Classics first, then later seasons
+        let ordered_results: Vec<&serde_json::Value> =
+            classic_shuffled.into_iter().chain(later_shuffled).collect();
+
+        if ordered_results.is_empty() {
+            info!("No results found for query: {}", query);
+            return Ok(None);
+        }
 
         // Pick the next result, rotating through results for repeated queries
         let index = {
@@ -546,6 +529,28 @@ impl FrinkiacClient {
     /// Expand subtitles to sentence boundaries by fetching adjacent captions.
     /// If the first subtitle starts mid-sentence, fetches earlier context.
     /// If the last subtitle ends mid-sentence, fetches later context.
+    /// Fetch raw search results from a frinkiac search URL
+    async fn fetch_search_results(&self, url: &str) -> Result<Vec<serde_json::Value>> {
+        let response = self.http_client.get(url).send().await?;
+        if !response.status().is_success() {
+            return Ok(Vec::new());
+        }
+        let results: Vec<serde_json::Value> = response.json().await.unwrap_or_default();
+        Ok(results)
+    }
+
+    /// Deduplicate search results by episode, keeping the first occurrence of each
+    fn dedupe_by_episode(results: &[serde_json::Value]) -> Vec<&serde_json::Value> {
+        let mut seen = std::collections::HashSet::new();
+        results
+            .iter()
+            .filter(|r| {
+                let ep = r.get("Episode").and_then(|v| v.as_str()).unwrap_or("");
+                seen.insert(ep.to_string())
+            })
+            .collect()
+    }
+
     pub async fn expand_to_sentence_boundaries(&self, result: &mut FrinkiacResult) {
         let episode = result._episode.clone();
 
