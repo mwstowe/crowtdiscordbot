@@ -5,11 +5,17 @@ use crate::response_timing::apply_realistic_delay;
 use anyhow::Result;
 use serenity::model::channel::Message;
 use serenity::prelude::*;
+use std::collections::HashSet;
 use std::sync::Arc;
+use tokio::sync::RwLock;
 use tokio_rusqlite::Connection;
 use tracing::{error, info};
 
+/// Maximum number of posted URLs to track (prevents unbounded growth)
+const MAX_POSTED_URLS: usize = 500;
+
 // Handle news interjection using real headlines from RSS feeds
+#[allow(clippy::too_many_arguments)]
 pub async fn handle_news_interjection(
     ctx: &Context,
     msg: &Message,
@@ -18,11 +24,25 @@ pub async fn handle_news_interjection(
     _bot_name: &str,
     gemini_context_messages: usize,
     headline_cache: &HeadlineCache,
+    posted_urls: &Arc<RwLock<HashSet<String>>>,
 ) -> Result<bool> {
     // Get cached headlines
     let headlines = headline_cache.read().await;
     if headlines.is_empty() {
         info!("News interjection: no headlines cached yet");
+        return Ok(false);
+    }
+
+    // Filter out already-posted headlines
+    let posted = posted_urls.read().await;
+    let available_headlines: Vec<&Headline> = headlines
+        .iter()
+        .filter(|h| !posted.contains(&h.url))
+        .collect();
+    drop(posted);
+
+    if available_headlines.is_empty() {
+        info!("News interjection: all cached headlines have been posted already");
         return Ok(false);
     }
 
@@ -53,7 +73,7 @@ pub async fn handle_news_interjection(
     };
 
     // Format headlines for Gemini to pick from
-    let headline_list: String = headlines
+    let headline_list: String = available_headlines
         .iter()
         .enumerate()
         .take(30)
@@ -92,7 +112,7 @@ pub async fn handle_news_interjection(
             }
 
             // Parse the response
-            if let Some((headline, comment)) = parse_selection(trimmed, &headlines) {
+            if let Some((headline, comment)) = parse_selection(trimmed, &available_headlines) {
                 let final_message = format!("{} {}", comment, headline.url);
 
                 if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
@@ -105,6 +125,21 @@ pub async fn handle_news_interjection(
                     error!("Error sending news interjection: {:?}", e);
                 } else {
                     info!("News interjection sent: {}", final_message);
+
+                    // Mark this URL as posted
+                    let mut posted = posted_urls.write().await;
+                    posted.insert(headline.url.clone());
+                    // Prevent unbounded growth
+                    if posted.len() > MAX_POSTED_URLS {
+                        // Remove roughly half the entries (oldest are arbitrary in a HashSet,
+                        // but this prevents unbounded memory growth)
+                        let to_remove: Vec<String> =
+                            posted.iter().take(MAX_POSTED_URLS / 2).cloned().collect();
+                        for url in to_remove {
+                            posted.remove(&url);
+                        }
+                    }
+
                     return Ok(true);
                 }
             } else {
@@ -123,7 +158,7 @@ pub async fn handle_news_interjection(
 }
 
 /// Parse the AI's selection response to extract the chosen headline and comment
-fn parse_selection(response: &str, headlines: &[Headline]) -> Option<(Headline, String)> {
+fn parse_selection(response: &str, headlines: &[&Headline]) -> Option<(Headline, String)> {
     let mut number: Option<usize> = None;
     let mut comment: Option<String> = None;
 
@@ -137,7 +172,7 @@ fn parse_selection(response: &str, headlines: &[Headline]) -> Option<(Headline, 
     }
 
     let idx = number?.checked_sub(1)?;
-    let headline = headlines.get(idx)?.clone();
+    let headline = (*headlines.get(idx)?).clone();
     let comment = comment?;
 
     if comment.is_empty() {

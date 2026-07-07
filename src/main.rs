@@ -214,6 +214,8 @@ struct Bot {
     giphy_client: Option<giphy::GiphyClient>,
     headline_cache: news_feed::HeadlineCache,
     news_feeds_config: Option<String>,
+    /// Tracks URLs that have already been posted to avoid repeats
+    posted_news_urls: Arc<RwLock<std::collections::HashSet<String>>>,
     /// Tracks when the last spontaneous interjection was sent
     last_interjection_time: Arc<RwLock<Option<Instant>>>,
 }
@@ -478,6 +480,7 @@ impl Bot {
             giphy_client: parsed_config.giphy_api_key.map(giphy::GiphyClient::new),
             headline_cache: news_feed::new_cache(),
             news_feeds_config: config.news_feeds,
+            posted_news_urls: Arc::new(RwLock::new(std::collections::HashSet::new())),
             last_interjection_time: Arc::new(RwLock::new(None)),
         }
     }
@@ -2511,6 +2514,7 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                     &self.bot_name,
                     self.gemini_context_messages,
                     &self.headline_cache,
+                    &self.posted_news_urls,
                 )
                 .await
                 {
