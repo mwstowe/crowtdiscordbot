@@ -238,6 +238,7 @@ pub struct BotConfig {
     pub gemini_personality_description: Option<String>,
     pub pollinations_api_key: Option<String>,
     pub news_feeds: Option<String>,
+    pub initial_posted_urls: std::collections::HashSet<String>,
 }
 
 impl Bot {
@@ -480,7 +481,7 @@ impl Bot {
             giphy_client: parsed_config.giphy_api_key.map(giphy::GiphyClient::new),
             headline_cache: news_feed::new_cache(),
             news_feeds_config: config.news_feeds,
-            posted_news_urls: Arc::new(RwLock::new(std::collections::HashSet::new())),
+            posted_news_urls: Arc::new(RwLock::new(config.initial_posted_urls)),
             last_interjection_time: Arc::new(RwLock::new(None)),
         }
     }
@@ -3476,6 +3477,35 @@ Keep it brief and natural, as if you're just another participant in the conversa
         }
     };
 
+    // Initialize posted news tracking and load existing URLs
+    let initial_posted_urls: std::collections::HashSet<String> = if let Some(ref db) = message_db {
+        if let Err(e) = db_utils::initialize_posted_news_table(db).await {
+            error!("Failed to initialize posted_news table: {:?}", e);
+        }
+        // Clean up entries older than 30 days
+        match db_utils::cleanup_old_posted_news(db, 30).await {
+            Ok(count) if count > 0 => info!("Cleaned up {} old posted news entries", count),
+            Err(e) => error!("Failed to clean up old posted news: {:?}", e),
+            _ => {}
+        }
+        // Load existing posted URLs
+        match db_utils::load_posted_news_urls(db).await {
+            Ok(urls) => {
+                info!(
+                    "Loaded {} previously posted news URLs from database",
+                    urls.len()
+                );
+                urls
+            }
+            Err(e) => {
+                error!("Failed to load posted news URLs: {:?}", e);
+                std::collections::HashSet::new()
+            }
+        }
+    } else {
+        std::collections::HashSet::new()
+    };
+
     // Find the channel ID first
     let client = Client::builder(token, intents).await?;
 
@@ -3611,6 +3641,7 @@ Keep it brief and natural, as if you're just another participant in the conversa
             gemini_personality_description: gemini_personality_description_for_bot,
             pollinations_api_key: config.pollinations_api_key.clone(),
             news_feeds: config.news_feeds.clone(),
+            initial_posted_urls,
         },
         parsed_config.clone(),
     );

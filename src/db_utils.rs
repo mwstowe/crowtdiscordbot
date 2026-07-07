@@ -725,3 +725,84 @@ pub async fn get_last_messages_by_channel(
 
     Ok(result)
 }
+
+/// Initialize the posted_news table for tracking shared article URLs
+pub async fn initialize_posted_news_table(
+    conn: &Arc<SqliteConnection>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    conn.call(|conn| {
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS posted_news (
+                url TEXT PRIMARY KEY,
+                posted_at INTEGER NOT NULL
+            )",
+            [],
+        )?;
+        Ok::<_, rusqlite::Error>(())
+    })
+    .await?;
+    Ok(())
+}
+
+/// Load all posted news URLs from the database (for restoring state on startup)
+pub async fn load_posted_news_urls(
+    conn: &Arc<SqliteConnection>,
+) -> Result<HashSet<String>, Box<dyn std::error::Error>> {
+    let urls = conn
+        .call(|conn| {
+            let mut stmt = conn.prepare("SELECT url FROM posted_news")?;
+            let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+            let mut result = HashSet::new();
+            for url in rows.flatten() {
+                result.insert(url);
+            }
+            Ok::<_, rusqlite::Error>(result)
+        })
+        .await?;
+    Ok(urls)
+}
+
+/// Record a posted news URL in the database
+pub async fn save_posted_news_url(
+    conn: &Arc<SqliteConnection>,
+    url: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let url = url.to_string();
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+
+    conn.call(move |conn| {
+        conn.execute(
+            "INSERT OR IGNORE INTO posted_news (url, posted_at) VALUES (?, ?)",
+            rusqlite::params![url, timestamp],
+        )?;
+        Ok::<_, rusqlite::Error>(())
+    })
+    .await?;
+    Ok(())
+}
+
+/// Clean up old posted news entries (older than given number of days)
+pub async fn cleanup_old_posted_news(
+    conn: &Arc<SqliteConnection>,
+    days: u64,
+) -> Result<usize, Box<dyn std::error::Error>> {
+    let cutoff = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64
+        - (days as i64 * 86400);
+
+    let deleted = conn
+        .call(move |conn| {
+            let count = conn.execute(
+                "DELETE FROM posted_news WHERE posted_at < ?",
+                rusqlite::params![cutoff],
+            )?;
+            Ok::<_, rusqlite::Error>(count)
+        })
+        .await?;
+    Ok(deleted)
+}

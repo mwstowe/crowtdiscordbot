@@ -11,9 +11,6 @@ use tokio::sync::RwLock;
 use tokio_rusqlite::Connection;
 use tracing::{error, info};
 
-/// Maximum number of posted URLs to track (prevents unbounded growth)
-const MAX_POSTED_URLS: usize = 500;
-
 // Handle news interjection using real headlines from RSS feeds
 #[allow(clippy::too_many_arguments)]
 pub async fn handle_news_interjection(
@@ -33,20 +30,7 @@ pub async fn handle_news_interjection(
         return Ok(false);
     }
 
-    // Filter out already-posted headlines
-    let posted = posted_urls.read().await;
-    let available_headlines: Vec<&Headline> = headlines
-        .iter()
-        .filter(|h| !posted.contains(&h.url))
-        .collect();
-    drop(posted);
-
-    if available_headlines.is_empty() {
-        info!("News interjection: all cached headlines have been posted already");
-        return Ok(false);
-    }
-
-    // Get recent conversation context
+    // Get recent conversation context (needed both for filtering and the prompt)
     let context_text = if let Some(db) = message_db {
         match db_utils::get_recent_messages_with_reply_context(
             db.clone(),
@@ -71,6 +55,32 @@ pub async fn handle_news_interjection(
     } else {
         String::new()
     };
+
+    // Filter out already-posted headlines (by the bot or anyone in conversation)
+    let posted = posted_urls.read().await;
+
+    // Collect URLs from recent conversation to avoid re-sharing what someone else posted
+    let urls_in_conversation: HashSet<String> = context_text
+        .split_whitespace()
+        .filter(|word| word.starts_with("http://") || word.starts_with("https://"))
+        .map(|url| url.to_string())
+        .collect();
+
+    let available_headlines: Vec<&Headline> = headlines
+        .iter()
+        .filter(|h| !posted.contains(&h.url))
+        .filter(|h| {
+            !urls_in_conversation
+                .iter()
+                .any(|conv_url| conv_url.contains(&h.url) || h.url.contains(conv_url))
+        })
+        .collect();
+    drop(posted);
+
+    if available_headlines.is_empty() {
+        info!("News interjection: all cached headlines have been posted already");
+        return Ok(false);
+    }
 
     // Format headlines for Gemini to pick from
     let headline_list: String = available_headlines
@@ -126,17 +136,16 @@ pub async fn handle_news_interjection(
                 } else {
                     info!("News interjection sent: {}", final_message);
 
-                    // Mark this URL as posted
+                    // Mark this URL as posted (in memory)
                     let mut posted = posted_urls.write().await;
                     posted.insert(headline.url.clone());
-                    // Prevent unbounded growth
-                    if posted.len() > MAX_POSTED_URLS {
-                        // Remove roughly half the entries (oldest are arbitrary in a HashSet,
-                        // but this prevents unbounded memory growth)
-                        let to_remove: Vec<String> =
-                            posted.iter().take(MAX_POSTED_URLS / 2).cloned().collect();
-                        for url in to_remove {
-                            posted.remove(&url);
+
+                    // Persist to database
+                    if let Some(db) = message_db {
+                        if let Err(e) =
+                            crate::db_utils::save_posted_news_url(db, &headline.url).await
+                        {
+                            error!("Failed to persist posted news URL: {:?}", e);
                         }
                     }
 
