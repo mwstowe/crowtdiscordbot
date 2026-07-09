@@ -63,59 +63,66 @@ pub async fn handle_aliveordead_command(
 
 // Function to determine gender and return appropriate pronouns
 fn determine_gender(text: &str) -> (&'static str, &'static str, &'static str) {
-    // Default to they/them/their
-    let mut subject = "they";
-    let mut object = "them";
-    let mut possessive = "their";
-
-    // Look for gendered pronouns in the text
     let text_lower = text.to_lowercase();
 
-    // Check for male indicators
-    if text_lower.contains(" he ")
-        || text_lower.contains(" his ")
-        || text_lower.contains(" him ")
-        || text_lower.contains(" himself ")
-        || text_lower.contains(" mr. ")
-        || text_lower.contains(" mr ")
-        || text_lower.contains(" actor ")
-        || text_lower.contains(" father ")
-        || text_lower.contains(" son ")
-        || text_lower.contains(" brother ")
-        || text_lower.contains(" husband ")
-        || text_lower.contains(" boyfriend ")
-    {
-        subject = "he";
-        object = "him";
-        possessive = "his";
-        info!("Gender detection: Male pronouns detected");
-    }
-    // Check for female indicators
-    else if text_lower.contains(" she ")
-        || text_lower.contains(" her ")
-        || text_lower.contains(" hers ")
-        || text_lower.contains(" herself ")
-        || text_lower.contains(" mrs. ")
-        || text_lower.contains(" mrs ")
-        || text_lower.contains(" ms. ")
-        || text_lower.contains(" ms ")
-        || text_lower.contains(" miss ")
-        || text_lower.contains(" actress ")
-        || text_lower.contains(" mother ")
-        || text_lower.contains(" daughter ")
-        || text_lower.contains(" sister ")
-        || text_lower.contains(" wife ")
-        || text_lower.contains(" girlfriend ")
-    {
-        subject = "she";
-        object = "her";
-        possessive = "her";
-        info!("Gender detection: Female pronouns detected");
-    } else {
-        info!("Gender detection: No clear gender indicators, using they/them");
-    }
+    // Count male indicators
+    let male_indicators = [
+        " he ",
+        " his ",
+        " him ",
+        " himself ",
+        " mr. ",
+        " mr ",
+        " actor ",
+        " father ",
+        " son ",
+        " brother ",
+        " husband ",
+        " boyfriend ",
+    ];
+    let male_count: usize = male_indicators
+        .iter()
+        .map(|ind| text_lower.matches(ind).count())
+        .sum();
 
-    (subject, object, possessive)
+    // Count female indicators
+    let female_indicators = [
+        " she ",
+        " her ",
+        " hers ",
+        " herself ",
+        " mrs. ",
+        " mrs ",
+        " ms. ",
+        " ms ",
+        " miss ",
+        " actress ",
+        " mother ",
+        " daughter ",
+        " sister ",
+        " wife ",
+        " girlfriend ",
+    ];
+    let female_count: usize = female_indicators
+        .iter()
+        .map(|ind| text_lower.matches(ind).count())
+        .sum();
+
+    info!(
+        "Gender detection: male_count={}, female_count={}",
+        male_count, female_count
+    );
+
+    if female_count > male_count {
+        info!("Gender detection: Female pronouns selected");
+        ("she", "her", "her")
+    } else if male_count > female_count {
+        info!("Gender detection: Male pronouns selected");
+        ("he", "him", "his")
+    } else {
+        info!("Gender detection: No clear majority, using they/them");
+        ("they", "them", "their")
+    }
 }
 
 // Function to check if the text is about a fictional character
@@ -857,8 +864,30 @@ async fn search_celebrity_attempt(
         )));
     }
 
-    // Determine gender for proper pronoun usage
-    let (subject_pronoun, _object_pronoun, possessive_pronoun) = determine_gender(raw_extract);
+    // Determine gender for proper pronoun usage - prefer Wikidata structured data
+    let (subject_pronoun, _object_pronoun, possessive_pronoun) = if let Some(ref wd) = wikidata {
+        if let Some(ref gender) = wd.gender {
+            match gender.to_lowercase().as_str() {
+                "female" => {
+                    info!("Gender from Wikidata: female");
+                    ("she", "her", "her")
+                }
+                "male" => {
+                    info!("Gender from Wikidata: male");
+                    ("he", "him", "his")
+                }
+                _ => {
+                    info!("Gender from Wikidata: {} (using they/them)", gender);
+                    ("they", "them", "their")
+                }
+            }
+        } else {
+            info!("No gender in Wikidata, falling back to text analysis");
+            determine_gender(raw_extract)
+        }
+    } else {
+        determine_gender(raw_extract)
+    };
     info!("Using pronouns: {}/{}", subject_pronoun, possessive_pronoun);
 
     // Get a short description (first two sentences) from Wikipedia extract
@@ -1320,6 +1349,8 @@ struct WikidataPersonInfo {
     death_date: Option<String>,
     cause_of_death: Option<String>,
     is_dead: bool,
+    /// Gender from Wikidata P21 (e.g. "male", "female", "non-binary")
+    gender: Option<String>,
 }
 
 /// Fetch person info from Wikidata (P569=birth, P570=death, P509=cause of death)
@@ -1361,9 +1392,26 @@ async fn fetch_wikidata_person_info(client: &Client, qid: &str) -> Option<Wikida
         None
     };
 
+    // Extract gender (P21) - points to another entity (Q6581072=female, Q6581097=male, etc.)
+    let gender = if let Some(gender_id) = claims
+        .pointer("/P21/0/mainsnak/datavalue/value/id")
+        .and_then(|v| v.as_str())
+    {
+        // Use well-known QIDs directly to avoid an extra API call
+        match gender_id {
+            "Q6581072" => Some("female".to_string()),
+            "Q6581097" => Some("male".to_string()),
+            "Q1097630" => Some("non-binary".to_string()),
+            "Q48270" => Some("non-binary".to_string()), // genderqueer
+            _ => fetch_wikidata_label(client, gender_id).await,
+        }
+    } else {
+        None
+    };
+
     info!(
-        "Wikidata result: birth={:?}, death={:?}, cause={:?}, is_dead={}",
-        birth_date, death_date, cause_of_death, is_dead
+        "Wikidata result: birth={:?}, death={:?}, cause={:?}, is_dead={}, gender={:?}",
+        birth_date, death_date, cause_of_death, is_dead, gender
     );
 
     Some(WikidataPersonInfo {
@@ -1371,6 +1419,7 @@ async fn fetch_wikidata_person_info(client: &Client, qid: &str) -> Option<Wikida
         death_date,
         cause_of_death,
         is_dead,
+        gender,
     })
 }
 
