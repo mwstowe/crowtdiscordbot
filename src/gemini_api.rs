@@ -73,7 +73,10 @@ impl GeminiClient {
         Self {
             api_key: config.api_key,
             api_endpoint: config.api_endpoint.unwrap_or(default_endpoint),
-            http_client: reqwest::Client::new(),
+            http_client: reqwest::Client::builder()
+                .user_agent("Mozilla/5.0 (compatible; CrowBot/1.0; +https://github.com/mwstowe/crowtdiscordbot)")
+                .build()
+                .unwrap_or_else(|_| reqwest::Client::new()),
             prompt_templates,
             rate_limiter,
             image_rate_limiter,

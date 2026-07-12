@@ -54,7 +54,20 @@ fn strip_topic_from_response(response: &str) -> String {
             } else if rest.is_empty() {
                 before_clean.to_string()
             } else {
-                format!("{} {}", before_clean, rest)
+                // If the before part ends with a comma (mid-sentence split),
+                // lowercase the first character of rest to maintain grammar
+                let rest_adjusted = if before_clean.ends_with(',') {
+                    let mut chars = rest.chars();
+                    match chars.next() {
+                        Some(c) if c.is_uppercase() => {
+                            format!("{}{}", c.to_lowercase(), chars.as_str())
+                        }
+                        _ => rest.to_string(),
+                    }
+                } else {
+                    rest.to_string()
+                };
+                format!("{} {}", before_clean, rest_adjusted)
             }
         } else {
             // No ENDTOPIC found — return everything before TOPIC
@@ -63,6 +76,85 @@ fn strip_topic_from_response(response: &str) -> String {
     } else {
         response.to_string()
     }
+}
+
+/// Check if stripping the TOPIC tag left a dangling subject reference.
+/// This catches cases like "TOPIC: origin of the term filibuster ENDTOPIC The word comes from..."
+/// where "The word" refers to "filibuster" which only existed inside the TOPIC tag.
+fn has_dangling_subject(response: &str, topic: &str) -> bool {
+    let topic_start = match response.find("TOPIC:") {
+        Some(pos) => pos,
+        None => return false,
+    };
+    let before = &response[..topic_start];
+    let after_topic = &response[topic_start + 6..];
+    let rest = match after_topic.find("ENDTOPIC") {
+        Some(end_pos) => after_topic[end_pos + 8..].trim_start(),
+        None => return false,
+    };
+
+    // Common dangling reference patterns that signal the subject was inside the TOPIC
+    let dangling_starters = [
+        "The word ",
+        "The term ",
+        "The name ",
+        "The phrase ",
+        "The concept ",
+        "It ",
+        "It's ",
+        "Its ",
+        "This ",
+        "That ",
+        "the word ",
+        "the term ",
+        "the name ",
+        "the phrase ",
+        "the concept ",
+        "it ",
+        "it's ",
+        "its ",
+        "this ",
+        "that ",
+    ];
+
+    let starts_with_dangling = dangling_starters
+        .iter()
+        .any(|pattern| rest.starts_with(pattern));
+
+    if !starts_with_dangling {
+        return false;
+    }
+
+    // Check if the key subject from the TOPIC actually appears in the text before the TOPIC.
+    // If it does, the reference isn't dangling — the subject was already introduced.
+    let topic_lower = topic.to_lowercase();
+    let before_lower = before.to_lowercase();
+
+    // Extract meaningful words from topic (skip common prefixes like "origin of the")
+    let skip_words = [
+        "origin",
+        "of",
+        "the",
+        "term",
+        "word",
+        "name",
+        "history",
+        "meaning",
+        "etymology",
+        "definition",
+        "concept",
+        "phrase",
+    ];
+    let key_words: Vec<&str> = topic_lower
+        .split_whitespace()
+        .filter(|w| !skip_words.contains(w))
+        .collect();
+
+    // If any key word from the topic appears before the tag, the reference is grounded
+    let subject_in_before = key_words.iter().any(|word| before_lower.contains(word));
+
+    // Dangling if the subject is NOT mentioned before the TOPIC tag
+    !subject_in_before
 }
 
 /// Search for an article using DuckDuckGo
@@ -267,6 +359,16 @@ async fn handle_fact_interjection_common(
                     info!(
                         "Fact interjection skipped: response is incomplete after stripping TOPIC: '{}'",
                         display_response
+                    );
+                    return Ok(false);
+                }
+
+                // Guard: don't send if the TOPIC contained the subject and
+                // the remaining text has a dangling reference to it
+                if has_dangling_subject(&response, &topic) {
+                    info!(
+                        "Fact interjection skipped: dangling subject reference after stripping TOPIC '{}': '{}'",
+                        topic, display_response
                     );
                     return Ok(false);
                 }
