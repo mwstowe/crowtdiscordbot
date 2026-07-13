@@ -113,7 +113,11 @@ pub async fn handle_imagine_command(
                     break;
                 }
                 Ok(r) if r.status().as_u16() == 402 => {
-                    info!("Model {} returned 402, trying next model", model);
+                    info!("Model {} returned 402 (payment required), trying next model", model);
+                    continue;
+                }
+                Ok(r) if r.status().as_u16() == 422 => {
+                    info!("Model {} returned 422 (content policy or invalid request), trying next model", model);
                     continue;
                 }
                 Ok(r) => {
