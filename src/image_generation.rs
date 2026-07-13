@@ -91,8 +91,8 @@ pub async fn handle_imagine_command(
     let timeout = Duration::from_secs(90);
 
     let image_bytes = if let Some(key) = pollinations_api_key {
-        // Try models in order of quality, falling back on 402 (payment required)
-        let models = ["gptimage", "flux"];
+        // Try models in order of quality, falling back on errors
+        let models = ["gptimage", "zimage", "flux"];
         let mut result = None;
 
         for model in models {
@@ -126,11 +126,11 @@ pub async fn handle_imagine_command(
                         model,
                         r.status()
                     );
-                    break;
+                    continue;
                 }
                 Err(e) => {
-                    error!("Pollinations API request failed: {:?}", e);
-                    break;
+                    error!("Pollinations API request failed with model {}: {:?}", model, e);
+                    continue;
                 }
             }
         }
