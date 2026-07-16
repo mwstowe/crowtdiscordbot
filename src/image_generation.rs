@@ -8,6 +8,18 @@ use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
+/// Guard that cancels the typing indicator when dropped, ensuring it's always
+/// stopped regardless of how the function exits (early return, error propagation, etc.)
+struct TypingGuard {
+    token: CancellationToken,
+}
+
+impl Drop for TypingGuard {
+    fn drop(&mut self) {
+        self.token.cancel();
+    }
+}
+
 pub async fn handle_imagine_command(
     ctx: &Context,
     msg: &Message,
@@ -45,11 +57,14 @@ pub async fn handle_imagine_command(
         return Ok(());
     }
 
-    // Start typing indicator and keep refreshing it until generation completes
+    // Start typing indicator and keep refreshing it until generation completes.
+    // The TypingGuard ensures the indicator is always cancelled when it goes out of scope,
+    // regardless of how the function exits (early return, error propagation, etc.)
     let typing_channel_id = msg.channel_id;
     let typing_http = ctx.http.clone();
     let typing_cancel = CancellationToken::new();
     let typing_cancel_clone = typing_cancel.clone();
+    let _typing_guard = TypingGuard { token: typing_cancel };
     tokio::spawn(async move {
         loop {
             if let Err(e) = typing_channel_id.broadcast_typing(&typing_http).await {
@@ -138,7 +153,6 @@ pub async fn handle_imagine_command(
         result
     } else {
         error!("No Pollinations API key configured - image generation requires a key");
-        typing_cancel.cancel();
         msg.reply(
             &ctx.http,
             "Image generation is not configured. A Pollinations API key is required.",
@@ -146,9 +160,6 @@ pub async fn handle_imagine_command(
         .await?;
         return Ok(());
     };
-
-    // Stop the typing indicator
-    typing_cancel.cancel();
 
     match image_bytes {
         Some(bytes) => {
