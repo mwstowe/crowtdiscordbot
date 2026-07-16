@@ -130,6 +130,9 @@ DUCKDUCKGO_SEARCH_ENABLED = "true"
 # IMAGINE_CHANNELS = "bot-testing,ai-images"
 # Pollinations API key (get one free at https://enter.pollinations.ai)
 # POLLINATIONS_API_KEY = "your_pollinations_api_key_here"
+# Together.ai API key — used as fallback when Pollinations fails
+# (sign up free at https://api.together.ai, includes $25 in credits)
+# TOGETHER_API_KEY = "your_together_api_key_here"
 
 # Gateway Bot IDs (comma-separated list of bot IDs to ignore)
 # GATEWAY_BOT_IDS = "123456789012345678,234567890123456789"

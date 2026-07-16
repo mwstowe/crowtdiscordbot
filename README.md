@@ -296,6 +296,8 @@ The bot can be configured through the `CrowConfig.toml` file:
 - `GEMINI_PROMPT_WRAPPER` - Custom prompt wrapper for Gemini API calls
 - `GOOGLE_SEARCH_ENABLED` - Enable or disable DuckDuckGo search feature (defaults to "true") (Note: Despite the name, this controls DuckDuckGo search)
 - `IMAGINE_CHANNELS` - Comma-separated list of channel names where image generation is allowed (if empty, allowed in all channels)
+- `POLLINATIONS_API_KEY` - Pollinations API key for image generation (primary provider)
+- `TOGETHER_API_KEY` - Together.ai API key for image generation (fallback when Pollinations fails; uses FLUX.1 schnell)
 - `GIPHY_API_KEY` - Giphy API key for GIF responses (get one free at https://developers.giphy.com)
 - `NEWS_FEEDS` - Comma-separated list of RSS feed URLs for news interjections (prefix with "+" to append to defaults; format: "url|Name" or just "url")
 - `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` - MySQL database credentials
@@ -314,12 +316,15 @@ If no key is configured, the bot will never use GIF responses.
 
 ## Image Generation
 
-The bot supports AI-powered image generation using Google's Gemini API. When users run the `!imagine [text]` command, the bot will generate an image based on the provided text prompt.
+The bot supports AI-powered image generation via the `!imagine [text]` command. It uses a multi-provider approach with automatic fallback:
+
+1. **Pollinations** (primary) — Tries gptimage, zimage, and flux models in order
+2. **Together.ai** (fallback) — Uses FLUX.1 schnell if all Pollinations models fail
 
 ### Configuration
 
 - Set `IMAGINE_CHANNELS` in your config to restrict image generation to specific channels
-- Requires `GEMINI_API_KEY` to be configured
+- Requires at least one of `POLLINATIONS_API_KEY` or `TOGETHER_API_KEY` to be configured
 - Uses separate rate limiting from text generation via `GEMINI_IMAGE_RATE_LIMIT_MINUTE` and `GEMINI_IMAGE_RATE_LIMIT_DAY`
 - Default image generation limits are more conservative: 5 calls per minute, 25 calls per day
 

@@ -195,6 +195,7 @@ struct Bot {
     gemini_interjection_prompt: Option<String>,
     imagine_channels: Vec<String>,
     pollinations_api_key: Option<String>,
+    together_api_key: Option<String>,
     image_rate_limiter: rate_limiter::RateLimiter,
     http_client: reqwest::Client,
     start_time: Instant,
@@ -237,6 +238,7 @@ pub struct BotConfig {
     pub interjection_fact_probability: f64,
     pub gemini_personality_description: Option<String>,
     pub pollinations_api_key: Option<String>,
+    pub together_api_key: Option<String>,
     pub news_feeds: Option<String>,
     pub initial_posted_urls: std::collections::HashSet<String>,
 }
@@ -460,6 +462,7 @@ impl Bot {
             gemini_interjection_prompt: config.gemini_interjection_prompt,
             imagine_channels: parsed_config.imagine_channels,
             pollinations_api_key: config.pollinations_api_key,
+            together_api_key: config.together_api_key,
             image_rate_limiter: rate_limiter::RateLimiter::new_with_persistence(
                 parsed_config.gemini_image_rate_limit_minute,
                 parsed_config.gemini_image_rate_limit_day,
@@ -1192,6 +1195,7 @@ impl Bot {
                                 &prompt,
                                 &self.imagine_channels,
                                 self.pollinations_api_key.as_deref(),
+                                self.together_api_key.as_deref(),
                                 &self.image_rate_limiter,
                                 &self.http_client,
                             )
@@ -3640,6 +3644,7 @@ Keep it brief and natural, as if you're just another participant in the conversa
             interjection_fact_probability,
             gemini_personality_description: gemini_personality_description_for_bot,
             pollinations_api_key: config.pollinations_api_key.clone(),
+            together_api_key: config.together_api_key.clone(),
             news_feeds: config.news_feeds.clone(),
             initial_posted_urls,
         },

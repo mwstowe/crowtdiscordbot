@@ -1,12 +1,13 @@
 use crate::rate_limiter::RateLimiter;
 use anyhow::Result;
+use base64::Engine;
 use serenity::all::{Channel, CreateMessage};
 use serenity::builder::CreateAttachment;
 use serenity::model::channel::Message;
 use serenity::prelude::*;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 /// Guard that cancels the typing indicator when dropped, ensuring it's always
 /// stopped regardless of how the function exits (early return, error propagation, etc.)
@@ -26,6 +27,7 @@ pub async fn handle_imagine_command(
     prompt: &str,
     imagine_channels: &[String],
     pollinations_api_key: Option<&str>,
+    together_api_key: Option<&str>,
     rate_limiter: &RateLimiter,
     http_client: &reqwest::Client,
 ) -> Result<()> {
@@ -57,6 +59,17 @@ pub async fn handle_imagine_command(
         return Ok(());
     }
 
+    // Check that at least one image provider is configured
+    if pollinations_api_key.is_none() && together_api_key.is_none() {
+        error!("No image generation API keys configured");
+        msg.reply(
+            &ctx.http,
+            "Image generation is not configured. An API key is required.",
+        )
+        .await?;
+        return Ok(());
+    }
+
     // Start typing indicator and keep refreshing it until generation completes.
     // The TypingGuard ensures the indicator is always cancelled when it goes out of scope,
     // regardless of how the function exits (early return, error propagation, etc.)
@@ -80,7 +93,7 @@ pub async fn handle_imagine_command(
         }
     });
 
-    info!("Generating image via Pollinations for prompt: {}", prompt);
+    info!("Generating image for prompt: {}", prompt);
 
     // Check rate limits before making the request
     if let Err(e) = rate_limiter.acquire().await {
@@ -102,68 +115,26 @@ pub async fn handle_imagine_command(
         prompt
     };
 
-    let encoded_prompt = urlencoding::encode(truncated_prompt);
-    let timeout = Duration::from_secs(90);
-
+    // Try Pollinations first (if configured), then fall back to Together.ai
     let image_bytes = if let Some(key) = pollinations_api_key {
-        // Try models in order of quality, falling back on errors
-        let models = ["gptimage", "zimage", "flux"];
-        let mut result = None;
-
-        for model in models {
-            let url = format!(
-                "https://gen.pollinations.ai/image/{encoded_prompt}?model={model}&width=1024&height=1024&nologo=true"
-            );
-            let resp = http_client
-                .get(&url)
-                .header("Authorization", format!("Bearer {key}"))
-                .timeout(timeout)
-                .send()
-                .await;
-
-            match resp {
-                Ok(r) if r.status().is_success() => {
-                    info!("Image generated successfully with model: {}", model);
-                    result = Some(r.bytes().await?);
-                    break;
-                }
-                Ok(r) if r.status().as_u16() == 402 => {
-                    info!("Model {} returned 402 (payment required), trying next model", model);
-                    continue;
-                }
-                Ok(r) if r.status().as_u16() == 422 => {
-                    info!("Model {} returned 422 (content policy or invalid request), trying next model", model);
-                    continue;
-                }
-                Ok(r) => {
-                    error!(
-                        "Pollinations API error with model {}: HTTP {}",
-                        model,
-                        r.status()
-                    );
-                    continue;
-                }
-                Err(e) => {
-                    error!("Pollinations API request failed with model {}: {:?}", model, e);
-                    continue;
-                }
+        let pollinations_result = try_pollinations(http_client, truncated_prompt, key).await;
+        match pollinations_result {
+            Some(bytes) => Some(bytes),
+            None if together_api_key.is_some() => {
+                info!("Pollinations failed, falling back to Together.ai");
+                try_together(http_client, truncated_prompt, together_api_key.unwrap()).await
             }
+            None => None,
         }
-
-        result
+    } else if let Some(key) = together_api_key {
+        try_together(http_client, truncated_prompt, key).await
     } else {
-        error!("No Pollinations API key configured - image generation requires a key");
-        msg.reply(
-            &ctx.http,
-            "Image generation is not configured. A Pollinations API key is required.",
-        )
-        .await?;
-        return Ok(());
+        None
     };
 
     match image_bytes {
         Some(bytes) => {
-            let attachment = CreateAttachment::bytes(bytes, "imagine.jpg");
+            let attachment = CreateAttachment::bytes(bytes, "imagine.png");
             let message_content = format!("Here's what I imagine for: {prompt}");
             let builder = CreateMessage::default()
                 .content(message_content)
@@ -185,4 +156,201 @@ pub async fn handle_imagine_command(
     }
 
     Ok(())
+}
+
+/// Try generating an image via Pollinations API.
+/// Returns Some(bytes) on success, None if all models fail.
+async fn try_pollinations(
+    http_client: &reqwest::Client,
+    prompt: &str,
+    api_key: &str,
+) -> Option<Vec<u8>> {
+    let encoded_prompt = urlencoding::encode(prompt);
+    let timeout = Duration::from_secs(90);
+    let models = ["gptimage", "zimage", "flux"];
+
+    for model in models {
+        let url = format!(
+            "https://gen.pollinations.ai/image/{encoded_prompt}?model={model}&width=1024&height=1024&nologo=true"
+        );
+        let resp = http_client
+            .get(&url)
+            .header("Authorization", format!("Bearer {api_key}"))
+            .timeout(timeout)
+            .send()
+            .await;
+
+        match resp {
+            Ok(r) if r.status().is_success() => {
+                info!(
+                    "Image generated successfully via Pollinations with model: {}",
+                    model
+                );
+                match r.bytes().await {
+                    Ok(bytes) => return Some(bytes.to_vec()),
+                    Err(e) => {
+                        error!("Failed to read Pollinations response bytes: {:?}", e);
+                        continue;
+                    }
+                }
+            }
+            Ok(r) if r.status().as_u16() == 402 => {
+                info!(
+                    "Pollinations model {} returned 402 (payment required), trying next model",
+                    model
+                );
+                continue;
+            }
+            Ok(r) if r.status().as_u16() == 422 => {
+                info!(
+                    "Pollinations model {} returned 422 (content policy or invalid request), trying next model",
+                    model
+                );
+                continue;
+            }
+            Ok(r) => {
+                error!(
+                    "Pollinations API error with model {}: HTTP {}",
+                    model,
+                    r.status()
+                );
+                continue;
+            }
+            Err(e) => {
+                error!(
+                    "Pollinations API request failed with model {}: {:?}",
+                    model, e
+                );
+                continue;
+            }
+        }
+    }
+
+    warn!("All Pollinations models failed");
+    None
+}
+
+/// Try generating an image via Together.ai API (FLUX.1 schnell).
+/// Returns Some(bytes) on success, None on failure.
+async fn try_together(
+    http_client: &reqwest::Client,
+    prompt: &str,
+    api_key: &str,
+) -> Option<Vec<u8>> {
+    let timeout = Duration::from_secs(60);
+
+    // Use FLUX.1 schnell — fast, good quality, available on free tier
+    let models = [
+        "black-forest-labs/FLUX.1-schnell-Free",
+        "black-forest-labs/FLUX.1-schnell",
+    ];
+
+    for model in models {
+        let body = serde_json::json!({
+            "model": model,
+            "prompt": prompt,
+            "width": 1024,
+            "height": 1024,
+            "steps": 4,
+            "n": 1,
+            "response_format": "b64_json"
+        });
+
+        let resp = http_client
+            .post("https://api.together.xyz/v1/images/generations")
+            .header("Authorization", format!("Bearer {api_key}"))
+            .header("Content-Type", "application/json")
+            .timeout(timeout)
+            .json(&body)
+            .send()
+            .await;
+
+        match resp {
+            Ok(r) if r.status().is_success() => {
+                match r.json::<serde_json::Value>().await {
+                    Ok(json) => {
+                        if let Some(b64_data) = json["data"][0]["b64_json"].as_str() {
+                            match base64::engine::general_purpose::STANDARD.decode(b64_data) {
+                                Ok(bytes) => {
+                                    info!(
+                                        "Image generated successfully via Together.ai with model: {}",
+                                        model
+                                    );
+                                    return Some(bytes);
+                                }
+                                Err(e) => {
+                                    error!("Failed to decode Together.ai base64 image: {:?}", e);
+                                }
+                            }
+                        } else if let Some(url) = json["data"][0]["url"].as_str() {
+                            // Fallback: download from URL if b64_json not present
+                            match http_client
+                                .get(url)
+                                .header("User-Agent", "crow-bot/1.0")
+                                .timeout(Duration::from_secs(30))
+                                .send()
+                                .await
+                            {
+                                Ok(img_resp) if img_resp.status().is_success() => {
+                                    match img_resp.bytes().await {
+                                        Ok(bytes) => {
+                                            info!(
+                                                "Image generated successfully via Together.ai (URL download) with model: {}",
+                                                model
+                                            );
+                                            return Some(bytes.to_vec());
+                                        }
+                                        Err(e) => {
+                                            error!("Failed to download Together.ai image: {:?}", e);
+                                        }
+                                    }
+                                }
+                                Ok(img_resp) => {
+                                    error!(
+                                        "Failed to download Together.ai image: HTTP {}",
+                                        img_resp.status()
+                                    );
+                                }
+                                Err(e) => {
+                                    error!("Failed to download Together.ai image: {:?}", e);
+                                }
+                            }
+                        } else {
+                            error!(
+                                "Together.ai response missing image data: {:?}",
+                                json
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        error!("Failed to parse Together.ai response: {:?}", e);
+                    }
+                }
+            }
+            Ok(r) if r.status().as_u16() == 402 || r.status().as_u16() == 429 => {
+                warn!(
+                    "Together.ai model {} returned {} (rate limited or payment required), trying next model",
+                    model,
+                    r.status()
+                );
+                continue;
+            }
+            Ok(r) => {
+                let status = r.status();
+                let body = r.text().await.unwrap_or_default();
+                error!(
+                    "Together.ai API error with model {}: HTTP {} - {}",
+                    model, status, body
+                );
+                continue;
+            }
+            Err(e) => {
+                error!("Together.ai API request failed with model {}: {:?}", model, e);
+                continue;
+            }
+        }
+    }
+
+    warn!("All Together.ai models failed");
+    None
 }
