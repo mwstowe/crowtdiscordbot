@@ -390,17 +390,14 @@ async fn handle_fact_interjection_common(
                             send_fact_response(http, channel_id, &final_response).await;
                         }
                         _ => {
-                            info!("Fact search result failed validation - sending without URL");
-                            send_fact_response(http, channel_id, &display_response).await;
+                            info!("Fact search result failed validation - skipping (likely hallucinated)");
                         }
                     }
                 } else {
-                    info!("No search results for fact topic - sending without URL");
-                    send_fact_response(http, channel_id, &display_response).await;
+                    info!("No search results for fact topic - skipping (likely hallucinated)");
                 }
             } else {
-                info!("No TOPIC found in fact response - sending as-is");
-                send_fact_response(http, channel_id, &response).await;
+                info!("No TOPIC found in fact response - skipping (cannot verify)");
             }
             true
         }

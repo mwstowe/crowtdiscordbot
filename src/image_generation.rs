@@ -77,7 +77,9 @@ pub async fn handle_imagine_command(
     let typing_http = ctx.http.clone();
     let typing_cancel = CancellationToken::new();
     let typing_cancel_clone = typing_cancel.clone();
-    let _typing_guard = TypingGuard { token: typing_cancel };
+    let _typing_guard = TypingGuard {
+        token: typing_cancel,
+    };
     tokio::spawn(async move {
         loop {
             if let Err(e) = typing_channel_id.broadcast_typing(&typing_http).await {
@@ -316,10 +318,7 @@ async fn try_together(
                                 }
                             }
                         } else {
-                            error!(
-                                "Together.ai response missing image data: {:?}",
-                                json
-                            );
+                            error!("Together.ai response missing image data: {:?}", json);
                         }
                     }
                     Err(e) => {
@@ -345,7 +344,10 @@ async fn try_together(
                 continue;
             }
             Err(e) => {
-                error!("Together.ai API request failed with model {}: {:?}", model, e);
+                error!(
+                    "Together.ai API request failed with model {}: {:?}",
+                    model, e
+                );
                 continue;
             }
         }
