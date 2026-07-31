@@ -8,9 +8,71 @@ use serenity::http::Http;
 use serenity::model::channel::Message;
 use serenity::model::id::ChannelId;
 use serenity::prelude::*;
+use std::collections::VecDeque;
 use std::sync::Arc;
+use tokio::sync::Mutex as TokioMutex;
 use tokio_rusqlite::Connection;
 use tracing::{error, info};
+
+/// Maximum number of recent fact topics to remember for deduplication
+const MAX_RECENT_TOPICS: usize = 20;
+
+/// Minimum similarity threshold (0.0-1.0) to consider a topic a duplicate
+const SIMILARITY_THRESHOLD: f64 = 0.4;
+
+lazy_static::lazy_static! {
+    /// Track recently shared fact topics to prevent repetition
+    static ref RECENT_FACT_TOPICS: Arc<TokioMutex<VecDeque<String>>> =
+        Arc::new(TokioMutex::new(VecDeque::with_capacity(MAX_RECENT_TOPICS)));
+}
+
+/// Check if a topic is too similar to recently shared topics
+async fn is_duplicate_topic(topic: &str) -> bool {
+    let recent = RECENT_FACT_TOPICS.lock().await;
+    let topic_lower = topic.to_lowercase();
+    let topic_words: Vec<&str> = topic_lower.split_whitespace().collect();
+
+    for prev_topic in recent.iter() {
+        let prev_lower = prev_topic.to_lowercase();
+
+        // Exact substring match
+        if topic_lower.contains(&prev_lower) || prev_lower.contains(&topic_lower) {
+            info!(
+                "Fact topic rejected (substring match): '{}' vs '{}'",
+                topic, prev_topic
+            );
+            return true;
+        }
+
+        // Word overlap check
+        let prev_words: Vec<&str> = prev_lower.split_whitespace().collect();
+        let common_words = topic_words
+            .iter()
+            .filter(|w| prev_words.contains(w))
+            .count();
+        let max_len = topic_words.len().max(prev_words.len());
+        if max_len > 0 {
+            let similarity = common_words as f64 / max_len as f64;
+            if similarity >= SIMILARITY_THRESHOLD {
+                info!(
+                    "Fact topic rejected (similarity {:.2}): '{}' vs '{}'",
+                    similarity, topic, prev_topic
+                );
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Record a topic as recently shared
+async fn record_topic(topic: &str) {
+    let mut recent = RECENT_FACT_TOPICS.lock().await;
+    if recent.len() >= MAX_RECENT_TOPICS {
+        recent.pop_front();
+    }
+    recent.push_back(topic.to_string());
+}
 
 /// Extract topic from response in "TOPIC: description ENDTOPIC" format
 fn extract_topic_from_response(response: &str) -> Option<String> {
@@ -348,6 +410,16 @@ async fn handle_fact_interjection_common(
             // Extract topic and use search-first approach
             if let Some(topic) = extract_topic_from_response(&response) {
                 info!("Extracted fact topic for search: {}", topic);
+
+                // Check if this topic is too similar to recently shared facts
+                if is_duplicate_topic(&topic).await {
+                    info!(
+                        "Fact interjection skipped: topic '{}' too similar to recent facts",
+                        topic
+                    );
+                    return Ok(false);
+                }
+
                 let display_response = strip_topic_from_response(&response);
 
                 // Guard: don't send if stripping the TOPIC left an incomplete sentence
@@ -388,6 +460,7 @@ async fn handle_fact_interjection_common(
                             info!("Fact search result validated: {}", url);
                             let final_response = format!("{} Source: {}", display_response, url);
                             send_fact_response(http, channel_id, &final_response).await;
+                            record_topic(&topic).await;
                         }
                         _ => {
                             info!("Fact search result failed validation - skipping (likely hallucinated)");

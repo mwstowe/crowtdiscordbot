@@ -156,7 +156,8 @@ impl PromptTemplates {
             - Does it match the TONE of the conversation? If people are joking around, a dry etymology lesson is the wrong move.\n\
             - Would you roll your eyes if someone said this at a party?\n\
             If the answer to any of these is unfavorable, respond with ONLY the word \"pass\". Passing is ALWAYS better than being boring or pedantic.\n\n\
-            CRITICAL: Your fact MUST add NEW information that was NOT already mentioned in the conversation. If someone just said something about a topic, do NOT repeat it back to them as a fact. Add something they DON'T already know. If you can't add genuinely new information, respond with ONLY the word \"pass\".".to_string()
+            CRITICAL: Your fact MUST add NEW information that was NOT already mentioned in the conversation. If someone just said something about a topic, do NOT repeat it back to them as a fact. Add something they DON'T already know. If you can't add genuinely new information, respond with ONLY the word \"pass\".\n\n\
+            ANTI-REPETITION: Look at the conversation context above. If you see ANY previous fact interjection from yourself (messages containing \"Source:\" links), you MUST choose a COMPLETELY DIFFERENT topic. NEVER repeat or rephrase a fact you've already shared. If the same subject (animal, person, event, statistic) appears in a previous fact you shared, pick something entirely unrelated. Variety is essential — if you've recently shared facts about animals, share one about technology or history instead. If you can't think of something fresh and different, respond with ONLY the word \"pass\".".to_string()
         );
 
         templates.insert(
