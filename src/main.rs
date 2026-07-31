@@ -3329,6 +3329,7 @@ Only respond if you can:
 1. Provide helpful clarification about the current topic
 2. Answer a question that was asked but not answered
 3. Add a brief, genuinely witty comment - if your response is just restating what was said with a vague quote attached, respond with "pass" instead
+4. If people are riffing on a joke format (e.g., making variations of the same joke structure), contribute your own version in that EXACT format. Match the pattern precisely — same structure, different punchline. This is a high-value interjection.
 
 Requirements:
 - React to what was JUST said (the most recent message), not older messages
