@@ -201,7 +201,6 @@ struct Bot {
     start_time: Instant,
     gemini_context_messages: usize,
     interjection_mst3k_probability: f64,
-    interjection_memory_probability: f64,
     interjection_pondering_probability: f64,
     interjection_ai_probability: f64,
     interjection_fact_probability: f64,
@@ -472,7 +471,6 @@ impl Bot {
             start_time: Instant::now(),
             gemini_context_messages: parsed_config.gemini_context_messages,
             interjection_mst3k_probability: parsed_config.interjection_mst3k_probability,
-            interjection_memory_probability: parsed_config.interjection_memory_probability,
             interjection_pondering_probability: parsed_config.interjection_pondering_probability,
             interjection_ai_probability: parsed_config.interjection_ai_probability,
             interjection_fact_probability: config.interjection_fact_probability,
@@ -1870,239 +1868,6 @@ impl Bot {
                 error!("Database not configured for MST3K quotes");
             }
         }
-        // Memory interjection
-        let adjusted_memory_probability =
-            self.interjection_memory_probability * silence_multiplier * recency_multiplier;
-        if rand::rng().random_bool(adjusted_memory_probability) {
-            let probability_percent = self.interjection_memory_probability * 100.0;
-            let adjusted_percent = adjusted_memory_probability * 100.0;
-            let odds = if self.interjection_memory_probability > 0.0 {
-                format!("1 in {:.0}", 1.0 / self.interjection_memory_probability)
-            } else {
-                "disabled".to_string()
-            };
-
-            info!("Triggered memory interjection (base: {:.2}% chance, adjusted: {:.2}%, silence multiplier: {:.2}x, {})",
-                  probability_percent, adjusted_percent, silence_multiplier, odds);
-
-            if let (Some(db), Some(gemini_client)) = (&self.message_db, &self.gemini_client) {
-                let db_clone = Arc::clone(db);
-
-                // Query for a random message, weighted toward more recent ones
-                // Uses sqrt(RANDOM()) * timestamp to bias toward newer messages
-                let bot_name_for_query = self.bot_name.clone();
-                let result = db_clone
-                    .call(move |conn| {
-                        let query =
-                            "SELECT content, author, display_name, timestamp FROM messages \
-                        WHERE length(content) >= 20 AND length(content) <= 300 \
-                        AND content NOT LIKE '!%' \
-                        AND content NOT LIKE 'http://%' \
-                        AND content NOT LIKE 'https://%' \
-                        AND content NOT LIKE '%[Image:%' \
-                        AND content NOT LIKE '%[Video:%' \
-                        AND author != ?1 AND display_name != ?1 \
-                        ORDER BY (ABS(RANDOM()) / 9223372036854775807.0) * timestamp DESC \
-                        LIMIT 1";
-                        let mut stmt = conn.prepare(query)?;
-
-                        let rows = stmt.query_map([&bot_name_for_query], |row| {
-                            Ok((
-                                row.get::<_, String>(0)?,
-                                row.get::<_, String>(1)?,
-                                row.get::<_, String>(2)?,
-                                row.get::<_, i64>(3)?,
-                            ))
-                        })?;
-
-                        let mut result = Vec::new();
-                        for row in rows {
-                            result.push(row?);
-                        }
-
-                        Ok::<_, rusqlite::Error>(result)
-                    })
-                    .await;
-
-                // Get recent context from the channel (10 messages for better context)
-                let context_messages = if let Some(db2) = &self.message_db {
-                    match db_utils::get_recent_messages_with_reply_context(
-                        db2.clone(),
-                        10,
-                        Some(msg.channel_id.to_string().as_str()),
-                    )
-                    .await
-                    {
-                        Ok(messages) => messages,
-                        Err(e) => {
-                            error!(
-                                "Error retrieving recent messages for memory context: {:?}",
-                                e
-                            );
-                            Vec::new()
-                        }
-                    }
-                } else {
-                    Vec::new()
-                };
-
-                let context_text = if !context_messages.is_empty() {
-                    let mut chronological = context_messages.clone();
-                    chronological.reverse();
-                    chronological
-                        .iter()
-                        .map(|(_author, display_name, _pronouns, content, _reply)| {
-                            format!("{}: {}", display_name, content)
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n")
-                } else {
-                    "".to_string()
-                };
-
-                match result {
-                    Ok(messages) => {
-                        if let Some((content, _author, display_name, timestamp)) = messages.first()
-                        {
-                            // Format the timestamp with relative time for recent, absolute for older
-                            let date_str = {
-                                let dt = chrono::DateTime::from_timestamp(*timestamp, 0)
-                                    .unwrap_or_default();
-                                let now = chrono::Utc::now();
-                                let age = now.signed_duration_since(dt);
-
-                                if age.num_hours() < 1 {
-                                    "just a bit ago".to_string()
-                                } else if age.num_hours() < 24 {
-                                    "earlier today".to_string()
-                                } else if age.num_hours() < 48 {
-                                    "yesterday".to_string()
-                                } else if age.num_days() < 7 {
-                                    format!("{} days ago", age.num_days())
-                                } else if age.num_days() < 30 {
-                                    let weeks = age.num_days() / 7;
-                                    if weeks == 1 {
-                                        "about a week ago".to_string()
-                                    } else {
-                                        format!("about {} weeks ago", weeks)
-                                    }
-                                } else {
-                                    dt.format("%b %-d, %Y at %-I:%M %p").to_string()
-                                }
-                            };
-
-                            let personality = gemini_client.prompt_templates().personality();
-                            let memory_prompt = format!(
-                                "You are {}, a Discord bot. {}\n\n\
-                                You've found this message in your memory:\n\
-                                Date: {}\n\
-                                Author: {}\n\
-                                Message: \"{}\"\n\n\
-                                Here's what's currently being discussed:\n{}\n\n\
-                                Your response MUST start by quoting the memory, like:\n\
-                                \"Remember {} when {} said: '{}'? ...\"\n\
-                                Then add a brief, witty comment connecting it to the current conversation.\n\n\
-                                Rules:\n\
-                                1. ALWAYS start by quoting the date, who said it, and what they said\n\
-                                2. Keep the follow-up comment short (1-2 sentences)\n\
-                                3. The memory MUST have a clear, obvious connection to what's currently being discussed - if you have to stretch to make a connection, just pass\n\
-                                4. If the memory isn't funny, interesting, or relevant, respond with ONLY the word \"pass\"\n\
-                                5. The bar for relevance is HIGH - a weak or forced connection is worse than passing",
-                                self.bot_name, personality, date_str, display_name, content, context_text,
-                                date_str, display_name, content
-                            );
-
-                            match gemini_client.generate_content(&memory_prompt).await {
-                                Ok(response) => {
-                                    let response = response.trim();
-
-                                    if response.to_lowercase() == "pass" {
-                                        info!("Memory interjection evaluation: decided to PASS");
-                                        return Ok(());
-                                    }
-
-                                    // Check for prompt leak
-                                    if response.contains("{bot_name}")
-                                        || response.contains("{context}")
-                                        || response.contains("Guidelines:")
-                                        || response.contains("TOPIC:")
-                                    {
-                                        error!(
-                                            "Memory interjection error: API returned prompt text"
-                                        );
-                                        return Ok(());
-                                    }
-
-                                    // Check if the response is a GIF request
-                                    if let Some(giphy_client) = &self.giphy_client {
-                                        if let Some(gif_url) =
-                                            giphy_client.try_resolve_gif(response).await
-                                        {
-                                            if let Err(e) =
-                                                msg.channel_id.say(&ctx.http, &gif_url).await
-                                            {
-                                                error!(
-                                                    "Error sending GIF memory interjection: {:?}",
-                                                    e
-                                                );
-                                            }
-                                            return Ok(());
-                                        }
-                                        if let Some((text, gif_url)) =
-                                            giphy_client.try_resolve_embedded_gif(response).await
-                                        {
-                                            if !text.is_empty() {
-                                                apply_realistic_delay(&text, ctx, msg.channel_id)
-                                                    .await;
-                                                if let Err(e) =
-                                                    msg.channel_id.say(&ctx.http, &text).await
-                                                {
-                                                    error!(
-                                                        "Error sending text before GIF: {:?}",
-                                                        e
-                                                    );
-                                                }
-                                            }
-                                            if let Err(e) =
-                                                msg.channel_id.say(&ctx.http, &gif_url).await
-                                            {
-                                                error!(
-                                                    "Error sending GIF memory interjection: {:?}",
-                                                    e
-                                                );
-                                            }
-                                            return Ok(());
-                                        }
-                                    }
-
-                                    if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await
-                                    {
-                                        error!("Failed to send typing indicator for memory interjection: {:?}", e);
-                                    }
-
-                                    // Apply realistic typing delay
-                                    apply_realistic_delay(response, ctx, msg.channel_id).await;
-
-                                    if let Err(e) = msg.channel_id.say(&ctx.http, response).await {
-                                        error!("Error sending memory interjection: {:?}", e);
-                                    } else {
-                                        info!("Memory interjection sent: {}", response);
-                                        self.mark_interjection_sent().await;
-                                    }
-                                }
-                                Err(e) => {
-                                    error!("Error processing memory with Gemini API: {:?}", e);
-                                }
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        error!("Error querying database for random message: {:?}", e);
-                    }
-                }
-            }
-        }
-
         // Pondering interjection
         let adjusted_pondering_probability =
             self.interjection_pondering_probability * silence_multiplier * recency_multiplier;
@@ -3417,10 +3182,6 @@ Keep it brief and natural, as if you're just another participant in the conversa
         parsed_config.interjection_mst3k_probability * 100.0
     );
     info!(
-        "Memory interjection probability: {}%",
-        parsed_config.interjection_memory_probability * 100.0
-    );
-    info!(
         "Pondering interjection probability: {}%",
         parsed_config.interjection_pondering_probability * 100.0
     );
@@ -3795,13 +3556,8 @@ Keep it brief and natural, as if you're just another participant in the conversa
                         .should_check_spontaneous_interjection(*channel_id, bot_id)
                         .await
                     {
-                        // Get a random interjection type (skipping type 2 - Message Pondering)
-                        let mut interjection_type = rand::rng().random_range(0..=4);
-
-                        // Adjust the type number to skip over type 2
-                        if interjection_type >= 2 {
-                            interjection_type += 1;
-                        }
+                        // Get a random interjection type (only active types: 3=AI, 4=Fact, 5=News)
+                        let interjection_type = rand::rng().random_range(0..=2) + 3;
 
                         info!(
                             "Making spontaneous interjection in channel {} (type: {})",
@@ -3818,125 +3574,6 @@ Keep it brief and natural, as if you're just another participant in the conversa
 
                         // Send a message based on the interjection type
                         let message = match interjection_type {
-                            0 => {
-                                // MST3K Quote interjection - log but don't send anything
-                                info!("Spontaneous MST3K quote interjection requested but fallbacks are disabled");
-                                String::new()
-                            }
-                            1 => {
-                                // Memory interjection - get a random message from the database and process it
-                                if let Some(db) = &message_db_clone {
-                                    // Get recent messages for context
-                                    let context_messages =
-                                        match db_utils::get_recent_messages_with_reply_context(
-                                            db.clone(),
-                                            parsed_config.gemini_context_messages,
-                                            Some(&channel_id.to_string()),
-                                        )
-                                        .await
-                                        {
-                                            Ok(messages) => messages,
-                                            Err(e) => {
-                                                error!("Error retrieving recent messages for memory interjection: {:?}", e);
-                                                Vec::new()
-                                            }
-                                        };
-
-                                    // Context is already in correct format: (author, display_name, pronouns, content)
-                                    // Query the database for a random message with minimum length of 20 characters
-                                    let query_result = db.call(|conn| {
-                                        let query = "SELECT content, author, display_name FROM messages WHERE length(content) >= 20 ORDER BY RANDOM() LIMIT 1";
-                                        let mut stmt = conn.prepare(query)?;
-
-                                        let rows = stmt.query_map([], |row| {
-                                            Ok((
-                                                row.get::<_, String>(0)?,
-                                                row.get::<_, String>(1)?,
-                                                row.get::<_, Option<String>>(2)?.unwrap_or_default()
-                                            ))
-                                        })?;
-
-                                        let mut result = Vec::new();
-                                        for row in rows {
-                                            result.push(row?);
-                                        }
-
-                                        Ok::<_, rusqlite::Error>(result)
-                                    }).await;
-
-                                    match query_result {
-                                        Ok(messages) => {
-                                            if let Some((content, _, _)) = messages.first() {
-                                                // If we have a Gemini client, process the message
-                                                if let Some(gemini) = &task_gemini_client {
-                                                    let personality =
-                                                        gemini.prompt_templates().personality();
-                                                    let memory_prompt = format!(
-                                                        "You are {bot_name_clone}, a Discord bot. {personality}\n\n\
-                                                        You've found this message in your memory: \"{content}\". \
-                                                        Please contribute to the conversation by saying something related to this memory.\n\n\
-                                                        Guidelines:\n\
-                                                        1. Your comment should be primarily based on the MEMORY, not the recent context\n\
-                                                        2. Use the recent context only to make your comment relevant to the current conversation\n\
-                                                        3. Keep it short and natural (1-2 sentences)\n\
-                                                        4. Don't quote or reference the memory directly - just say what you want to say\n\
-                                                        5. Don't identify yourself or explain what you're doing\n\
-                                                        6. If you can't make it work naturally, respond with 'pass'\n\
-                                                        7. Correct any obvious typos but preserve the message's character\n\
-                                                        Remember: Be natural and direct - no meta-commentary."
-                                                    );
-
-                                                    // Convert to the format expected by generate_response_with_context_and_pronouns
-                                                    let _context_for_api: Vec<(String, String, Option<String>, String)> = context_messages
-                                                        .iter()
-                                                        .map(|(author, display_name, pronouns, content, _reply_context)| {
-                                                            (author.clone(), display_name.clone(), pronouns.clone(), content.clone())
-                                                        })
-                                                        .collect();
-
-                                                    match gemini
-                                                        .generate_content(&memory_prompt)
-                                                        .await
-                                                    {
-                                                        Ok(response) => {
-                                                            if response.trim().to_lowercase()
-                                                                == "pass"
-                                                            {
-                                                                info!("Gemini API chose to pass on memory interjection");
-                                                                String::new() // Return empty string to skip the interjection
-                                                            } else {
-                                                                response
-                                                            }
-                                                        }
-                                                        Err(e) => {
-                                                            error!("Error generating memory interjection: {:?}", e);
-                                                            String::new() // Return empty string to skip the interjection
-                                                        }
-                                                    }
-                                                } else {
-                                                    // No Gemini API, just use the content directly
-                                                    content.clone()
-                                                }
-                                            } else {
-                                                info!("No suitable messages found for memory interjection");
-                                                String::new()
-                                            }
-                                        }
-                                        Err(e) => {
-                                            error!("Error querying database for memory interjection: {:?}", e);
-                                            String::new()
-                                        }
-                                    }
-                                } else {
-                                    info!("No message database available for memory interjection");
-                                    String::new()
-                                }
-                            }
-                            2 => {
-                                // Pondering interjection - log but don't send anything
-                                info!("Spontaneous pondering interjection requested but fallbacks are disabled");
-                                String::new()
-                            }
                             3 => {
                                 // AI-like interjection using Gemini API
                                 if let Some(gemini_client) = &task_gemini_client {

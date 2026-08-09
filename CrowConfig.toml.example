@@ -98,7 +98,6 @@ Don't explain your reasoning or include your rating in the response."
 # Random Interjection Probabilities (chance per message)
 # Each type has its own probability - set to 0 to disable
 INTERJECTION_MST3K_PROBABILITY = "0.0025"  # Default: 0.25% chance (1 in 400)
-INTERJECTION_MEMORY_PROBABILITY = "0.0025"  # Default: 0.25% chance (1 in 400)
 INTERJECTION_PONDERING_PROBABILITY = "0.0025"  # Default: 0.25% chance (1 in 400)
 INTERJECTION_AI_PROBABILITY = "0.0025"  # Default: 0.25% chance (1 in 400)
 INTERJECTION_FACT_PROBABILITY = "0.0025"  # Default: 0.25% chance (1 in 400)

@@ -58,7 +58,6 @@ pub struct Config {
     pub gemini_log_prompts: Option<String>,
     pub gemini_personality_description: Option<String>,
     pub interjection_mst3k_probability: Option<String>,
-    pub interjection_memory_probability: Option<String>,
     pub interjection_pondering_probability: Option<String>,
     pub interjection_ai_probability: Option<String>,
     pub interjection_fact_probability: Option<String>,
@@ -158,7 +157,6 @@ pub struct ParsedConfig {
     pub duckduckgo_search_enabled: bool,
     pub gemini_context_messages: usize,
     pub interjection_mst3k_probability: f64,
-    pub interjection_memory_probability: f64,
     pub interjection_pondering_probability: f64,
     pub interjection_ai_probability: f64,
     pub imagine_channels: Vec<String>,
@@ -300,12 +298,6 @@ pub fn parse_config(config: &Config) -> ParsedConfig {
         .and_then(|prob| prob.parse::<f64>().ok())
         .unwrap_or(0.005); // Default: 0.5% chance (1 in 200)
 
-    let interjection_memory_probability = config
-        .interjection_memory_probability
-        .as_ref()
-        .and_then(|prob| prob.parse::<f64>().ok())
-        .unwrap_or(0.005); // Default: 0.5% chance (1 in 200)
-
     let interjection_pondering_probability = config
         .interjection_pondering_probability
         .as_ref()
@@ -319,9 +311,8 @@ pub fn parse_config(config: &Config) -> ParsedConfig {
         .unwrap_or(0.005); // Default: 0.5% chance (1 in 200)
 
     info!(
-        "Interjection probabilities: MST3K: {}, Memory: {}, Pondering: {}, AI: {}",
+        "Interjection probabilities: MST3K: {}, Pondering: {}, AI: {}",
         interjection_mst3k_probability,
-        interjection_memory_probability,
         interjection_pondering_probability,
         interjection_ai_probability
     );
@@ -465,7 +456,6 @@ pub fn parse_config(config: &Config) -> ParsedConfig {
         duckduckgo_search_enabled,
         gemini_context_messages,
         interjection_mst3k_probability,
-        interjection_memory_probability,
         interjection_pondering_probability,
         interjection_ai_probability,
         imagine_channels,

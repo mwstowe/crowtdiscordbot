@@ -149,7 +149,7 @@ This allows you to have the bot available for explicit requests while keeping ch
 
 ## Random Interjections
 
-The bot occasionally makes random interjections in the conversation. There are six types of interjections, each with its own configurable probability:
+The bot occasionally makes random interjections in the conversation. There are five types of interjections, each with its own configurable probability:
 
 ### Configuration
 
@@ -159,7 +159,6 @@ Each interjection type can be configured separately in the `CrowConfig.toml` fil
 # Random Interjection Probabilities (chance per message)
 # Each type has its own probability - set to 0 to disable
 INTERJECTION_MST3K_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
-INTERJECTION_MEMORY_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
 INTERJECTION_PONDERING_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
 INTERJECTION_AI_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
 INTERJECTION_FACT_PROBABILITY = "0.005"  # Default: 0.5% chance (1 in 200)
@@ -172,15 +171,13 @@ Setting any probability to 0 will disable that type of interjection completely.
 
 1. **MST3K Quotes** - Random quotes from Mystery Science Theater 3000, a cult classic TV show. The bot will occasionally interject with one of these quotes, adding humor to the conversation.
 
-2. **Channel Memory** - Quotes something someone previously said in the channel, including the date and author. Biases toward more recent messages and uses conversation context to pick relevant memories. This creates a sense of continuity and can bring up relevant past discussions.
+2. **Message Pondering** - Thoughtful comments about the conversation, such as "That's an interesting point" or "I was just thinking about that." These interjections make the bot feel more engaged in the conversation.
 
-3. **Message Pondering** - Thoughtful comments about the conversation, such as "That's an interesting point" or "I was just thinking about that." These interjections make the bot feel more engaged in the conversation.
+3. **AI Interjection** - AI-generated comments using the Gemini API. The bot analyzes the most recent message and conversation context, providing a comment that feels like a natural part of the discussion. Responses are held to a high quality bar — the bot will only interject if it has something genuinely clever or relevant to say, and never generates fake quotes.
 
-4. **AI Interjection** - AI-generated comments using the Gemini API. The bot analyzes the most recent message and conversation context, providing a comment that feels like a natural part of the discussion. Responses are held to a high quality bar — the bot will only interject if it has something genuinely clever or relevant to say, and never generates fake quotes.
+4. **Fact Interjection** - AI-generated interesting facts related to the conversation. Unlike the general AI interjection, fact interjections are specifically focused on providing informative content that adds NEW information not already mentioned in the conversation, using a search-first approach to find relevant URLs.
 
-5. **Fact Interjection** - AI-generated interesting facts related to the conversation. Unlike the general AI interjection, fact interjections are specifically focused on providing informative content that adds NEW information not already mentioned in the conversation, using a search-first approach to find relevant URLs.
-
-6. **News Interjection** - Shares interesting technology or weird news articles (excluding sports) sourced from real RSS feeds (Ars Technica, BBC News Tech, Slashdot, Gizmodo, NYT, them., Oddity Central) with commentary on why they're interesting and how they relate to the conversation. The feed list is configurable via `NEWS_FEEDS`. The format looks like: "Article title: https://example.com/article-path This shows how [technology/topic] is advancing in interesting ways."
+5. **News Interjection** - Shares interesting technology or weird news articles (excluding sports) sourced from real RSS feeds (Ars Technica, BBC News Tech, Slashdot, Gizmodo, NYT, them., Oddity Central) with commentary on why they're interesting and how they relate to the conversation. The feed list is configurable via `NEWS_FEEDS`. The format looks like: "Article title: https://example.com/article-path This shows how [technology/topic] is advancing in interesting ways."
 
 ## Display Name Handling
 
