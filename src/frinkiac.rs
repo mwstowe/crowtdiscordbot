@@ -329,6 +329,7 @@ impl FrinkiacClient {
         }
 
         // Pick the next result, rotating through results for repeated queries
+        // Since exact matches are ordered first, we only cycle within the same tier
         let index = {
             let mut last_q = self.last_query.write().unwrap_or_else(|e| e.into_inner());
             let mut idx = self
@@ -341,6 +342,26 @@ impl FrinkiacClient {
                 *last_q = Some(query.to_string());
                 *idx = 0;
             }
+
+            // For phrase queries, ensure we stay within exact matches if any exist
+            let exact_count = if is_phrase_query {
+                ordered_results
+                    .iter()
+                    .filter(|r| {
+                        r.get("Content")
+                            .and_then(|v| v.as_str())
+                            .is_some_and(|c| c.to_lowercase().contains(&query_lower))
+                    })
+                    .count()
+            } else {
+                ordered_results.len()
+            };
+
+            // If there are exact matches, constrain cycling to them
+            if exact_count > 0 && *idx >= exact_count {
+                *idx = 0;
+            }
+
             *idx
         };
 
@@ -843,6 +864,7 @@ async fn send_frinkiac_result(
         );
 
         // Download the GIF and upload as attachment for reliable display
+        let mut sent = false;
         match http_client.get(gif_url.as_str()).send().await {
             Ok(resp) if resp.status().is_success() => {
                 if let Ok(bytes) = resp.bytes().await {
@@ -850,18 +872,26 @@ async fn send_frinkiac_result(
                         bytes.to_vec(),
                         "frinkiac.gif".to_string(),
                     );
-                    let message = CreateMessage::new().content(title).add_file(attachment);
-                    if let Err(e) = msg.channel_id.send_message(http, message).await {
-                        error!("Error sending Frinkiac GIF attachment: {:?}", e);
+                    let message = CreateMessage::new().content(&title).add_file(attachment);
+                    match msg.channel_id.send_message(http, message).await {
+                        Ok(_) => {
+                            sent = true;
+                        }
+                        Err(e) => {
+                            error!("Error sending Frinkiac GIF attachment: {:?}", e);
+                            // Fall through to URL fallback below
+                        }
                     }
                 }
             }
-            _ => {
-                // Fallback: send the URL as text
-                let response = format!("{}\n{}", title, gif_url);
-                if let Err(e) = msg.channel_id.say(http, &response).await {
-                    error!("Error sending Frinkiac result: {:?}", e);
-                }
+            _ => {}
+        }
+
+        // Fallback: send the GIF URL as text (handles 413 too-large errors)
+        if !sent {
+            let response = format!("{}\n{}", title, gif_url);
+            if let Err(e) = msg.channel_id.say(http, &response).await {
+                error!("Error sending Frinkiac result fallback: {:?}", e);
             }
         }
     } else {

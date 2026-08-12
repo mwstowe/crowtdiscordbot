@@ -202,8 +202,23 @@ impl MorbotronClient {
                     // Same query, increment the index to cycle through results
                     let mut index =
                         *self.current_index.read().unwrap_or_else(|e| e.into_inner()) + 1;
-                    if index >= last_results_len {
-                        index = 0; // Wrap around to the beginning
+
+                    // For phrase queries, constrain cycling to exact matches
+                    let query_lower = query.trim_matches('"').to_lowercase();
+                    let is_phrase = query_lower.contains(' ');
+                    let exact_count = if is_phrase {
+                        last_results
+                            .iter()
+                            .filter(|r| r.content.to_lowercase().contains(&query_lower))
+                            .count()
+                    } else {
+                        last_results_len
+                    };
+
+                    // Stay within exact matches if any exist
+                    let cycle_limit = if exact_count > 0 { exact_count } else { last_results_len };
+                    if index >= cycle_limit {
+                        index = 0; // Wrap around
                     }
 
                     // Update the current index
@@ -212,9 +227,10 @@ impl MorbotronClient {
                         .write()
                         .unwrap_or_else(|e| e.into_inner()) = index;
                     info!(
-                        "Same query as last time, using result {} of {}",
+                        "Same query as last time, using result {} of {} (exact matches: {})",
                         index + 1,
-                        last_results_len
+                        last_results_len,
+                        exact_count
                     );
 
                     // Get the result at the current index
@@ -583,6 +599,7 @@ async fn send_morbotron_result(
         );
 
         // Download the GIF and upload as attachment for reliable display
+        let mut sent = false;
         match http_client.get(gif_url.as_str()).send().await {
             Ok(resp) if resp.status().is_success() => {
                 if let Ok(bytes) = resp.bytes().await {
@@ -590,18 +607,26 @@ async fn send_morbotron_result(
                         bytes.to_vec(),
                         "morbotron.gif".to_string(),
                     );
-                    let message = CreateMessage::new().content(title).add_file(attachment);
-                    if let Err(e) = msg.channel_id.send_message(http, message).await {
-                        error!("Error sending Morbotron GIF attachment: {:?}", e);
+                    let message = CreateMessage::new().content(&title).add_file(attachment);
+                    match msg.channel_id.send_message(http, message).await {
+                        Ok(_) => {
+                            sent = true;
+                        }
+                        Err(e) => {
+                            error!("Error sending Morbotron GIF attachment: {:?}", e);
+                            // Fall through to URL fallback below
+                        }
                     }
                 }
             }
-            _ => {
-                // Fallback: send the URL as text
-                let response = format!("{}\n{}", title, gif_url);
-                if let Err(e) = msg.channel_id.say(http, &response).await {
-                    error!("Error sending Morbotron result: {:?}", e);
-                }
+            _ => {}
+        }
+
+        // Fallback: send the GIF URL as text (handles 413 too-large errors)
+        if !sent {
+            let response = format!("{}\n{}", title, gif_url);
+            if let Err(e) = msg.channel_id.say(http, &response).await {
+                error!("Error sending Morbotron result fallback: {:?}", e);
             }
         }
     } else {
