@@ -63,6 +63,8 @@ struct MorbotronSearchResult {
     episode: String,
     #[serde(rename = "Timestamp")]
     timestamp: u64,
+    #[serde(rename = "Content", default)]
+    content: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -247,12 +249,35 @@ impl MorbotronClient {
         // Try a direct search first
         let results = self.search_api(query).await?;
         if !results.is_empty() {
+            // For multi-word queries, prioritize results containing the exact phrase
+            let query_lower = query.trim_matches('"').to_lowercase();
+            let is_phrase_query = query_lower.contains(' ');
+
+            let prioritized = if is_phrase_query {
+                let (mut exact, mut rest): (Vec<_>, Vec<_>) = results
+                    .into_iter()
+                    .partition(|r| r.content.to_lowercase().contains(&query_lower));
+                info!(
+                    "Phrase query '{}': {} exact matches out of {} total results",
+                    query_lower,
+                    exact.len(),
+                    exact.len() + rest.len()
+                );
+                // Deduplicate by episode within each group
+                exact.dedup_by(|a, b| a.episode == b.episode);
+                rest.dedup_by(|a, b| a.episode == b.episode);
+                exact.extend(rest);
+                exact
+            } else {
+                results
+            };
+
             // Store the query and results for next time
             *self.last_query.write().unwrap_or_else(|e| e.into_inner()) = Some(query.to_string());
-            *self.last_results.write().unwrap_or_else(|e| e.into_inner()) = results.clone();
+            *self.last_results.write().unwrap_or_else(|e| e.into_inner()) = prioritized.clone();
 
-            info!("Found {} results with direct search", results.len());
-            let first_result = &results[0];
+            info!("Found {} results with direct search", prioritized.len());
+            let first_result = &prioritized[0];
             return self
                 .get_caption_for_frame(&first_result.episode, first_result.timestamp)
                 .await;
@@ -263,13 +288,26 @@ impl MorbotronClient {
             let quoted_query = format!("\"{query}\"");
             let results = self.search_api(&quoted_query).await?;
             if !results.is_empty() {
+                // Apply the same exact phrase prioritization
+                let query_lower = query.to_lowercase();
+
+                let prioritized = {
+                    let (mut exact, mut rest): (Vec<_>, Vec<_>) = results
+                        .into_iter()
+                        .partition(|r| r.content.to_lowercase().contains(&query_lower));
+                    exact.dedup_by(|a, b| a.episode == b.episode);
+                    rest.dedup_by(|a, b| a.episode == b.episode);
+                    exact.extend(rest);
+                    exact
+                };
+
                 // Store the query and results for next time
                 *self.last_query.write().unwrap_or_else(|e| e.into_inner()) =
                     Some(query.to_string());
-                *self.last_results.write().unwrap_or_else(|e| e.into_inner()) = results.clone();
+                *self.last_results.write().unwrap_or_else(|e| e.into_inner()) = prioritized.clone();
 
-                info!("Found {} results with quoted search", results.len());
-                let first_result = &results[0];
+                info!("Found {} results with quoted search", prioritized.len());
+                let first_result = &prioritized[0];
                 return self
                     .get_caption_for_frame(&first_result.episode, first_result.timestamp)
                     .await;

@@ -247,6 +247,12 @@ impl FrinkiacClient {
         let all_url = format!("{FRINKIAC_BASE_URL}?q={encoded_query}");
         let all_results = self.fetch_search_results(&all_url).await?;
 
+        // For multi-word queries, prioritize results containing the exact phrase
+        // The API does word-level matching, so "my cube" returns anything with "my" AND "cube"
+        // We filter client-side to prefer results with the exact phrase as a substring
+        let query_lower = query.trim_matches('"').to_lowercase();
+        let is_phrase_query = query_lower.contains(' ');
+
         // Deduplicate each set by episode
         let classic_unique = Self::dedupe_by_episode(&classic_results);
         let later_unique: Vec<&serde_json::Value> = Self::dedupe_by_episode(&all_results)
@@ -262,16 +268,60 @@ impl FrinkiacClient {
             })
             .collect();
 
+        // If this is a phrase query, partition results into exact matches and the rest
+        let (mut classic_exact, mut classic_rest): (Vec<&serde_json::Value>, Vec<&serde_json::Value>) =
+            if is_phrase_query {
+                classic_unique.into_iter().partition(|r| {
+                    r.get("Content")
+                        .and_then(|v| v.as_str())
+                        .is_some_and(|c| c.to_lowercase().contains(&query_lower))
+                })
+            } else {
+                (classic_unique, Vec::new())
+            };
+
+        let (mut later_exact, mut later_rest): (Vec<&serde_json::Value>, Vec<&serde_json::Value>) =
+            if is_phrase_query {
+                later_unique.into_iter().partition(|r| {
+                    r.get("Content")
+                        .and_then(|v| v.as_str())
+                        .is_some_and(|c| c.to_lowercase().contains(&query_lower))
+                })
+            } else {
+                (later_unique, Vec::new())
+            };
+
         // Shuffle within each partition for variety
         use rand::seq::SliceRandom;
-        let mut classic_shuffled = classic_unique;
-        let mut later_shuffled = later_unique;
-        classic_shuffled.shuffle(&mut rand::rng());
-        later_shuffled.shuffle(&mut rand::rng());
+        classic_exact.shuffle(&mut rand::rng());
+        classic_rest.shuffle(&mut rand::rng());
+        later_exact.shuffle(&mut rand::rng());
+        later_rest.shuffle(&mut rand::rng());
 
-        // Classics first, then later seasons
-        let ordered_results: Vec<&serde_json::Value> =
-            classic_shuffled.into_iter().chain(later_shuffled).collect();
+        // Order: exact matches first (classics before later), then non-exact (classics before later)
+        let ordered_results: Vec<&serde_json::Value> = classic_exact
+            .into_iter()
+            .chain(later_exact)
+            .chain(classic_rest)
+            .chain(later_rest)
+            .collect();
+
+        if is_phrase_query {
+            let exact_count = ordered_results
+                .iter()
+                .filter(|r| {
+                    r.get("Content")
+                        .and_then(|v| v.as_str())
+                        .is_some_and(|c| c.to_lowercase().contains(&query_lower))
+                })
+                .count();
+            info!(
+                "Phrase query '{}': {} exact matches out of {} total results",
+                query_lower,
+                exact_count,
+                ordered_results.len()
+            );
+        }
 
         if ordered_results.is_empty() {
             info!("No results found for query: {}", query);
