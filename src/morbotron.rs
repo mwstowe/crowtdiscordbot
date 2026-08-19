@@ -216,7 +216,11 @@ impl MorbotronClient {
                     };
 
                     // Stay within exact matches if any exist
-                    let cycle_limit = if exact_count > 0 { exact_count } else { last_results_len };
+                    let cycle_limit = if exact_count > 0 {
+                        exact_count
+                    } else {
+                        last_results_len
+                    };
                     if index >= cycle_limit {
                         index = 0; // Wrap around
                     }

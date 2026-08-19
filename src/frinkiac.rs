@@ -269,16 +269,18 @@ impl FrinkiacClient {
             .collect();
 
         // If this is a phrase query, partition results into exact matches and the rest
-        let (mut classic_exact, mut classic_rest): (Vec<&serde_json::Value>, Vec<&serde_json::Value>) =
-            if is_phrase_query {
-                classic_unique.into_iter().partition(|r| {
-                    r.get("Content")
-                        .and_then(|v| v.as_str())
-                        .is_some_and(|c| c.to_lowercase().contains(&query_lower))
-                })
-            } else {
-                (classic_unique, Vec::new())
-            };
+        let (mut classic_exact, mut classic_rest): (
+            Vec<&serde_json::Value>,
+            Vec<&serde_json::Value>,
+        ) = if is_phrase_query {
+            classic_unique.into_iter().partition(|r| {
+                r.get("Content")
+                    .and_then(|v| v.as_str())
+                    .is_some_and(|c| c.to_lowercase().contains(&query_lower))
+            })
+        } else {
+            (classic_unique, Vec::new())
+        };
 
         let (mut later_exact, mut later_rest): (Vec<&serde_json::Value>, Vec<&serde_json::Value>) =
             if is_phrase_query {

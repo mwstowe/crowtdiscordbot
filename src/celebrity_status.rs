@@ -807,6 +807,141 @@ async fn search_celebrity_attempt(
         info!("Extract preview: {}", raw_extract);
     }
 
+    // Check if this is a disambiguation page
+    let is_disambiguation = pages
+        .get(page_id)
+        .and_then(|p| p.get("pageprops"))
+        .and_then(|pp| pp.get("disambiguation"))
+        .is_some()
+        || raw_extract.contains("may refer to:")
+        || raw_extract.contains("may refer to\n");
+
+    if is_disambiguation {
+        info!(
+            "Detected disambiguation page for: {}. Attempting to find the person.",
+            page_title
+        );
+
+        // Try to find the most notable person from the disambiguation page
+        // Look for biographical entries (contain birth year patterns like "(born YYYY)" or "(YYYY–YYYY)")
+        let person_re =
+            Regex::new(r"(?m)^(.+?)\s*\((?:born\s+\d{4}|\d{4}[–\-]\d{4}|\d{4}[–\-])\)").unwrap();
+
+        let mut candidates: Vec<&str> = Vec::new();
+        for cap in person_re.captures_iter(raw_extract) {
+            if let Some(name_match) = cap.get(1) {
+                let candidate = name_match.as_str().trim();
+                // Clean up wiki formatting
+                let cleaned = candidate
+                    .trim_start_matches("* ")
+                    .trim_start_matches("**")
+                    .trim();
+                if !cleaned.is_empty() {
+                    candidates.push(cleaned);
+                }
+            }
+        }
+
+        // Also try line-by-line parsing for entries like "Frank Beard (musician) (1949–2026)"
+        let year_re = Regex::new(r"\(\d{4}[–\-]").unwrap();
+        for line in raw_extract.lines() {
+            let trimmed = line.trim();
+            if trimmed.contains("(") && !trimmed.starts_with("==") {
+                // Extract the full entry name including parenthetical descriptor
+                if let Some(paren_pos) = trimmed.find(" (") {
+                    let after_paren = &trimmed[paren_pos..];
+                    // Check if it has a birth/death year pattern
+                    if year_re.is_match(after_paren) || after_paren.contains("(born") {
+                        // Try to get the specific Wikipedia title (e.g., "Frank Beard (musician)")
+                        if let Some(end_paren) = after_paren[1..].find(')') {
+                            let descriptor = &after_paren[1..end_paren + 1];
+                            // If the descriptor is a role word, build a Wikipedia title
+                            if !descriptor
+                                .chars()
+                                .all(|c| c.is_ascii_digit() || c == '–' || c == '-' || c == ' ')
+                            {
+                                let wiki_title = format!("{} ({})", page_title, descriptor);
+                                candidates.push(Box::leak(wiki_title.into_boxed_str()));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        info!("Disambiguation candidates: {:?}", candidates);
+
+        // Try to find the candidate by searching Wikipedia directly
+        for candidate in &candidates {
+            info!("Trying disambiguation candidate: {}", candidate);
+
+            let candidate_search_url = format!(
+                "https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch={}&format=json&srlimit=1",
+                urlencoding::encode(candidate)
+            );
+
+            if let Ok(resp) = http_client.get(&candidate_search_url).send().await {
+                if let Ok(json) = resp.json::<Value>().await {
+                    if let Some(title) = json
+                        .pointer("/query/search/0/title")
+                        .and_then(|t| t.as_str())
+                    {
+                        // Check this isn't the same disambiguation page
+                        if title != page_title {
+                            info!("Resolved disambiguation to: {}", title);
+                            // Fetch this specific page using the full logic
+                            // We need to return and let the caller retry with this title
+                            // For now, just re-run with the resolved title
+                            let resolved_url = format!(
+                                "https://en.wikipedia.org/w/api.php?action=query&prop=extracts|pageprops|pageimages&exintro&explaintext&redirects=1&pithumbsize=300&titles={}&format=json",
+                                urlencoding::encode(title)
+                            );
+
+                            if let Ok(resolved_resp) = http_client.get(&resolved_url).send().await {
+                                if let Ok(resolved_json) = resolved_resp.json::<Value>().await {
+                                    // Check if this resolved page is also a disambiguation
+                                    let resolved_pages =
+                                        resolved_json.get("query").and_then(|q| q.get("pages"));
+                                    if let Some(rp) = resolved_pages {
+                                        if let Some(rpid) =
+                                            rp.as_object().and_then(|o| o.keys().next())
+                                        {
+                                            let is_also_disambig = rp
+                                                .get(rpid)
+                                                .and_then(|p| p.get("pageprops"))
+                                                .and_then(|pp| pp.get("disambiguation"))
+                                                .is_some();
+                                            if !is_also_disambig {
+                                                // Not a disambiguation — this is our person!
+                                                info!(
+                                                    "Successfully resolved disambiguation to: {}",
+                                                    title
+                                                );
+                                                return Box::pin(search_celebrity_attempt(
+                                                    http_client,
+                                                    title,
+                                                ))
+                                                .await;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // If we couldn't resolve the disambiguation, tell the user
+        return Ok(Some((
+            format!(
+                "'{page_title}' is ambiguous. I found multiple people with that name. Try being more specific (e.g., '{page_title} musician' or '{page_title} golfer')."
+            ),
+            None,
+        )));
+    }
+
     // Check if this is a fictional character
     let is_fictional = is_fictional_character(raw_extract, page_title);
 
