@@ -846,9 +846,9 @@ async fn search_celebrity_attempt(
                     .trim();
 
                 let status = if death_year.is_some() {
-                    "❌ Dead"
+                    "💀"
                 } else if birth_year.is_some() {
-                    "✅ Alive"
+                    "Alive"
                 } else {
                     "❓ Unknown"
                 };
