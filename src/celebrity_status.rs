@@ -876,6 +876,45 @@ async fn search_celebrity_attempt(
             )));
         }
 
+        // Check if the user provided a qualifier beyond the page title
+        // e.g., if page_title is "Steve Harris" and name is "Steve Harris writer"
+        let qualifier = name
+            .to_lowercase()
+            .strip_prefix(&page_title.to_lowercase())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+
+        if !qualifier.is_empty() {
+            info!(
+                "User provided qualifier '{}', attempting to match",
+                qualifier
+            );
+            // Try to find a candidate whose descriptor matches the qualifier
+            for search_term in people_search_terms.iter() {
+                if search_term.to_lowercase().contains(&qualifier) {
+                    info!(
+                        "Qualifier '{}' matched candidate: {}",
+                        qualifier, search_term
+                    );
+                    return Box::pin(search_celebrity_attempt(http_client, search_term)).await;
+                }
+            }
+            // Also check the description lines directly
+            for (i, desc) in people_descriptions.iter().enumerate() {
+                if desc.to_lowercase().contains(&qualifier) {
+                    if let Some(search_term) = people_search_terms.get(i) {
+                        info!(
+                            "Qualifier '{}' matched description, resolving: {}",
+                            qualifier, search_term
+                        );
+                        return Box::pin(search_celebrity_attempt(http_client, search_term)).await;
+                    }
+                }
+            }
+            info!("Qualifier '{}' did not match any candidate", qualifier);
+        }
+
         // If only one candidate, resolve directly to that person
         if people_descriptions.len() == 1 {
             info!("Only one disambiguation candidate found, resolving directly");
