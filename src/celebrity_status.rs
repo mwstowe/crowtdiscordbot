@@ -823,9 +823,11 @@ async fn search_celebrity_attempt(
         );
 
         // Collect all person entries from the disambiguation page
-        // Each entry is a line with a parenthetical descriptor and year info
-        let year_re = Regex::new(r"\((?:born\s+)?(\d{4})[–\-](\d{4})?\)").unwrap();
+        // Match patterns like (born 1939), (1949–2026), (1949-2026), (born 1949)
+        let year_re = Regex::new(r"\((?:born\s+)?(\d{4})(?:\s*[–\-]\s*(\d{4})?)?\)").unwrap();
+        let descriptor_re = Regex::new(r"\(([a-zA-Z ]+)\)").unwrap();
         let mut people_descriptions: Vec<String> = Vec::new();
+        let mut people_search_terms: Vec<String> = Vec::new();
 
         for line in raw_extract.lines() {
             let trimmed = line.trim();
@@ -843,7 +845,7 @@ async fn search_celebrity_attempt(
                     .trim_start_matches("- ")
                     .trim();
 
-                let status = if let Some(_death) = death_year {
+                let status = if death_year.is_some() {
                     "❌ Dead"
                 } else if birth_year.is_some() {
                     "✅ Alive"
@@ -852,6 +854,15 @@ async fn search_celebrity_attempt(
                 };
 
                 people_descriptions.push(format!("{} — {}", display, status));
+
+                // Build a search term for this person (extract parenthetical descriptor)
+                // e.g., from "Frank Beard (musician) (1949–2026)" extract "Frank Beard musician"
+                if let Some(desc_cap) = descriptor_re.captures(trimmed) {
+                    let descriptor = desc_cap.get(1).unwrap().as_str();
+                    people_search_terms.push(format!("{} {}", page_title, descriptor));
+                } else {
+                    people_search_terms.push(page_title.to_string());
+                }
             }
         }
 
@@ -863,6 +874,14 @@ async fn search_celebrity_attempt(
                 ),
                 None,
             )));
+        }
+
+        // If only one candidate, resolve directly to that person
+        if people_descriptions.len() == 1 {
+            info!("Only one disambiguation candidate found, resolving directly");
+            if let Some(search_term) = people_search_terms.first() {
+                return Box::pin(search_celebrity_attempt(http_client, search_term)).await;
+            }
         }
 
         // Format the response showing all candidates
