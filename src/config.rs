@@ -80,6 +80,8 @@ pub struct Config {
     pub imagine_channels: Option<String>,
     pub pollinations_api_key: Option<String>,
     pub together_api_key: Option<String>,
+    pub cloudflare_account_id: Option<String>,
+    pub cloudflare_api_token: Option<String>,
     pub quiet_channel_name: Option<String>,
     pub quiet_channel_id: Option<String>,
     pub quiet_channel_names: Option<String>,
