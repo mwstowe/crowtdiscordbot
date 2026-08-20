@@ -116,16 +116,18 @@ pub async fn handle_imagine_command(
 
     // Try Pollinations first (paid then free), then Cloudflare Workers AI, then Together.ai
     let image_bytes = if let Some(key) = pollinations_api_key {
-        // Paid Pollinations → free Pollinations (handled inside try_pollinations) → Cloudflare → Together.ai
+        // Paid Pollinations → Cloudflare → free Pollinations → Together.ai
         let pollinations_result = try_pollinations(http_client, truncated_prompt, key).await;
         match pollinations_result {
             Some(bytes) => Some(bytes),
             None => {
-                // Try Cloudflare Workers AI (free tier: ~173 images/day)
+                // Try Cloudflare Workers AI (free tier: ~173 images/day, FLUX.1 schnell)
                 if let Some(bytes) = try_cloudflare(http_client, truncated_prompt, cloudflare_account_id, cloudflare_api_token).await {
                     Some(bytes)
+                } else if let Some(bytes) = try_pollinations_free(http_client, truncated_prompt).await {
+                    Some(bytes)
                 } else if let Some(key) = together_api_key {
-                    info!("Cloudflare failed, falling back to Together.ai");
+                    info!("All free providers failed, falling back to Together.ai");
                     try_together(http_client, truncated_prompt, key).await
                 } else {
                     None
@@ -133,21 +135,16 @@ pub async fn handle_imagine_command(
             }
         }
     } else {
-        // No paid Pollinations key — try free Pollinations first, then Cloudflare, then Together.ai
-        let free_result = try_pollinations_free(http_client, truncated_prompt).await;
-        match free_result {
-            Some(bytes) => Some(bytes),
-            None => {
-                // Try Cloudflare Workers AI (free tier: ~173 images/day)
-                if let Some(bytes) = try_cloudflare(http_client, truncated_prompt, cloudflare_account_id, cloudflare_api_token).await {
-                    Some(bytes)
-                } else if let Some(key) = together_api_key {
-                    info!("Free Pollinations and Cloudflare failed, falling back to Together.ai");
-                    try_together(http_client, truncated_prompt, key).await
-                } else {
-                    None
-                }
-            }
+        // No paid Pollinations key — try Cloudflare first, then free Pollinations, then Together.ai
+        if let Some(bytes) = try_cloudflare(http_client, truncated_prompt, cloudflare_account_id, cloudflare_api_token).await {
+            Some(bytes)
+        } else if let Some(bytes) = try_pollinations_free(http_client, truncated_prompt).await {
+            Some(bytes)
+        } else if let Some(key) = together_api_key {
+            info!("All free providers failed, falling back to Together.ai");
+            try_together(http_client, truncated_prompt, key).await
+        } else {
+            None
         }
     };
 
