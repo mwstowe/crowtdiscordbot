@@ -793,6 +793,38 @@ async fn search_celebrity_attempt(
         info!("Found thumbnail: {}", url);
     }
 
+    // Clean up the extract: strip any infobox/wikitext markup that leaked through
+    // This can happen when Wikipedia pages are being actively edited
+    let raw_extract = {
+        let cleaned: String = raw_extract
+            .lines()
+            .filter(|line| {
+                let trimmed = line.trim();
+                // Skip infobox lines (| key = value)
+                if trimmed.starts_with('|') {
+                    return false;
+                }
+                // Skip lines that look like template markup
+                if trimmed.starts_with("{{") || trimmed.starts_with("}}") {
+                    return false;
+                }
+                // Skip lines that are just "key = value" patterns
+                if trimmed.contains(" = ") && !trimmed.contains(". ") && trimmed.len() < 100 {
+                    return false;
+                }
+                true
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        // If cleanup removed everything, fall back to original
+        if cleaned.trim().is_empty() {
+            raw_extract.to_string()
+        } else {
+            cleaned
+        }
+    };
+    let raw_extract = raw_extract.as_str();
+
     // Log only the first 100 characters of the extract for debugging
     if raw_extract.len() > 100 {
         let preview_end = raw_extract
@@ -1056,7 +1088,11 @@ async fn search_celebrity_attempt(
     }
     let description = sentences.join(" ").trim().to_string();
 
-    let mut response = format!("**{page_title}**: {description}");
+    let mut response = if description.is_empty() {
+        format!("**{page_title}**")
+    } else {
+        format!("**{page_title}**: {description}")
+    };
 
     // Capitalize the subject pronoun for sentence starts
     let cap_pronoun = subject_pronoun

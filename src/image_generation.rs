@@ -64,7 +64,9 @@ pub async fn handle_imagine_command(
     // Note: Even without API keys, the free Pollinations endpoint (image.pollinations.ai)
     // is available. But if we have neither key, warn that quality may be limited.
     if pollinations_api_key.is_none() && together_api_key.is_none() {
-        info!("No paid image generation API keys configured, using free Pollinations endpoint only");
+        info!(
+            "No paid image generation API keys configured, using free Pollinations endpoint only"
+        );
     }
 
     // Start typing indicator and keep refreshing it until generation completes.
@@ -122,9 +124,18 @@ pub async fn handle_imagine_command(
             Some(bytes) => Some(bytes),
             None => {
                 // Try Cloudflare Workers AI (free tier: ~173 images/day, FLUX.1 schnell)
-                if let Some(bytes) = try_cloudflare(http_client, truncated_prompt, cloudflare_account_id, cloudflare_api_token).await {
+                if let Some(bytes) = try_cloudflare(
+                    http_client,
+                    truncated_prompt,
+                    cloudflare_account_id,
+                    cloudflare_api_token,
+                )
+                .await
+                {
                     Some(bytes)
-                } else if let Some(bytes) = try_pollinations_free(http_client, truncated_prompt).await {
+                } else if let Some(bytes) =
+                    try_pollinations_free(http_client, truncated_prompt).await
+                {
                     Some(bytes)
                 } else if let Some(key) = together_api_key {
                     info!("All free providers failed, falling back to Together.ai");
@@ -136,7 +147,14 @@ pub async fn handle_imagine_command(
         }
     } else {
         // No paid Pollinations key — try Cloudflare first, then free Pollinations, then Together.ai
-        if let Some(bytes) = try_cloudflare(http_client, truncated_prompt, cloudflare_account_id, cloudflare_api_token).await {
+        if let Some(bytes) = try_cloudflare(
+            http_client,
+            truncated_prompt,
+            cloudflare_account_id,
+            cloudflare_api_token,
+        )
+        .await
+        {
             Some(bytes)
         } else if let Some(bytes) = try_pollinations_free(http_client, truncated_prompt).await {
             Some(bytes)
@@ -253,7 +271,9 @@ async fn try_pollinations(
     // If all paid models returned 402, try the free image.pollinations.ai endpoint
     // This endpoint requires no API key and uses the flux model
     if all_paid_402 {
-        info!("All paid Pollinations models returned 402, trying free image.pollinations.ai endpoint");
+        info!(
+            "All paid Pollinations models returned 402, trying free image.pollinations.ai endpoint"
+        );
         if let Some(bytes) = try_pollinations_free(http_client, prompt).await {
             return Some(bytes);
         }
@@ -266,10 +286,7 @@ async fn try_pollinations(
 /// Try generating an image via the free Pollinations endpoint (image.pollinations.ai).
 /// This endpoint requires no API key but may be slower or have lower priority.
 /// Returns Some(bytes) on success, None on failure.
-async fn try_pollinations_free(
-    http_client: &reqwest::Client,
-    prompt: &str,
-) -> Option<Vec<u8>> {
+async fn try_pollinations_free(http_client: &reqwest::Client, prompt: &str) -> Option<Vec<u8>> {
     let encoded_prompt = urlencoding::encode(prompt);
     let timeout = Duration::from_secs(120); // Free tier can be slower
 
@@ -279,11 +296,7 @@ async fn try_pollinations_free(
 
     info!("Trying free Pollinations endpoint (image.pollinations.ai)");
 
-    let resp = http_client
-        .get(&url)
-        .timeout(timeout)
-        .send()
-        .await;
+    let resp = http_client.get(&url).timeout(timeout).send().await;
 
     match resp {
         Ok(r) if r.status().is_success() => {
@@ -309,10 +322,7 @@ async fn try_pollinations_free(
             }
         }
         Ok(r) => {
-            error!(
-                "Free Pollinations endpoint returned HTTP {}",
-                r.status()
-            );
+            error!("Free Pollinations endpoint returned HTTP {}", r.status());
         }
         Err(e) => {
             error!("Free Pollinations endpoint request failed: {:?}", e);
@@ -338,9 +348,7 @@ async fn try_cloudflare(
 
     let timeout = Duration::from_secs(60);
     let model = "@cf/black-forest-labs/flux-1-schnell";
-    let url = format!(
-        "https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{model}"
-    );
+    let url = format!("https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{model}");
 
     info!("Trying Cloudflare Workers AI (flux-1-schnell)");
 
@@ -359,31 +367,29 @@ async fn try_cloudflare(
         .await;
 
     match resp {
-        Ok(r) if r.status().is_success() => {
-            match r.json::<serde_json::Value>().await {
-                Ok(json) => {
-                    if let Some(b64_image) = json["result"]["image"].as_str() {
-                        match base64::engine::general_purpose::STANDARD.decode(b64_image) {
-                            Ok(bytes) => {
-                                info!(
-                                    "Image generated successfully via Cloudflare Workers AI ({} bytes)",
-                                    bytes.len()
-                                );
-                                return Some(bytes);
-                            }
-                            Err(e) => {
-                                error!("Failed to decode Cloudflare base64 image: {:?}", e);
-                            }
+        Ok(r) if r.status().is_success() => match r.json::<serde_json::Value>().await {
+            Ok(json) => {
+                if let Some(b64_image) = json["result"]["image"].as_str() {
+                    match base64::engine::general_purpose::STANDARD.decode(b64_image) {
+                        Ok(bytes) => {
+                            info!(
+                                "Image generated successfully via Cloudflare Workers AI ({} bytes)",
+                                bytes.len()
+                            );
+                            return Some(bytes);
                         }
-                    } else {
-                        error!("Cloudflare response missing image data: {:?}", json);
+                        Err(e) => {
+                            error!("Failed to decode Cloudflare base64 image: {:?}", e);
+                        }
                     }
-                }
-                Err(e) => {
-                    error!("Failed to parse Cloudflare response: {:?}", e);
+                } else {
+                    error!("Cloudflare response missing image data: {:?}", json);
                 }
             }
-        }
+            Err(e) => {
+                error!("Failed to parse Cloudflare response: {:?}", e);
+            }
+        },
         Ok(r) if r.status().as_u16() == 429 => {
             warn!("Cloudflare Workers AI daily limit reached (429)");
         }
