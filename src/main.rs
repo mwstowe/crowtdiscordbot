@@ -471,7 +471,7 @@ impl Bot {
             image_rate_limiter: rate_limiter::RateLimiter::new_with_persistence(
                 parsed_config.gemini_image_rate_limit_minute,
                 parsed_config.gemini_image_rate_limit_day,
-                "pollinations_image_quota.json".to_string(),
+                "pollinations_image_quota".to_string(),
             ),
             http_client: reqwest::Client::new(),
             start_time: Instant::now(),
@@ -3255,6 +3255,10 @@ Keep it brief and natural, as if you're just another participant in the conversa
     let initial_posted_urls: std::collections::HashSet<String> = if let Some(ref db) = message_db {
         if let Err(e) = db_utils::initialize_posted_news_table(db).await {
             error!("Failed to initialize posted_news table: {:?}", e);
+        }
+        // Initialize the fact topics dedup table
+        if let Err(e) = db_utils::initialize_fact_topics_table(db).await {
+            error!("Failed to initialize fact_topics table: {:?}", e);
         }
         // Clean up entries older than 30 days
         match db_utils::cleanup_old_posted_news(db, 30).await {

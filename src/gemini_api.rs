@@ -60,14 +60,14 @@ impl GeminiClient {
         let rate_limiter = RateLimiter::new_with_persistence(
             config.rate_limit_minute,
             config.rate_limit_day,
-            "gemini_text_quota.json".to_string(),
+            "gemini_text_quota".to_string(),
         );
 
         // Create separate rate limiter for image generation with persistence
         let image_rate_limiter = RateLimiter::new_with_persistence(
             config.image_rate_limit_minute,
             config.image_rate_limit_day,
-            "gemini_image_quota.json".to_string(),
+            "gemini_image_quota".to_string(),
         );
 
         Self {

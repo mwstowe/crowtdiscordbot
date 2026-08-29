@@ -1,11 +1,13 @@
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 use std::collections::VecDeque;
-use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 use tracing::{error, info, warn};
+
+/// SQLite database file used for all bot persistence (shared with message history).
+const PERSISTENCE_DB: &str = "message_history.db";
 
 /// A rate limiter that enforces both per-minute and per-day limits
 #[derive(Clone)]
@@ -18,77 +20,119 @@ pub struct RateLimiter {
     day_limit: u32,
     day_requests: Arc<Mutex<VecDeque<DateTime<Utc>>>>,
 
-    // Persistence
-    persistence_file: Option<String>,
+    // Persistence: a stable bucket name identifying this limiter's quota
+    // (e.g. "gemini_text_quota"). Timestamps are stored in the shared SQLite
+    // database in the rate_limit_events table.
+    persistence_bucket: Option<String>,
 }
 
 impl RateLimiter {
-    /// Create a new rate limiter with persistence
+    /// Create a new rate limiter with SQLite-backed persistence.
+    ///
+    /// `persistence_bucket` is a stable identifier for this limiter's daily
+    /// quota (historically a filename like "gemini_text_quota.json"; any
+    /// ".json" suffix is stripped so existing call sites keep working).
     pub fn new_with_persistence(
         minute_limit: u32,
         day_limit: u32,
-        persistence_file: String,
+        persistence_bucket: String,
     ) -> Self {
-        let limiter = Self {
+        let bucket = persistence_bucket
+            .strip_suffix(".json")
+            .unwrap_or(&persistence_bucket)
+            .to_string();
+
+        // Load today's persisted daily usage up front so we can seed the
+        // day_requests queue directly - no locking or block_in_place needed.
+        let initial_day_requests = match Self::load_daily_usage(&bucket) {
+            Ok(v) => v,
+            Err(e) => {
+                warn!("Failed to load daily usage from persistence: {}", e);
+                VecDeque::new()
+            }
+        };
+
+        Self {
             minute_limit,
             minute_requests: Arc::new(Mutex::new(VecDeque::new())),
             day_limit,
-            day_requests: Arc::new(Mutex::new(VecDeque::new())),
-            persistence_file: Some(persistence_file),
-        };
-
-        // Load existing daily usage on startup
-        if let Err(e) = limiter.load_daily_usage() {
-            warn!("Failed to load daily usage from persistence: {}", e);
+            day_requests: Arc::new(Mutex::new(initial_day_requests)),
+            persistence_bucket: Some(bucket),
         }
-
-        limiter
     }
 
-    /// Load daily usage from persistence file
-    fn load_daily_usage(&self) -> Result<()> {
-        if let Some(file_path) = &self.persistence_file {
-            if Path::new(file_path).exists() {
-                let content = std::fs::read_to_string(file_path)?;
-                let timestamps: Vec<DateTime<Utc>> = serde_json::from_str(&content)?;
+    /// Open the shared SQLite database and ensure the rate_limit_events table exists.
+    fn open_db() -> Result<rusqlite::Connection> {
+        let conn = rusqlite::Connection::open(PERSISTENCE_DB)?;
+        conn.busy_timeout(Duration::from_secs(5))?;
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS rate_limit_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                bucket TEXT NOT NULL,
+                ts INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_rate_limit_bucket_ts
+                ON rate_limit_events (bucket, ts);",
+        )?;
+        Ok(conn)
+    }
 
-                // Only keep timestamps from today (current UTC day)
-                let today_start = Utc::now()
-                    .date_naive()
-                    .and_hms_opt(0, 0, 0)
-                    .unwrap()
-                    .and_utc();
-                let valid_timestamps: VecDeque<DateTime<Utc>> = timestamps
-                    .into_iter()
-                    .filter(|t| *t >= today_start)
-                    .collect();
+    /// Load today's (UTC) persisted daily usage for a bucket from SQLite,
+    /// pruning older events. Returns the timestamps in chronological order.
+    fn load_daily_usage(bucket: &str) -> Result<VecDeque<DateTime<Utc>>> {
+        let today_start = Utc::now()
+            .date_naive()
+            .and_hms_opt(0, 0, 0)
+            .unwrap()
+            .and_utc()
+            .timestamp();
 
-                // Update the day_requests with loaded data
-                tokio::task::block_in_place(|| {
-                    tokio::runtime::Handle::current().block_on(async {
-                        let mut day_requests = self.day_requests.lock().await;
-                        *day_requests = valid_timestamps;
-                    })
-                });
+        let conn = Self::open_db()?;
 
-                info!(
-                    "Loaded {} daily requests from persistence",
-                    self.day_requests.try_lock().map(|r| r.len()).unwrap_or(0)
-                );
+        // Prune events older than today for this bucket to keep the table small
+        conn.execute(
+            "DELETE FROM rate_limit_events WHERE bucket = ?1 AND ts < ?2",
+            rusqlite::params![bucket, today_start],
+        )?;
+
+        // Load today's timestamps
+        let mut stmt = conn.prepare(
+            "SELECT ts FROM rate_limit_events WHERE bucket = ?1 AND ts >= ?2 ORDER BY ts",
+        )?;
+        let rows = stmt.query_map(rusqlite::params![bucket, today_start], |row| {
+            row.get::<_, i64>(0)
+        })?;
+
+        let mut valid: VecDeque<DateTime<Utc>> = VecDeque::new();
+        for ts in rows.flatten() {
+            if let Some(dt) = DateTime::<Utc>::from_timestamp(ts, 0) {
+                valid.push_back(dt);
             }
         }
-        Ok(())
+
+        info!(
+            "Loaded {} daily requests for bucket '{}' from SQLite",
+            valid.len(),
+            bucket
+        );
+        Ok(valid)
     }
 
-    /// Save daily usage to persistence file
-    async fn save_daily_usage(&self) -> Result<()> {
-        if let Some(file_path) = &self.persistence_file {
-            let day_requests = self.day_requests.lock().await;
-            let timestamps: Vec<DateTime<Utc>> = day_requests.iter().cloned().collect();
-            drop(day_requests);
-
-            let content = serde_json::to_string(&timestamps)?;
-            tokio::fs::write(file_path, content).await?;
+    /// Persist a single request timestamp to SQLite for the daily quota.
+    async fn record_daily_event(&self, ts: DateTime<Utc>) -> Result<()> {
+        if let Some(bucket) = &self.persistence_bucket {
+            let bucket = bucket.clone();
+            let epoch = ts.timestamp();
+            // rusqlite is synchronous; run it on the blocking pool.
+            tokio::task::spawn_blocking(move || -> Result<()> {
+                let conn = Self::open_db()?;
+                conn.execute(
+                    "INSERT INTO rate_limit_events (bucket, ts) VALUES (?1, ?2)",
+                    rusqlite::params![bucket, epoch],
+                )?;
+                Ok(())
+            })
+            .await??;
         }
         Ok(())
     }
@@ -203,9 +247,9 @@ impl RateLimiter {
         day_requests.push_back(now_utc);
         drop(day_requests);
 
-        // Save daily usage to persistence
-        if let Err(e) = self.save_daily_usage().await {
-            error!("Failed to save daily usage to persistence: {}", e);
+        // Persist this request to SQLite for the daily quota
+        if let Err(e) = self.record_daily_event(now_utc).await {
+            error!("Failed to persist daily usage to SQLite: {}", e);
         }
     }
 
@@ -252,5 +296,64 @@ impl RateLimiter {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Recording requests should persist to SQLite and be restored by a fresh
+    /// limiter instance using the same bucket.
+    #[tokio::test]
+    async fn daily_usage_persists_across_instances() {
+        // Unique bucket so the test doesn't collide with real quotas or other tests
+        let bucket = format!(
+            "test_bucket_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+
+        // Clean any stray rows for this bucket first (defensive)
+        {
+            let conn = RateLimiter::open_db().expect("open db");
+            let _ = conn.execute(
+                "DELETE FROM rate_limit_events WHERE bucket = ?1",
+                rusqlite::params![bucket],
+            );
+        }
+
+        // First limiter: record two requests
+        let limiter = RateLimiter::new_with_persistence(100, 100, bucket.clone());
+        limiter.record_request().await;
+        limiter.record_request().await;
+
+        let (_, _, day_used, _) = limiter.get_usage_stats().await;
+        assert_eq!(day_used, 2, "in-memory daily count should be 2");
+
+        // Fresh limiter with the same bucket should reload the 2 events
+        let reloaded = RateLimiter::new_with_persistence(100, 100, bucket.clone());
+        let (_, _, reloaded_day_used, _) = reloaded.get_usage_stats().await;
+        assert_eq!(
+            reloaded_day_used, 2,
+            "reloaded limiter should restore persisted daily count"
+        );
+
+        // Cleanup
+        let conn = RateLimiter::open_db().expect("open db");
+        let _ = conn.execute(
+            "DELETE FROM rate_limit_events WHERE bucket = ?1",
+            rusqlite::params![bucket],
+        );
+    }
+
+    /// The ".json" suffix on legacy bucket names is normalized away so both
+    /// spellings refer to the same persistence bucket.
+    #[test]
+    fn json_suffix_is_stripped_from_bucket() {
+        let limiter = RateLimiter::new_with_persistence(1, 1, "foo_quota.json".to_string());
+        assert_eq!(limiter.persistence_bucket.as_deref(), Some("foo_quota"));
     }
 }

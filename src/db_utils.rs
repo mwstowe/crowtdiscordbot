@@ -806,3 +806,75 @@ pub async fn cleanup_old_posted_news(
         .await?;
     Ok(deleted)
 }
+
+/// Initialize the fact_topics table for tracking recently shared fact topics
+/// (used to prevent the bot from repeating the same facts).
+pub async fn initialize_fact_topics_table(
+    conn: &Arc<SqliteConnection>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    conn.call(|conn| {
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS fact_topics (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                topic TEXT NOT NULL,
+                created_at INTEGER NOT NULL
+            )",
+            [],
+        )?;
+        Ok::<_, rusqlite::Error>(())
+    })
+    .await?;
+    Ok(())
+}
+
+/// Load the most recent fact topics (newest last), up to `limit` entries.
+pub async fn load_recent_fact_topics(
+    conn: &Arc<SqliteConnection>,
+    limit: usize,
+) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let topics = conn
+        .call(move |conn| {
+            // Select the newest `limit` rows, then reverse to chronological order
+            let mut stmt =
+                conn.prepare("SELECT topic FROM fact_topics ORDER BY id DESC LIMIT ?")?;
+            let rows = stmt.query_map([limit as i64], |row| row.get::<_, String>(0))?;
+            let mut result: Vec<String> = Vec::new();
+            for topic in rows.flatten() {
+                result.push(topic);
+            }
+            result.reverse(); // oldest first, newest last
+            Ok::<_, rusqlite::Error>(result)
+        })
+        .await?;
+    Ok(topics)
+}
+
+/// Record a fact topic and prune to keep only the newest `max_keep` entries.
+pub async fn record_fact_topic(
+    conn: &Arc<SqliteConnection>,
+    topic: &str,
+    max_keep: usize,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let topic = topic.to_string();
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+
+    conn.call(move |conn| {
+        conn.execute(
+            "INSERT INTO fact_topics (topic, created_at) VALUES (?, ?)",
+            rusqlite::params![topic, timestamp],
+        )?;
+        // Prune: keep only the newest `max_keep` rows
+        conn.execute(
+            "DELETE FROM fact_topics WHERE id NOT IN (
+                SELECT id FROM fact_topics ORDER BY id DESC LIMIT ?
+            )",
+            rusqlite::params![max_keep as i64],
+        )?;
+        Ok::<_, rusqlite::Error>(())
+    })
+    .await?;
+    Ok(())
+}

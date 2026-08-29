@@ -1,16 +1,13 @@
 # Ignore Crow configuration file
 CrowConfig.toml
 
-# Ignore message history DB
+# Ignore message history DB (also holds rate-limit quota and fact-topic persistence)
 message_history.db
+message_history.db-wal
+message_history.db-shm
 
 # Ignore context file
 context
-
-# Ignore quota persistence files
-gemini_text_quota.json
-gemini_image_quota.json
-fact_topics_history.json
 
 # Ignore target directory
 /target/
@@ -48,4 +45,6 @@ debug/
 # Ignore work in progress docs and patch files
 *.md
 *.patch
+
+# Ignore Kiro context file
 context.json

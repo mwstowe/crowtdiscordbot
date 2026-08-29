@@ -8,9 +8,7 @@ use serenity::http::Http;
 use serenity::model::channel::Message;
 use serenity::model::id::ChannelId;
 use serenity::prelude::*;
-use std::collections::VecDeque;
 use std::sync::Arc;
-use tokio::sync::Mutex as TokioMutex;
 use tokio_rusqlite::Connection;
 use tracing::{error, info};
 
@@ -20,9 +18,6 @@ const MAX_RECENT_TOPICS: usize = 200;
 /// Minimum significant-word overlap (Jaccard, 0.0-1.0) to consider two topics duplicates
 const SIMILARITY_THRESHOLD: f64 = 0.34;
 
-/// File used to persist recent fact topics across restarts
-const FACT_TOPICS_FILE: &str = "fact_topics_history.json";
-
 /// Common words that carry no subject meaning and should be ignored when
 /// comparing two topics for similarity.
 const STOPWORDS: &[&str] = &[
@@ -31,53 +26,6 @@ const STOPWORDS: &[&str] = &[
     "it", "its", "how", "why", "what", "when", "where", "which", "who", "new", "first", "most",
     "per", "up", "out", "over", "than", "more", "less", "not", "no", "into",
 ];
-
-lazy_static::lazy_static! {
-    /// Track recently shared fact topics to prevent repetition.
-    /// Loaded from disk on first access so dedup survives restarts.
-    static ref RECENT_FACT_TOPICS: Arc<TokioMutex<VecDeque<String>>> =
-        Arc::new(TokioMutex::new(load_recent_topics()));
-}
-
-/// Load the persisted recent-topics list from disk (best-effort).
-fn load_recent_topics() -> VecDeque<String> {
-    match std::fs::read_to_string(FACT_TOPICS_FILE) {
-        Ok(content) => match serde_json::from_str::<Vec<String>>(&content) {
-            Ok(topics) => {
-                info!(
-                    "Loaded {} recent fact topics from {}",
-                    topics.len(),
-                    FACT_TOPICS_FILE
-                );
-                topics.into_iter().collect()
-            }
-            Err(e) => {
-                error!(
-                    "Failed to parse {}: {:?} - starting fresh",
-                    FACT_TOPICS_FILE, e
-                );
-                VecDeque::with_capacity(MAX_RECENT_TOPICS)
-            }
-        },
-        Err(_) => VecDeque::with_capacity(MAX_RECENT_TOPICS),
-    }
-}
-
-/// Persist the recent-topics list to disk (best-effort).
-async fn save_recent_topics(topics: &VecDeque<String>) {
-    let snapshot: Vec<&String> = topics.iter().collect();
-    match serde_json::to_string(&snapshot) {
-        Ok(content) => {
-            if let Err(e) = tokio::fs::write(FACT_TOPICS_FILE, content).await {
-                error!(
-                    "Failed to persist fact topics to {}: {:?}",
-                    FACT_TOPICS_FILE, e
-                );
-            }
-        }
-        Err(e) => error!("Failed to serialize fact topics: {:?}", e),
-    }
-}
 
 /// Reduce a topic string to a set of significant (non-stopword) lowercase words.
 /// This is the "subject key" used for comparing topics regardless of phrasing.
@@ -90,67 +38,52 @@ fn subject_words(topic: &str) -> Vec<String> {
         .collect()
 }
 
-/// Check if a topic is too similar to recently shared topics, comparing on
-/// significant subject words rather than raw phrasing.
-async fn is_duplicate_topic(topic: &str) -> bool {
-    let recent = RECENT_FACT_TOPICS.lock().await;
-    let topic_words = subject_words(topic);
-    if topic_words.is_empty() {
+/// Compare two topics for subject similarity (phrasing-independent).
+fn topics_are_similar(a: &str, b: &str) -> bool {
+    let a_words = subject_words(a);
+    let b_words = subject_words(b);
+    if a_words.is_empty() || b_words.is_empty() {
         return false;
     }
 
-    for prev_topic in recent.iter() {
-        let prev_words = subject_words(prev_topic);
-        if prev_words.is_empty() {
-            continue;
-        }
+    // Shared significant words (set intersection)
+    let shared: Vec<&String> = a_words.iter().filter(|w| b_words.contains(w)).collect();
+    let common = shared.len();
+    if common == 0 {
+        return false;
+    }
 
-        // Count shared significant words (set intersection)
-        let shared: Vec<&String> = topic_words
-            .iter()
-            .filter(|w| prev_words.contains(w))
-            .collect();
-        let common = shared.len();
+    // Jaccard similarity over the union of significant words
+    let union: usize = {
+        let mut all: Vec<&String> = a_words.iter().chain(b_words.iter()).collect();
+        all.sort();
+        all.dedup();
+        all.len()
+    };
+    let similarity = common as f64 / union as f64;
 
-        if common == 0 {
-            continue;
-        }
+    // A single shared word counts as a duplicate only if it is distinctive
+    // (a longer word like "molasses" or "filibuster" is a strong subject
+    // signal; short generic words like "war" or "list" are not).
+    let has_distinctive_shared = shared.iter().any(|w| w.len() >= 6);
 
-        // Jaccard similarity over the union of significant words
-        let union: usize = {
-            let mut all: Vec<&String> = topic_words.iter().chain(prev_words.iter()).collect();
-            all.sort();
-            all.dedup();
-            all.len()
-        };
-        let similarity = common as f64 / union as f64;
+    // Duplicate if: two+ shared subject words, OR one distinctive shared word,
+    // OR high overall overlap.
+    common >= 2 || has_distinctive_shared || similarity >= SIMILARITY_THRESHOLD
+}
 
-        // A single shared word counts as a duplicate only if it is distinctive
-        // (a longer word like "molasses" or "filibuster" is a strong subject
-        // signal; short generic words like "war" or "list" are not).
-        let has_distinctive_shared = shared.iter().any(|w| w.len() >= 6);
-
-        // Duplicate if: two+ shared subject words, OR one distinctive shared
-        // word, OR high overall overlap.
-        if common >= 2 || has_distinctive_shared || similarity >= SIMILARITY_THRESHOLD {
+/// Check if a topic is too similar to any recently shared topic.
+fn is_duplicate_topic(topic: &str, recent_topics: &[String]) -> bool {
+    for prev in recent_topics {
+        if topics_are_similar(topic, prev) {
             info!(
-                "Fact topic rejected (common={}, distinctive={}, jaccard={:.2}): '{}' vs '{}'",
-                common, has_distinctive_shared, similarity, topic, prev_topic
+                "Fact topic rejected (similar to recent): '{}' vs '{}'",
+                topic, prev
             );
             return true;
         }
     }
     false
-}
-
-/// Record a topic as recently shared and persist to disk.
-async fn record_topic(topic: &str) {
-    let mut recent = RECENT_FACT_TOPICS.lock().await;
-    if recent.len() >= MAX_RECENT_TOPICS {
-        recent.pop_front();
-    }
-    recent.push_back(topic.to_string());
-    save_recent_topics(&recent).await;
 }
 
 /// Extract topic from response in "TOPIC: description ENDTOPIC" format
@@ -356,6 +289,7 @@ pub async fn handle_fact_interjection(
         _multi_response_generator,
         &context_messages,
         bot_name,
+        message_db,
     )
     .await
 }
@@ -398,6 +332,7 @@ pub async fn handle_spontaneous_fact_interjection(
         _multi_response_generator,
         &context_messages,
         bot_name,
+        message_db,
     )
     .await
 }
@@ -430,6 +365,7 @@ async fn handle_fact_interjection_common(
     _multi_response_generator: &Option<MultiResponseGenerator>,
     context_messages: &[(String, String, Option<String>, String, Option<String>)],
     _bot_name: &str,
+    message_db: &Option<Arc<Connection>>,
 ) -> Result<bool> {
     // Format context for the prompt
     let context_text = if !context_messages.is_empty() {
@@ -490,8 +426,21 @@ async fn handle_fact_interjection_common(
             if let Some(topic) = extract_topic_from_response(&response) {
                 info!("Extracted fact topic for search: {}", topic);
 
+                // Load recently shared topics from the database (survives restarts)
+                let recent_topics: Vec<String> = if let Some(db) = message_db {
+                    match db_utils::load_recent_fact_topics(db, MAX_RECENT_TOPICS).await {
+                        Ok(topics) => topics,
+                        Err(e) => {
+                            error!("Failed to load recent fact topics: {:?}", e);
+                            Vec::new()
+                        }
+                    }
+                } else {
+                    Vec::new()
+                };
+
                 // Check if this topic is too similar to recently shared facts
-                if is_duplicate_topic(&topic).await {
+                if is_duplicate_topic(&topic, &recent_topics) {
                     info!(
                         "Fact interjection skipped: topic '{}' too similar to recent facts",
                         topic
@@ -539,7 +488,13 @@ async fn handle_fact_interjection_common(
                             info!("Fact search result validated: {}", url);
                             let final_response = format!("{} Source: {}", display_response, url);
                             send_fact_response(http, channel_id, &final_response).await;
-                            record_topic(&topic).await;
+                            if let Some(db) = message_db {
+                                if let Err(e) =
+                                    db_utils::record_fact_topic(db, &topic, MAX_RECENT_TOPICS).await
+                                {
+                                    error!("Failed to record fact topic: {:?}", e);
+                                }
+                            }
                         }
                         _ => {
                             info!("Fact search result failed validation - skipping (likely hallucinated)");
@@ -570,46 +525,25 @@ async fn handle_fact_interjection_common(
 mod tests {
     use super::*;
 
-    /// Helper mirroring the duplicate decision without the shared global state,
-    /// so we can test the subject-matching logic deterministically.
-    fn topics_match(a: &str, b: &str) -> bool {
-        let aw = subject_words(a);
-        let bw = subject_words(b);
-        if aw.is_empty() || bw.is_empty() {
-            return false;
-        }
-        let shared: Vec<&String> = aw.iter().filter(|w| bw.contains(w)).collect();
-        let common = shared.len();
-        if common == 0 {
-            return false;
-        }
-        let union = {
-            let mut all: Vec<&String> = aw.iter().chain(bw.iter()).collect();
-            all.sort();
-            all.dedup();
-            all.len()
-        };
-        let similarity = common as f64 / union as f64;
-        let has_distinctive_shared = shared.iter().any(|w| w.len() >= 6);
-        common >= 2 || has_distinctive_shared || similarity >= SIMILARITY_THRESHOLD
-    }
-
     #[test]
     fn same_event_different_phrasing_is_duplicate() {
-        assert!(topics_match(
+        assert!(topics_are_similar(
             "Great Molasses Flood 1919",
             "Boston molasses disaster deaths"
         ));
-        assert!(topics_match("Emu War Australia 1932", "great emu war"));
+        assert!(topics_are_similar(
+            "Emu War Australia 1932",
+            "great emu war"
+        ));
     }
 
     #[test]
     fn unrelated_topics_are_not_duplicates() {
-        assert!(!topics_match(
+        assert!(!topics_are_similar(
             "Great Molasses Flood 1919",
             "IBM quantum computing breakthrough"
         ));
-        assert!(!topics_match(
+        assert!(!topics_are_similar(
             "Finland highest coffee consumption",
             "octopus three hearts blue blood"
         ));
@@ -618,7 +552,7 @@ mod tests {
     #[test]
     fn stopwords_do_not_cause_false_matches() {
         // Only shared words are stopwords -> should NOT match
-        assert!(!topics_match(
+        assert!(!topics_are_similar(
             "the history of the printing press",
             "the story of the first airplane"
         ));
@@ -627,6 +561,29 @@ mod tests {
     #[test]
     fn single_short_generic_shared_word_does_not_match() {
         // Share only "war" (3 chars, not distinctive) and nothing else -> no match
-        assert!(!topics_match("cold war espionage", "war of the roses"));
+        assert!(!topics_are_similar(
+            "cold war espionage",
+            "war of the roses"
+        ));
+    }
+
+    #[test]
+    fn is_duplicate_topic_matches_against_recent_list() {
+        let recent = vec![
+            "IBM quantum computing breakthrough".to_string(),
+            "Great Molasses Flood 1919".to_string(),
+        ];
+        // Same subject as an entry in the list -> duplicate
+        assert!(is_duplicate_topic(
+            "Boston molasses disaster deaths",
+            &recent
+        ));
+        // Fresh subject not in the list -> not a duplicate
+        assert!(!is_duplicate_topic(
+            "octopus three hearts blue blood",
+            &recent
+        ));
+        // Empty history -> never a duplicate
+        assert!(!is_duplicate_topic("anything at all here", &[]));
     }
 }
