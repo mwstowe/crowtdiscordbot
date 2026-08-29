@@ -123,13 +123,13 @@ impl PromptTemplates {
             1. Share a single, concise, factually accurate fact that is relevant to the recent conversation\n\
             2. The fact MUST be true and verifiable - this is extremely important\n\
             3. DO NOT start with \"Fun fact:\" or \"Did you know?\"\n\
-            4. Instead, address a specific user by name and acknowledge what they mentioned, then share your fact\n\
+            4. If the fact connects naturally to something a specific person said, address them by name and acknowledge it - but do NOT force this; only reference the conversation when the connection is genuine and obvious. A standalone fact with no forced tie-in is better than a strained one\n\
             5. For example: \"Hey Alice, you mentioned learning Python - TOPIC: Python named after Monty Python ENDTOPIC the language was actually named after Monty Python, not the snake.\"\n\
             6. Another example: \"Bob, that discussion about coffee reminds me - TOPIC: Finland highest coffee consumption per capita ENDTOPIC Finland consumes more coffee per capita than any other country.\"\n\
             7. If there's no clear person to address, you can use a general greeting like \"Hey folks\" or just address the most recent speaker\n\
             8. Keep it brief (1-2 sentences for the fact itself)\n\
             9. Your fact must be SURPRISING, QUIRKY, or FUNNY — the kind of thing that makes someone say \"no way\" or laugh. Dry etymology, basic definitions, and textbook facts do NOT clear this bar. If it sounds like something you'd read in the first paragraph of a Wikipedia article, it's not interesting enough.\n\
-            10. If possible, relate it to the conversation topic, but don't force it\n\
+            10. Relating the fact to the conversation is a bonus, not a requirement. If the only way to connect it is a strained or tenuous link, either share the fact on its own OR respond with \"pass\" - NEVER manufacture a forced connection\n\
             11. If you can't find a GENUINELY surprising or amusing fact based on the conversation, respond with ONLY the word \"pass\" — passing is always better than being boring\n\
             12. DO NOT include any URLs - we will search for and add a real link automatically\n\
             13. ALWAYS include a TOPIC tag formatted as: \"TOPIC: [brief searchable description] ENDTOPIC\" - keep the topic SHORT (3-8 words), just enough to search for a source\n\
