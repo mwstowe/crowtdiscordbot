@@ -261,7 +261,7 @@ pub async fn trim_database(
                 "DELETE FROM messages WHERE id IN (
                     SELECT id FROM messages ORDER BY timestamp ASC LIMIT ?
                 )",
-                [to_delete],
+                [to_delete as i64],
             )?;
             Ok::<_, rusqlite::Error>(())
         })
@@ -504,7 +504,7 @@ pub async fn load_message_history(
                  FROM messages ORDER BY timestamp DESC LIMIT ?"
             )?;
 
-            let rows = stmt.query_map([limit], |row| {
+            let rows = stmt.query_map([limit as i64], |row| {
                 Ok((
                     row.get::<_, String>(0)?, // message_id
                     row.get::<_, String>(1)?, // channel_id

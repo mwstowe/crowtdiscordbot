@@ -33,7 +33,7 @@ impl LastSeenFinder {
                         row.get::<_, String>(0)?,
                         row.get::<_, String>(1).unwrap_or_else(|_| "".to_string()),
                         row.get::<_, String>(2)?,
-                        row.get::<_, u64>(3)?,
+                        row.get::<_, i64>(3)? as u64,
                     ))
                 })?;
 
@@ -69,7 +69,7 @@ impl LastSeenFinder {
                         row.get::<_, String>(0)?,                                   // author
                         row.get::<_, String>(1).unwrap_or_else(|_| "".to_string()), // display_name
                         row.get::<_, String>(2)?,                                   // content
-                        row.get::<_, u64>(3)?,                                      // timestamp
+                        row.get::<_, i64>(3)? as u64,                               // timestamp
                     ))
                 })?;
 
