@@ -11,9 +11,9 @@ lazy_static! {
     )
     .unwrap();
     static ref MEDIA_URL_REGEX: Regex =
-        Regex::new(r"\[(Image|Video): [^|]+ \| ([^|]+) \| (https?://[^\]]+)\]").unwrap();
+        Regex::new(r"\[(Image|Video|GIF): [^|]+ \| ([^|]+) \| (https?://[^\]]+)\]").unwrap();
     static ref MEDIA_STRIP_REGEX: Regex =
-        Regex::new(r"\[(Image|Video): ([^|]+) \| [^|]+ \| https?://[^\]]+\]").unwrap();
+        Regex::new(r"\[(Image|Video|GIF): ([^|]+) \| [^|]+ \| https?://[^\]]+\]").unwrap();
 }
 
 /// A media item extracted from a Discord message
@@ -21,6 +21,8 @@ lazy_static! {
 pub struct MediaItem {
     pub mime_type: String,
     pub data: String, // base64-encoded
+    /// Display name of the person who posted this media, if known from context.
+    pub author: Option<String>,
 }
 
 /// A YouTube URL found in message text
@@ -70,6 +72,7 @@ pub async fn extract_media_from_message(
                 items.push(MediaItem {
                     mime_type: content_type.to_string(),
                     data,
+                    author: None,
                 });
                 info!(
                     "Extracted media: {} ({}, {} bytes)",
@@ -106,6 +109,7 @@ pub async fn extract_media_from_message(
                     items.push(MediaItem {
                         mime_type: content_type.to_string(),
                         data,
+                        author: None,
                     });
                     info!(
                         "Extracted media from referenced message: {} ({})",
@@ -135,9 +139,12 @@ pub fn extract_youtube_urls(text: &str) -> Vec<YouTubeUrl> {
         .collect()
 }
 
-/// Describe attachments as text tags for context storage (includes URL for later retrieval)
+/// Describe attachments, stickers, and embeds as text tags for context storage
+/// (image/video attachments include the URL for later retrieval).
 pub fn describe_attachments(msg: &Message) -> String {
     let mut tags = Vec::new();
+
+    // File attachments (images, videos, other files)
     for attachment in &msg.attachments {
         let content_type = attachment.content_type.as_deref().unwrap_or("unknown");
         if IMAGE_TYPES.iter().any(|t| content_type.starts_with(t)) {
@@ -154,21 +161,59 @@ pub fn describe_attachments(msg: &Message) -> String {
             tags.push(format!("[File: {}]", attachment.filename));
         }
     }
+
+    // Stickers (posted with no text, otherwise stored as empty content)
+    for sticker in &msg.sticker_items {
+        tags.push(format!("[Sticker: {}]", sticker.name));
+    }
+
+    // Embeds (GIFs from Tenor/Giphy, unfurled links, etc.)
+    for embed in &msg.embeds {
+        // An embed that just mirrors an attachment we already tagged adds no value;
+        // but standalone GIF/image/link embeds are the common "empty message" source.
+        let kind = embed.kind.as_deref().unwrap_or("");
+        if let Some(url) = &embed.url {
+            if kind == "gifv" || kind == "video" {
+                tags.push(format!("[GIF: animated | image/gif | {url}]"));
+            } else if kind == "image" {
+                tags.push(format!("[Image: embed | image/gif | {url}]"));
+            } else {
+                // Link/article embed - include title if available for context
+                match &embed.title {
+                    Some(title) => tags.push(format!("[Link: {title} | {url}]")),
+                    None => tags.push(format!("[Link: {url}]")),
+                }
+            }
+        }
+    }
+
     tags.join(" ")
 }
 
-/// Extract image/video URLs from context text, returning media metadata.
+/// Extract image/video URLs from context text along with the posting author.
+/// Context lines are formatted "DisplayName: content...[Image: ...]", so the
+/// author is the text before the first ": " on the line containing the media tag.
 /// Returns up to `max_items` most recent items (from end of text).
-pub fn extract_media_urls_from_context(text: &str, max_items: usize) -> Vec<(String, String)> {
-    // Match [Image: name | mime | url] and [Video: name | mime | url]
-    let mut items: Vec<(String, String)> = MEDIA_URL_REGEX
-        .captures_iter(text)
-        .map(|cap| {
+pub fn extract_media_urls_from_context(
+    text: &str,
+    max_items: usize,
+) -> Vec<(String, String, Option<String>)> {
+    let mut items: Vec<(String, String, Option<String>)> = Vec::new();
+
+    for line in text.lines() {
+        // Author is the segment before the first ": " on the line, if present.
+        let author = line
+            .find(": ")
+            .map(|idx| line[..idx].trim().to_string())
+            .filter(|a| !a.is_empty());
+
+        for cap in MEDIA_URL_REGEX.captures_iter(line) {
             let mime = cap[2].trim().to_string();
             let url = cap[3].trim().to_string();
-            (mime, url)
-        })
-        .collect();
+            items.push((mime, url, author.clone()));
+        }
+    }
+
     // Keep only the most recent items
     if items.len() > max_items {
         items = items.split_off(items.len() - max_items);
@@ -196,13 +241,17 @@ pub async fn fetch_media_from_context(
 ) -> Vec<MediaItem> {
     let urls = extract_media_urls_from_context(text, max_items);
     let mut items = Vec::new();
-    for (mime, url) in urls {
+    for (mime, url, author) in urls {
         match download_and_encode(http_client, &url).await {
             Ok(data) => {
-                info!("Fetched context media: {} ({})", url, mime);
+                info!(
+                    "Fetched context media: {} ({}) posted by {:?}",
+                    url, mime, author
+                );
                 items.push(MediaItem {
                     mime_type: mime,
                     data,
+                    author,
                 });
             }
             Err(e) => {
@@ -227,4 +276,55 @@ async fn download_and_encode(http_client: &reqwest::Client, url: &str) -> Result
         return Err(anyhow::anyhow!("Too large: {} bytes", bytes.len()));
     }
     Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn attributes_image_to_the_line_author() {
+        // Mirrors the Chuck E. Cheese incident: Rumm posts the image, Raccoon
+        // posts an empty message afterward.
+        let context = "Rumm: I liked this one: [Image: img.png | image/png | https://cdn.example.com/a.png]\n\
+                       del23: i knew she looked familiar\n\
+                       Raccoon: ";
+        let items = extract_media_urls_from_context(context, 3);
+        assert_eq!(items.len(), 1);
+        let (mime, url, author) = &items[0];
+        assert_eq!(mime, "image/png");
+        assert_eq!(url, "https://cdn.example.com/a.png");
+        assert_eq!(author.as_deref(), Some("Rumm"));
+    }
+
+    #[test]
+    fn caps_to_most_recent_items() {
+        let context = "a: [Image: 1 | image/png | https://e.com/1.png]\n\
+                       b: [Image: 2 | image/png | https://e.com/2.png]\n\
+                       c: [Image: 3 | image/png | https://e.com/3.png]\n\
+                       d: [Image: 4 | image/png | https://e.com/4.png]";
+        let items = extract_media_urls_from_context(context, 2);
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].2.as_deref(), Some("c"));
+        assert_eq!(items[1].2.as_deref(), Some("d"));
+    }
+
+    #[test]
+    fn gif_tag_is_extracted_and_stripped() {
+        let context = "Rumm: [GIF: animated | image/gif | https://tenor.com/x.gif]";
+        let items = extract_media_urls_from_context(context, 3);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].2.as_deref(), Some("Rumm"));
+
+        let stripped = strip_media_urls_from_context(context);
+        assert!(!stripped.contains("https://"));
+        assert!(stripped.contains("[GIF:"));
+    }
+
+    #[test]
+    fn strip_removes_url_keeps_name() {
+        let context = "x: [Image: photo.jpg | image/jpeg | https://cdn.example.com/p.jpg]";
+        let stripped = strip_media_urls_from_context(context);
+        assert_eq!(stripped, "x: [Image: photo.jpg]");
+    }
 }

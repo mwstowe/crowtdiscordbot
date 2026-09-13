@@ -124,6 +124,7 @@ impl PromptTemplates {
             2. The fact MUST be true and verifiable - this is extremely important\n\
             3. DO NOT start with \"Fun fact:\" or \"Did you know?\"\n\
             4. If the fact connects naturally to something a specific person said, address them by name and acknowledge it - but do NOT force this; only reference the conversation when the connection is genuine and obvious. A standalone fact with no forced tie-in is better than a strained one\n\
+            4a. CRITICAL: If you are reacting to an image, GIF, or something someone posted, you MUST address the person who actually posted THAT content, not whoever spoke most recently. Each image in this request is labeled with who posted it (e.g. \"The following image was posted by X\"). Address X, not someone else. If you are unsure who posted the thing you are reacting to, do NOT guess a name - use a general greeting or respond with \"pass\".\n\
             5. For example: \"Hey Alice, you mentioned learning Python - TOPIC: Python named after Monty Python ENDTOPIC the language was actually named after Monty Python, not the snake.\"\n\
             6. Another example: \"Bob, that discussion about coffee reminds me - TOPIC: Finland highest coffee consumption per capita ENDTOPIC Finland consumes more coffee per capita than any other country.\"\n\
             7. If there's no clear person to address, you can use a general greeting like \"Hey folks\" or just address the most recent speaker\n\

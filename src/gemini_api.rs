@@ -620,10 +620,17 @@ impl GeminiClient {
             );
         }
 
-        // Build parts array: media first, then text
+        // Build parts array: media first, then text.
+        // Each authored image is preceded by a text label so the model knows who
+        // posted it — this prevents misattributing the image to the wrong person.
         let mut parts = Vec::new();
 
         for item in media {
+            if let Some(author) = &item.author {
+                parts.push(serde_json::json!({
+                    "text": format!("The following image was posted by {author}:")
+                }));
+            }
             parts.push(serde_json::json!({
                 "inline_data": {
                     "mime_type": item.mime_type,
