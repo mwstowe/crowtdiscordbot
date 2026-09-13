@@ -48,3 +48,6 @@ debug/
 
 # Ignore Kiro context file
 context.json
+
+# Ignore Kiro directory (settings, local agent state, etc.)
+.kiro/
