@@ -21,6 +21,7 @@ impl Drop for TypingGuard {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn handle_imagine_command(
     ctx: &Context,
     msg: &Message,

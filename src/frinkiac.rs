@@ -874,7 +874,10 @@ async fn send_frinkiac_result(
                         bytes.to_vec(),
                         "frinkiac.gif".to_string(),
                     );
-                    let message = CreateMessage::new().content(&title).add_file(attachment);
+                    let message = CreateMessage::new()
+                        .content(&title)
+                        .add_file(attachment)
+                        .reference_message(msg);
                     match msg.channel_id.send_message(http, message).await {
                         Ok(_) => {
                             sent = true;
@@ -892,13 +895,13 @@ async fn send_frinkiac_result(
         // Fallback: send the GIF URL as text (handles 413 too-large errors)
         if !sent {
             let response = format!("{}\n{}", title, gif_url);
-            if let Err(e) = msg.channel_id.say(http, &response).await {
+            if let Err(e) = msg.reply(http, &response).await {
                 error!("Error sending Frinkiac result fallback: {:?}", e);
             }
         }
     } else {
         let response = format_frinkiac_result(result);
-        if let Err(e) = msg.channel_id.say(http, &response).await {
+        if let Err(e) = msg.reply(http, &response).await {
             error!("Error sending Frinkiac result: {:?}", e);
         }
     }
@@ -992,8 +995,7 @@ pub async fn handle_frinkiac_command(
             }
             Ok(None) => {
                 let _ = msg
-                    .channel_id
-                    .say(http, "Couldn't find any Simpsons screenshots. D'oh!")
+                    .reply(http, "Couldn't find any Simpsons screenshots. D'oh!")
                     .await;
             }
             Err(e) => {

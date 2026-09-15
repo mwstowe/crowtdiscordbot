@@ -173,21 +173,18 @@ impl DatabaseManager {
         match result {
             QueryResult::NotConfigured => {
                 error!("❌ MySQL pool is None when handling {} command", entry_type);
-                msg.channel_id
-                    .say(http, "MySQL database is not configured.")
-                    .await?;
+                msg.reply(http, "MySQL database is not configured.").await?;
             }
             QueryResult::ConnectionFailed(e) => {
                 error!(
                     "❌ Failed to get MySQL connection for {} command: {}",
                     entry_type, e
                 );
-                msg.channel_id
-                    .say(
-                        http,
-                        format!("Failed to connect to the {entry_type} database."),
-                    )
-                    .await?;
+                msg.reply(
+                    http,
+                    format!("Failed to connect to the {entry_type} database."),
+                )
+                .await?;
             }
             QueryResult::NoResults {
                 search_term,
@@ -204,7 +201,7 @@ impl DatabaseManager {
                 if let Some(show) = &show_name {
                     message.push_str(&format!(" in show '{show}'"));
                 }
-                msg.channel_id.say(http, message).await?;
+                msg.reply(http, message).await?;
             }
             QueryResult::Quote {
                 quote_text,
@@ -216,14 +213,13 @@ impl DatabaseManager {
             } => {
                 let clean_quote = html_escape::decode_html_entities(&quote_text);
                 let quote_num = quote_index + 1;
-                msg.channel_id
-                    .say(
-                        http,
-                        format!(
-                            "(Quote {quote_num} of {total}) {clean_quote} -- {show_title} {episode_num}: {episode_title}"
-                        ),
-                    )
-                    .await?;
+                msg.reply(
+                    http,
+                    format!(
+                        "(Quote {quote_num} of {total}) {clean_quote} -- {show_title} {episode_num}: {episode_title}"
+                    ),
+                )
+                .await?;
             }
             QueryResult::Slogan {
                 slogan_text,
@@ -232,21 +228,19 @@ impl DatabaseManager {
             } => {
                 let clean_slogan = html_escape::decode_html_entities(&slogan_text);
                 let slogan_num = slogan_index + 1;
-                msg.channel_id
-                    .say(
-                        http,
-                        format!("(Slogan {slogan_num} of {total}) {clean_slogan}"),
-                    )
-                    .await?;
+                msg.reply(
+                    http,
+                    format!("(Slogan {slogan_num} of {total}) {clean_slogan}"),
+                )
+                .await?;
             }
             QueryResult::QueryError(e) => {
                 error!("❌ Database query error for {} command: {}", entry_type, e);
-                msg.channel_id
-                    .say(
-                        http,
-                        format!("Failed to retrieve a {entry_type} from the database."),
-                    )
-                    .await?;
+                msg.reply(
+                    http,
+                    format!("Failed to retrieve a {entry_type} from the database."),
+                )
+                .await?;
             }
         }
 

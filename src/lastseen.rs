@@ -162,7 +162,7 @@ pub async fn handle_lastseen_command(
     db_conn: &Option<Arc<SqliteConnection>>,
 ) -> Result<()> {
     if name.is_empty() && user_id.is_none() {
-        if let Err(e) = msg.channel_id.say(http, "Usage: !lastseen [name]").await {
+        if let Err(e) = msg.reply(http, "Usage: !lastseen [name]").await {
             error!("Error sending usage message: {:?}", e);
         }
         return Ok(());
@@ -173,11 +173,7 @@ pub async fn handle_lastseen_command(
         Ok(user) => user,
         Err(e) => {
             error!("Error getting current user: {:?}", e);
-            if let Err(e) = msg
-                .channel_id
-                .say(http, "Error retrieving bot information")
-                .await
-            {
+            if let Err(e) = msg.reply(http, "Error retrieving bot information").await {
                 error!("Error sending error message: {:?}", e);
             }
             return Ok(());
@@ -189,7 +185,7 @@ pub async fn handle_lastseen_command(
     let name_lower = name.to_lowercase();
 
     if name_lower.contains(&bot_name) || bot_name.contains(&name_lower) {
-        if let Err(e) = msg.channel_id.say(http, "I'm right here!").await {
+        if let Err(e) = msg.reply(http, "I'm right here!").await {
             error!("Error sending bot presence message: {:?}", e);
         }
         return Ok(());
@@ -209,7 +205,7 @@ pub async fn handle_lastseen_command(
             && (name_lower.contains(&author_display_name)
                 || author_display_name.contains(&name_lower)))
     {
-        if let Err(e) = msg.channel_id.say(http, "You're right here!").await {
+        if let Err(e) = msg.reply(http, "You're right here!").await {
             error!("Error sending self-reference message: {:?}", e);
         }
         return Ok(());
@@ -238,14 +234,13 @@ pub async fn handle_lastseen_command(
                 let response =
                     format!("{user_name} was last seen {time_ago} ago, saying: \"{content}\"");
 
-                if let Err(e) = msg.channel_id.say(http, response).await {
+                if let Err(e) = msg.reply(http, response).await {
                     error!("Error sending lastseen response: {:?}", e);
                 }
             }
             Ok(None) => {
                 if let Err(e) = msg
-                    .channel_id
-                    .say(http, format!("I haven't seen anyone matching \"{name}\""))
+                    .reply(http, format!("I haven't seen anyone matching \"{name}\""))
                     .await
                 {
                     error!("Error sending no match message: {:?}", e);
@@ -253,18 +248,13 @@ pub async fn handle_lastseen_command(
             }
             Err(e) => {
                 error!("Error finding last message: {:?}", e);
-                if let Err(e) = msg
-                    .channel_id
-                    .say(http, "Error searching message history")
-                    .await
-                {
+                if let Err(e) = msg.reply(http, "Error searching message history").await {
                     error!("Error sending error message: {:?}", e);
                 }
             }
         }
     } else if let Err(e) = msg
-        .channel_id
-        .say(http, "Message history database is not available")
+        .reply(http, "Message history database is not available")
         .await
     {
         error!("Error sending database unavailable message: {:?}", e);

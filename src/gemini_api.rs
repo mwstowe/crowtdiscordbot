@@ -307,8 +307,13 @@ impl GeminiClient {
                         author
                     };
 
-                    // Include pronouns if available
-                    if let Some(pronouns) = pronouns {
+                    // Mark the bot's own previous messages so the model never
+                    // addresses or replies to itself.
+                    let is_self =
+                        name_to_use.eq_ignore_ascii_case(self.prompt_templates.bot_name());
+                    if is_self {
+                        format!("{name_to_use} (you): {msg}")
+                    } else if let Some(pronouns) = pronouns {
                         format!("{name_to_use} ({pronouns}): {msg}")
                     } else {
                         format!("{name_to_use}: {msg}")

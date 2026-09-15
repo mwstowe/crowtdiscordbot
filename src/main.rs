@@ -30,7 +30,6 @@ mod gemini_api;
 mod giphy;
 mod image_generation;
 mod lastseen;
-mod masterofallscience;
 mod media_utils;
 mod morbotron;
 mod multi_response_generator;
@@ -63,7 +62,6 @@ use frinkiac::{handle_frinkiac_command, FrinkiacClient};
 use gemini_api::{GeminiClient, GeminiConfig};
 use image_generation::handle_imagine_command;
 use lastseen::handle_lastseen_command;
-use masterofallscience::{handle_masterofallscience_command, MasterOfAllScienceClient};
 use morbotron::{handle_morbotron_command, MorbotronClient};
 use multi_response_generator::{MultiResponseConfig, MultiResponseGenerator};
 use news_interjection::handle_news_interjection;
@@ -181,7 +179,6 @@ struct Bot {
     multi_response_generator: Option<MultiResponseGenerator>,
     frinkiac_client: FrinkiacClient,
     morbotron_client: MorbotronClient,
-    masterofallscience_client: MasterOfAllScienceClient,
     bot_name: String,
     message_db: Option<Arc<Connection>>,
     message_history_limit: usize,
@@ -343,10 +340,10 @@ impl Bot {
         // Generate a comprehensive help message with all commands
         let help_message = if !parsed_config.imagine_channels.is_empty() {
             // Include the imagine command if channels are configured
-            "Available commands:\n!help - Show help\n!hello - Say hello\n!buzz - Generate corporate buzzwords\n!fightcrime - Generate a crime fighting duo\n!trump - Generate a Trump insult\n!bandname [name] - Generate music genre for a band\n!lastseen [name] - Find when a user was last active\n!quote [term] - Get a random quote\n!quote -show [show] - Get quote from specific show\n!quote -dud [user] - Get random message from a user\n!slogan [term] - Get a random advertising slogan\n!frinkiac [term] [-s season] [-e episode] - Get a Simpsons screenshot\n!morbotron [term] - Get a Futurama screenshot\n!masterofallscience [term] - Get a Rick and Morty screenshot\n!imagine [text] - Generate an image\n!alive [name] - Check if a celebrity is alive or dead\n!info - Show bot statistics"
+            "Available commands:\n!help - Show help\n!hello - Say hello\n!buzz - Generate corporate buzzwords\n!fightcrime - Generate a crime fighting duo\n!trump - Generate a Trump insult\n!bandname [name] - Generate music genre for a band\n!lastseen [name] - Find when a user was last active\n!quote [term] - Get a random quote\n!quote -show [show] - Get quote from specific show\n!quote -dud [user] - Get random message from a user\n!slogan [term] - Get a random advertising slogan\n!frinkiac [term] [-s season] [-e episode] - Get a Simpsons screenshot\n!morbotron [term] - Get a Futurama screenshot\n!imagine [text] - Generate an image\n!alive [name] - Check if a celebrity is alive or dead\n!info - Show bot statistics"
         } else {
             // Exclude the imagine command if no channels are configured
-            "Available commands:\n!help - Show help\n!hello - Say hello\n!buzz - Generate corporate buzzwords\n!fightcrime - Generate a crime fighting duo\n!trump - Generate a Trump insult\n!bandname [name] - Generate music genre for a band\n!lastseen [name] - Find when a user was last active\n!quote [term] - Get a random quote\n!quote -show [show] - Get quote from specific show\n!quote -dud [user] - Get random message from a user\n!slogan [term] - Get a random advertising slogan\n!frinkiac [term] [-s season] [-e episode] - Get a Simpsons screenshot\n!morbotron [term] - Get a Futurama screenshot\n!masterofallscience [term] - Get a Rick and Morty screenshot\n!alive [name] - Check if a celebrity is alive or dead\n!info - Show bot statistics"
+            "Available commands:\n!help - Show help\n!hello - Say hello\n!buzz - Generate corporate buzzwords\n!fightcrime - Generate a crime fighting duo\n!trump - Generate a Trump insult\n!bandname [name] - Generate music genre for a band\n!lastseen [name] - Find when a user was last active\n!quote [term] - Get a random quote\n!quote -show [show] - Get quote from specific show\n!quote -dud [user] - Get random message from a user\n!slogan [term] - Get a random advertising slogan\n!frinkiac [term] [-s season] [-e episode] - Get a Simpsons screenshot\n!morbotron [term] - Get a Futurama screenshot\n!alive [name] - Check if a celebrity is alive or dead\n!info - Show bot statistics"
         };
 
         commands.insert("help".to_string(), help_message.to_string());
@@ -424,9 +421,6 @@ impl Bot {
         // Create Morbotron client
         let morbotron_client = MorbotronClient::new();
 
-        // Create MasterOfAllScience client
-        let masterofallscience_client = MasterOfAllScienceClient::new();
-
         // Create Trump insult generator
         let trump_insult_generator = trump_insult::TrumpInsultGenerator::new();
 
@@ -451,7 +445,6 @@ impl Bot {
             multi_response_generator,
             frinkiac_client,
             morbotron_client,
-            masterofallscience_client,
             bot_name: parsed_config.bot_name,
             message_db: config.message_db,
             message_history_limit: parsed_config.message_history_limit,
@@ -581,6 +574,7 @@ impl Bot {
         // Build the info message
         let mut info = format!("**{} Bot Info**\n\n", self.bot_name);
 
+        info.push_str(&format!("**Version:** {}\n", env!("CARGO_PKG_VERSION")));
         info.push_str(&format!("**Uptime:** {uptime_str}\n"));
         info.push_str(&format!("**Messages in database:** {message_count}\n"));
         info.push_str(&format!("**Memory usage:** {memory_usage}\n"));
@@ -631,7 +625,7 @@ impl Bot {
         }
 
         // Send the info message
-        if let Err(e) = msg.channel_id.say(&ctx.http, info).await {
+        if let Err(e) = msg.reply(&ctx.http, info).await {
             error!("Error sending info message: {:?}", e);
         }
 
@@ -857,7 +851,7 @@ impl Bot {
                     if has_display_name {
                         let query = "SELECT author, display_name, content FROM messages WHERE author = ? OR display_name LIKE ? ORDER BY RANDOM() LIMIT 1";
                         let mut stmt = conn.prepare(query)?;
-                        let search_pattern = format!("%{}%", &user_clone);
+                        let search_pattern = format!("%{user_clone}%");
                         let rows = stmt.query_map([&user_clone, &search_pattern], |row| {
                             Ok((
                                 row.get::<_, String>(0)?,
@@ -944,25 +938,20 @@ impl Bot {
                 // This will also strip angle brackets if the name is in gateway format
                 let clean_display_name = display_name::clean_display_name(name_to_use);
 
-                msg.channel_id
-                    .say(http, format!("<{clean_display_name}> {content}"))
+                msg.reply(http, format!("<{clean_display_name}> {content}"))
                     .await?;
             } else {
                 // No messages found
                 if let Some(user) = username {
-                    msg.channel_id
-                        .say(http, format!("No messages found from user {user}"))
+                    msg.reply(http, format!("No messages found from user {user}"))
                         .await?;
                 } else {
-                    msg.channel_id
-                        .say(http, "No messages found in the database")
-                        .await?;
+                    msg.reply(http, "No messages found in the database").await?;
                 }
             }
         } else {
             // No database connection
-            msg.channel_id
-                .say(http, "Message history database is not available")
+            msg.reply(http, "Message history database is not available")
                 .await?;
         }
 
@@ -1167,13 +1156,13 @@ impl Bot {
 
                 match command.as_str() {
                     "hello" => {
-                        if let Err(e) = msg.channel_id.say(&ctx.http, "world!").await {
+                        if let Err(e) = msg.reply(&ctx.http, "world!").await {
                             error!("Error sending hello response: {:?}", e);
                         }
                     }
                     "trump" => {
                         let insult = self.trump_insult_generator.generate_insult();
-                        if let Err(e) = msg.channel_id.say(&ctx.http, insult).await {
+                        if let Err(e) = msg.reply(&ctx.http, insult).await {
                             error!("Error sending Trump insult: {:?}", e);
                         }
                     }
@@ -1181,7 +1170,7 @@ impl Bot {
                         if !args.is_empty() {
                             let band_name = args.join(" ");
                             let genre = self.band_genre_generator.generate_genre(&band_name);
-                            if let Err(e) = msg.channel_id.say(&ctx.http, genre).await {
+                            if let Err(e) = msg.reply(&ctx.http, genre).await {
                                 error!("Error sending band genre: {:?}", e);
                             }
                         } else if let Err(e) =
@@ -1227,8 +1216,7 @@ impl Bot {
                             {
                                 error!("Error handling alive command: {:?}", e);
                                 if let Err(e) = msg
-                                    .channel_id
-                                    .say(&ctx.http, "Error checking celebrity status")
+                                    .reply(&ctx.http, "Error checking celebrity status")
                                     .await
                                 {
                                     error!("Error sending error message: {:?}", e);
@@ -1243,7 +1231,7 @@ impl Bot {
                     }
                     "help" => {
                         if let Some(help_text) = self.commands.get("help") {
-                            if let Err(e) = msg.channel_id.say(&ctx.http, help_text).await {
+                            if let Err(e) = msg.reply(&ctx.http, help_text).await {
                                 error!("Error sending help message: {:?}", e);
                             }
                         }
@@ -1429,31 +1417,6 @@ impl Bot {
                             if let Err(e) = msg
                                 .channel_id
                                 .say(&ctx.http, "Error searching Morbotron")
-                                .await
-                            {
-                                error!("Error sending error message: {:?}", e);
-                            }
-                        }
-                    }
-                    "masterofallscience" => {
-                        let search_term = if !args.is_empty() {
-                            Some(args.join(" "))
-                        } else {
-                            None
-                        };
-                        if let Err(e) = handle_masterofallscience_command(
-                            &ctx.http,
-                            msg,
-                            search_term,
-                            &self.masterofallscience_client,
-                            self.gemini_client.as_ref(),
-                        )
-                        .await
-                        {
-                            error!("Error handling masterofallscience command: {:?}", e);
-                            if let Err(e) = msg
-                                .channel_id
-                                .say(&ctx.http, "Error searching Master of All Science")
                                 .await
                             {
                                 error!("Error sending error message: {:?}", e);

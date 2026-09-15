@@ -364,7 +364,7 @@ async fn handle_fact_interjection_common(
     gemini_client: &GeminiClient,
     _multi_response_generator: &Option<MultiResponseGenerator>,
     context_messages: &[(String, String, Option<String>, String, Option<String>)],
-    _bot_name: &str,
+    bot_name: &str,
     message_db: &Option<Arc<Connection>>,
 ) -> Result<bool> {
     // Format context for the prompt
@@ -376,10 +376,28 @@ async fn handle_fact_interjection_common(
             .iter()
             .map(
                 |(_author, display_name, _pronouns, content, reply_context)| {
-                    if let Some(reply) = reply_context {
-                        format!("{}: {} (in reply to: {})", display_name, content, reply)
+                    let is_self = display_name.eq_ignore_ascii_case(bot_name);
+                    // Detect the bot's own command responses (replies to a "!command")
+                    // so the model treats them as command output, not conversation.
+                    let is_command_response = is_self
+                        && reply_context
+                            .as_ref()
+                            .and_then(|r| r.split_once(": "))
+                            .map(|(_, referenced)| referenced.trim_start().starts_with('!'))
+                            .unwrap_or(false);
+
+                    let label = if is_command_response {
+                        format!("{} (you) [command response]", display_name)
+                    } else if is_self {
+                        format!("{} (you)", display_name)
                     } else {
-                        format!("{}: {}", display_name, content)
+                        display_name.clone()
+                    };
+
+                    if let Some(reply) = reply_context {
+                        format!("{}: {} (in reply to: {})", label, content, reply)
+                    } else {
+                        format!("{}: {}", label, content)
                     }
                 },
             )

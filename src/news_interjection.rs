@@ -18,7 +18,7 @@ pub async fn handle_news_interjection(
     msg: &Message,
     gemini_client: &GeminiClient,
     message_db: &Option<Arc<Connection>>,
-    _bot_name: &str,
+    bot_name: &str,
     gemini_context_messages: usize,
     headline_cache: &HeadlineCache,
     posted_urls: &Arc<RwLock<HashSet<String>>>,
@@ -44,8 +44,22 @@ pub async fn handle_news_interjection(
                 chronological.reverse();
                 chronological
                     .iter()
-                    .map(|(_author, display_name, _pronouns, content, _reply)| {
-                        format!("{}: {}", display_name, content)
+                    .map(|(_author, display_name, _pronouns, content, reply)| {
+                        let is_self = display_name.eq_ignore_ascii_case(bot_name);
+                        let is_command_response = is_self
+                            && reply
+                                .as_ref()
+                                .and_then(|r| r.split_once(": "))
+                                .map(|(_, referenced)| referenced.trim_start().starts_with('!'))
+                                .unwrap_or(false);
+                        let label = if is_command_response {
+                            format!("{} (you) [command response]", display_name)
+                        } else if is_self {
+                            format!("{} (you)", display_name)
+                        } else {
+                            display_name.clone()
+                        };
+                        format!("{}: {}", label, content)
                     })
                     .collect::<Vec<_>>()
                     .join("\n")
@@ -93,7 +107,7 @@ pub async fn handle_news_interjection(
 
     let personality = gemini_client.prompt_templates().personality();
     let prompt = format!(
-        "You are {_bot_name}, a Discord bot. {personality}\n\n\
+        "You are {bot_name}, a Discord bot. {personality}\n\n\
         Below are real headlines from news feeds, and the recent conversation.\n\n\
         HEADLINES:\n{headline_list}\n\n\
         RECENT CONVERSATION:\n{context_text}\n\n\

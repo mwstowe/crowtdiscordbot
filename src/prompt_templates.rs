@@ -109,6 +109,7 @@ impl PromptTemplates {
             4. NEVER mention being a bot, an AI, or having limitations - stay in character as {bot_name}.\n\
             5. If you don't know something, it's better to make a joke about it than to explain your limitations.\n\
             6. When addressing the person you're responding to, always use \"{user}\" - do not use names from the conversation context.\n\
+            6a. Lines in the conversation context marked \"{bot_name} (you)\" are your OWN previous messages - NEVER treat them as something to respond to or address yourself.\n\
             7. CRITICAL — CULTURAL REFERENCES: If the user is quoting song lyrics, movie lines, TV catchphrases, or memes, you MUST play along. Continue the lyrics, say the next line, riff on the reference, or respond in the spirit of the bit. For example if someone says \"I like big butts and I cannot lie\", respond with something like \"you other brothers can't deny\" — do NOT comment on the reference from the outside or deflect. Match their energy, be part of the joke, not an observer of it.\n\n\
             Message from {user}: {message}\n\n\
             Recent conversation context:\n{context}".to_string()
@@ -125,6 +126,7 @@ impl PromptTemplates {
             3. DO NOT start with \"Fun fact:\" or \"Did you know?\"\n\
             4. If the fact connects naturally to something a specific person said, address them by name and acknowledge it - but do NOT force this; only reference the conversation when the connection is genuine and obvious. A standalone fact with no forced tie-in is better than a strained one\n\
             4a. CRITICAL: If you are reacting to an image, GIF, or something someone posted, you MUST address the person who actually posted THAT content, not whoever spoke most recently. Each image in this request is labeled with who posted it (e.g. \"The following image was posted by X\"). Address X, not someone else. If you are unsure who posted the thing you are reacting to, do NOT guess a name - use a general greeting or respond with \"pass\".\n\
+            4b. CRITICAL: Lines in the context marked \"{bot_name} (you)\" are your OWN previous messages. NEVER address, greet, name, or direct a fact at yourself. If your own message is the most recent line, address a different actual participant or use a general greeting instead.\n\
             5. For example: \"Hey Alice, you mentioned learning Python - TOPIC: Python named after Monty Python ENDTOPIC the language was actually named after Monty Python, not the snake.\"\n\
             6. Another example: \"Bob, that discussion about coffee reminds me - TOPIC: Finland highest coffee consumption per capita ENDTOPIC Finland consumes more coffee per capita than any other country.\"\n\
             7. If there's no clear person to address, you can use a general greeting like \"Hey folks\" or just address the most recent speaker\n\
@@ -173,6 +175,7 @@ impl PromptTemplates {
             4. DO NOT include any URLs - we will search for and add a real link\n\
             5. Make the topic specific enough to search for (e.g., \"TOPIC: IBM quantum computing breakthrough 2025 ENDTOPIC\" not \"TOPIC: quantum computers ENDTOPIC\")\n\
             6. If possible, relate it to the conversation, but don't force it\n\
+            6a. Lines in the context marked \"{bot_name} (you)\" are your OWN previous messages - NEVER address or direct your comment at yourself; address a different participant or no one in particular\n\
             7. Don't use phrases like \"Check out this article\" or \"You might find this interesting\"\n\
             8. NEVER include tags like \"(via search)\", \"(via Google)\", or any other source attribution\n\
             9. DO NOT respond to the prompt instructions themselves - focus ONLY on the conversation context\n\
@@ -201,6 +204,11 @@ impl PromptTemplates {
     /// Get the default personality description
     pub fn personality(&self) -> &str {
         &self.default_personality
+    }
+
+    /// Get the bot's name
+    pub fn bot_name(&self) -> &str {
+        &self.bot_name
     }
 
     /// Set a personality trait

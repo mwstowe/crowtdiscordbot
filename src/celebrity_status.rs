@@ -27,15 +27,15 @@ pub async fn handle_aliveordead_command(
                 use serenity::builder::CreateEmbed;
                 use serenity::builder::CreateMessage;
                 let embed = CreateEmbed::new().description(&result).thumbnail(image_url);
-                let message = CreateMessage::new().embed(embed);
+                let message = CreateMessage::new().embed(embed).reference_message(msg);
                 if let Err(e) = msg.channel_id.send_message(http, message).await {
                     error!("Error sending celebrity embed: {:?}", e);
-                    // Fallback to plain text
-                    if let Err(e) = msg.channel_id.say(http, &result).await {
+                    // Fallback to plain text (as a reply)
+                    if let Err(e) = msg.reply(http, &result).await {
                         error!("Error sending celebrity status: {:?}", e);
                     }
                 }
-            } else if let Err(e) = msg.channel_id.say(http, result).await {
+            } else if let Err(e) = msg.reply(http, result).await {
                 error!("Error sending celebrity status: {:?}", e);
                 msg.reply(http, "Sorry, I couldn't send the celebrity information.")
                     .await?;
