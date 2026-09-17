@@ -1066,12 +1066,25 @@ async fn search_celebrity_attempt(
             current = trimmed.to_string();
         } else {
             let last_word = current.split_whitespace().last().unwrap_or("");
+
+            // A single initial like "C" or "R" (uppercase letters/digits, len <= 2)
             let ends_with_initial = last_word.len() <= 2
+                && !last_word.is_empty()
                 && last_word
                     .chars()
                     .all(|c| c.is_uppercase() || c.is_ascii_digit());
 
-            if ends_with_initial {
+            // A common abbreviation/title that is followed by a period but does
+            // not end a sentence (e.g. "Dr.", "Mr.", "St.", "Jr.", "vs.").
+            let normalized = last_word.trim_end_matches('.').to_lowercase();
+            let common_abbreviations = [
+                "dr", "mr", "mrs", "ms", "st", "jr", "sr", "vs", "etc", "inc", "ltd", "co", "no",
+                "vol", "fig", "gen", "gov", "sen", "rep", "prof", "rev", "hon", "capt", "col",
+                "lt", "sgt", "cmdr", "adm", "esq", "ca", "c", "approx",
+            ];
+            let ends_with_abbreviation = common_abbreviations.contains(&normalized.as_str());
+
+            if ends_with_initial || ends_with_abbreviation {
                 current.push_str(&format!(". {trimmed}"));
             } else {
                 current.push('.');
