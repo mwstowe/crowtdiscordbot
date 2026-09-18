@@ -1004,11 +1004,33 @@ async fn search_celebrity_attempt(
         None
     };
 
+    // Wikidata's "instance of" (P31) is authoritative: if it says the entity is
+    // something other than a human (a band, album, film, company, etc.), reject
+    // it up front. This avoids text heuristics misfiring on stray years like
+    // "(1991)" in a band's article.
+    if let Some(ref wd) = wikidata {
+        if wd.has_instance_of && !wd.is_human {
+            info!(
+                "Wikidata says '{}' is not a human (instance of: {:?})",
+                page_title, wd.instance_of_label
+            );
+            let what = wd
+                .instance_of_label
+                .as_deref()
+                .map(|l| format!(" It's a {l}, not a person."))
+                .unwrap_or_else(|| " It doesn't appear to be a person.".to_string());
+            return Ok(Some((
+                format!("I found information about '{page_title}', but{what}"),
+                thumbnail_url.clone(),
+            )));
+        }
+    }
+
     // If we have Wikidata info with a birth date, it's definitely a person
     // Otherwise fall back to text heuristics
     let is_person = wikidata
         .as_ref()
-        .is_some_and(|w| w.birth_date.is_some() || w.death_date.is_some())
+        .is_some_and(|w| w.is_human || w.birth_date.is_some() || w.death_date.is_some())
         || raw_extract.contains(" born ")
         || raw_extract.contains(" died ")
         || Regex::new(r"\([^)]*\d{4}[^)]*\)")
@@ -1561,6 +1583,33 @@ struct WikidataPersonInfo {
     is_dead: bool,
     /// Gender from Wikidata P21 (e.g. "male", "female", "non-binary")
     gender: Option<String>,
+    /// True if Wikidata "instance of" (P31) includes human (Q5).
+    is_human: bool,
+    /// True if the entity has a P31 "instance of" claim at all. When true but
+    /// `is_human` is false, Wikidata authoritatively says this is NOT a person
+    /// (e.g. a band, album, film, or company).
+    has_instance_of: bool,
+    /// Human-readable label of the first non-human "instance of" value
+    /// (e.g. "rock band"), used for a friendlier not-a-person message.
+    instance_of_label: Option<String>,
+}
+
+/// Extract the list of "instance of" (P31) entity IDs from a Wikidata claims
+/// object (e.g. ["Q5"] for a human, ["Q5741069"] for a rock band).
+fn extract_instance_of_ids(claims: &Value) -> Vec<String> {
+    claims
+        .get("P31")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|snak| {
+                    snak.pointer("/mainsnak/datavalue/value/id")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// Fetch person info from Wikidata (P569=birth, P570=death, P509=cause of death)
@@ -1619,9 +1668,29 @@ async fn fetch_wikidata_person_info(client: &Client, qid: &str) -> Option<Wikida
         None
     };
 
+    // Extract "instance of" (P31) to distinguish humans (Q5) from bands,
+    // albums, films, companies, etc. Wikidata is authoritative here, so we can
+    // reject non-humans even when the Wikipedia text contains misleading years.
+    let instance_of_ids = extract_instance_of_ids(claims);
+
+    let has_instance_of = !instance_of_ids.is_empty();
+    let is_human = instance_of_ids.iter().any(|id| id == "Q5");
+
+    // If it's not a human, grab a label for the first instance-of value so we
+    // can tell the user what it actually is (e.g. "rock band").
+    let instance_of_label = if has_instance_of && !is_human {
+        if let Some(first_id) = instance_of_ids.first() {
+            fetch_wikidata_label(client, first_id).await
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     info!(
-        "Wikidata result: birth={:?}, death={:?}, cause={:?}, is_dead={}, gender={:?}",
-        birth_date, death_date, cause_of_death, is_dead, gender
+        "Wikidata result: birth={:?}, death={:?}, cause={:?}, is_dead={}, gender={:?}, is_human={}, instance_of={:?}",
+        birth_date, death_date, cause_of_death, is_dead, gender, is_human, instance_of_label
     );
 
     Some(WikidataPersonInfo {
@@ -1630,6 +1699,9 @@ async fn fetch_wikidata_person_info(client: &Client, qid: &str) -> Option<Wikida
         cause_of_death,
         is_dead,
         gender,
+        is_human,
+        has_instance_of,
+        instance_of_label,
     })
 }
 
@@ -2083,5 +2155,40 @@ mod tests {
         let extract = "Jane Doe (born January 2, 1980) is an American author.";
         let (_birth, death, _cleaned) = extract_dates_from_parentheses(extract);
         assert!(death.is_none());
+    }
+
+    // Regression test: a band (Wikidata P31 = rock band Q5741069) must be
+    // recognized as NOT a human, so !alive doesn't treat it as a person even
+    // though its article contains stray years like "(1991)".
+    #[test]
+    fn band_instance_of_is_not_human() {
+        let claims: serde_json::Value = serde_json::json!({
+            "P31": [
+                { "mainsnak": { "datavalue": { "value": { "id": "Q5741069" } } } }
+            ]
+        });
+        let ids = extract_instance_of_ids(&claims);
+        assert_eq!(ids, vec!["Q5741069".to_string()]);
+        assert!(!ids.iter().any(|id| id == "Q5"), "band must not be human");
+        assert!(!ids.is_empty(), "band has an instance-of claim");
+    }
+
+    // A human (Wikidata P31 = Q5) must be recognized as a person.
+    #[test]
+    fn human_instance_of_is_human() {
+        let claims: serde_json::Value = serde_json::json!({
+            "P31": [
+                { "mainsnak": { "datavalue": { "value": { "id": "Q5" } } } }
+            ]
+        });
+        let ids = extract_instance_of_ids(&claims);
+        assert!(ids.iter().any(|id| id == "Q5"));
+    }
+
+    // Missing P31 yields an empty list (falls back to text heuristics).
+    #[test]
+    fn missing_instance_of_is_empty() {
+        let claims: serde_json::Value = serde_json::json!({ "P569": [] });
+        assert!(extract_instance_of_ids(&claims).is_empty());
     }
 }
