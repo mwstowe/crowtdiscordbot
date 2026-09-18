@@ -1150,19 +1150,51 @@ async fn search_celebrity_attempt(
                 response.push_str(&format!(" Cause of death: {cause}."));
             }
         } else {
-            // Person is alive
-            if let Some(ref birth_date) = wd.birth_date {
-                if let Some(birth) = parse_date(birth_date) {
-                    let today = chrono::Local::now().naive_local().date();
-                    let age = calculate_age(birth, today);
+            // Wikidata reports no death date (P570). Wikidata often lags behind
+            // Wikipedia for recent deaths, so cross-check the Wikipedia extract for
+            // a birth–death parenthetical (e.g. "(1969 – 2026)") before declaring
+            // the person alive. If the text indicates a death, trust it over the
+            // (stale) Wikidata record.
+            let (text_birth_date, text_death_date, _) = extract_dates_from_parentheses(raw_extract);
+
+            if let Some(ref death_date) = text_death_date {
+                info!(
+                    "Wikidata has no death date but Wikipedia text indicates death on {}; trusting text",
+                    death_date
+                );
+                let birth_for_age = wd.birth_date.clone().or(text_birth_date);
+                if let (Some(birth), Some(death)) = (
+                    birth_for_age.as_ref().and_then(|b| parse_date(b)),
+                    parse_date(death_date),
+                ) {
+                    let age = calculate_age(birth, death);
                     response.push_str(&format!(
-                        ". {cap_pronoun} is still alive at {age} years old."
+                        ". {cap_pronoun} died on {death_date} at the age of {age}."
                     ));
+                } else {
+                    response.push_str(&format!(". {cap_pronoun} died on {death_date}."));
+                }
+
+                if let Some(ref cause) = wd.cause_of_death {
+                    response.push_str(&format!(" Cause of death: {cause}."));
+                } else if let Some(cause) = extract_cause_of_death(raw_extract) {
+                    response.push_str(&format!(" Cause of death: {cause}."));
+                }
+            } else {
+                // Person is alive
+                if let Some(ref birth_date) = wd.birth_date {
+                    if let Some(birth) = parse_date(birth_date) {
+                        let today = chrono::Local::now().naive_local().date();
+                        let age = calculate_age(birth, today);
+                        response.push_str(&format!(
+                            ". {cap_pronoun} is still alive at {age} years old."
+                        ));
+                    } else {
+                        response.push_str(&format!(". {cap_pronoun} is still alive."));
+                    }
                 } else {
                     response.push_str(&format!(". {cap_pronoun} is still alive."));
                 }
-            } else {
-                response.push_str(&format!(". {cap_pronoun} is still alive."));
             }
         }
     } else {
@@ -2023,4 +2055,33 @@ fn calculate_age(birth_date: NaiveDate, today: NaiveDate) -> u32 {
     let final_age = age as u32;
     info!("Final calculated age: {}", final_age);
     final_age
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Regression test: when Wikidata lags behind Wikipedia for a recent death,
+    // the alive/dead determination relies on extract_dates_from_parentheses being
+    // able to pull the death date out of the Wikipedia intro. This mirrors the
+    // real Duncan Sheik extract that was reported as "alive" incorrectly.
+    #[test]
+    fn extracts_death_date_from_recent_death_extract() {
+        let extract = "Duncan Sheik (November 18, 1969 – September 17, 2026) was an \
+            American singer-songwriter, composer, and actor. Sheik is known for his \
+            1996 debut single \"Barely Breathing\".";
+
+        let (birth, death, _cleaned) = extract_dates_from_parentheses(extract);
+
+        assert_eq!(birth.as_deref(), Some("November 18, 1969"));
+        assert_eq!(death.as_deref(), Some("September 17, 2026"));
+    }
+
+    // A living person (birth year only) must NOT yield a death date.
+    #[test]
+    fn living_person_has_no_death_date() {
+        let extract = "Jane Doe (born January 2, 1980) is an American author.";
+        let (_birth, death, _cleaned) = extract_dates_from_parentheses(extract);
+        assert!(death.is_none());
+    }
 }
