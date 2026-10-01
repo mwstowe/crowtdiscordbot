@@ -40,6 +40,28 @@ enum QueryResult {
     QueryError(String),
 }
 
+/// Result of attempting to add a quote.
+enum AddResult {
+    /// No pool configured
+    NotConfigured,
+    /// Failed to get a connection from the pool
+    ConnectionFailed(String),
+    /// The requested show was not found
+    ShowNotFound(String),
+    /// The requested episode was not found for the show
+    EpisodeNotFound { show: String, episode: String },
+    /// The quote was added successfully
+    Added {
+        quote_id: u64,
+        show_title: String,
+        episode_num: String,
+    },
+    /// A slogan was added successfully
+    SloganAdded { slogan_id: u64 },
+    /// A database error occurred during insertion
+    QueryError(String),
+}
+
 impl DatabaseManager {
     pub fn is_configured(&self) -> bool {
         self.pool.is_some()
@@ -465,6 +487,216 @@ impl DatabaseManager {
             Err(e) => {
                 error!("Failed to query slogan: {:?}", e);
                 QueryResult::QueryError(format!("Failed to query slogan: {:?}", e))
+            }
+        }
+    }
+
+    /// Add a new quote to the database. Resolves the show by title and verifies
+    /// the episode exists before inserting. Sends feedback to Discord.
+    pub async fn add_quote(
+        &self,
+        http: &Http,
+        msg: &Message,
+        show: String,
+        episode: String,
+        quote_text: String,
+    ) -> Result<()> {
+        let pool = self.pool.clone();
+        let show_clone = show.clone();
+        let episode_clone = episode.clone();
+        let quote_clone = quote_text.clone();
+
+        let result = tokio::task::spawn_blocking(move || {
+            Self::add_quote_blocking(pool, show_clone, episode_clone, quote_clone)
+        })
+        .await
+        .unwrap_or(AddResult::QueryError("Database task panicked".to_string()));
+
+        match result {
+            AddResult::NotConfigured => {
+                error!("❌ MySQL pool is None when handling quote -add command");
+                msg.reply(http, "MySQL database is not configured.").await?;
+            }
+            AddResult::ConnectionFailed(e) => {
+                error!("❌ Failed to get MySQL connection for quote -add: {}", e);
+                msg.reply(http, "Failed to connect to the quote database.")
+                    .await?;
+            }
+            AddResult::ShowNotFound(show) => {
+                msg.reply(http, format!("No show found matching '{show}'."))
+                    .await?;
+            }
+            AddResult::EpisodeNotFound { show, episode } => {
+                msg.reply(
+                    http,
+                    format!("No episode '{episode}' found for show '{show}'."),
+                )
+                .await?;
+            }
+            AddResult::Added {
+                quote_id,
+                show_title,
+                episode_num,
+            } => {
+                msg.reply(
+                    http,
+                    format!("Added quote #{quote_id} to {show_title} {episode_num}."),
+                )
+                .await?;
+            }
+            AddResult::QueryError(e) => {
+                error!("❌ Database error adding quote: {}", e);
+                msg.reply(http, "Failed to add the quote to the database.")
+                    .await?;
+            }
+            // Slogan-specific variant, never produced by add_quote.
+            AddResult::SloganAdded { .. } => {
+                error!("Unexpected AddResult variant from add_quote");
+                msg.reply(http, "Failed to add the quote to the database.")
+                    .await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Blocking MySQL logic for adding a quote. Runs on a dedicated thread.
+    fn add_quote_blocking(
+        pool: Option<Pool>,
+        show: String,
+        episode: String,
+        quote_text: String,
+    ) -> AddResult {
+        let pool = match &pool {
+            Some(p) => p,
+            None => return AddResult::NotConfigured,
+        };
+
+        let mut conn = match pool.get_conn() {
+            Ok(conn) => conn,
+            Err(e) => return AddResult::ConnectionFailed(format!("{:?}", e)),
+        };
+
+        // Resolve the show_id (and canonical title) by matching the show title.
+        let show_pattern = format!(
+            "%{}%",
+            show.split_whitespace().collect::<Vec<_>>().join("%")
+        );
+        let show_lookup = conn.exec_first::<(i32, String), _, _>(
+            "SELECT show_id, show_title FROM masterlist_shows WHERE show_title LIKE ? LIMIT 1",
+            (show_pattern,),
+        );
+
+        let (show_id, show_title) = match show_lookup {
+            Ok(Some(row)) => row,
+            Ok(None) => return AddResult::ShowNotFound(show),
+            Err(e) => {
+                error!("Failed to look up show: {:?}", e);
+                return AddResult::QueryError(format!("Failed to look up show: {:?}", e));
+            }
+        };
+
+        // Verify the episode exists for this show.
+        let episode_lookup = conn.exec_first::<String, _, _>(
+            "SELECT show_ep FROM masterlist_episodes WHERE show_id = ? AND show_ep = ? LIMIT 1",
+            (show_id, episode.clone()),
+        );
+
+        let episode_num = match episode_lookup {
+            Ok(Some(ep)) => ep,
+            Ok(None) => {
+                return AddResult::EpisodeNotFound {
+                    show: show_title,
+                    episode,
+                }
+            }
+            Err(e) => {
+                error!("Failed to look up episode: {:?}", e);
+                return AddResult::QueryError(format!("Failed to look up episode: {:?}", e));
+            }
+        };
+
+        // Insert the quote.
+        match conn.exec_drop(
+            "INSERT INTO masterlist_quotes (show_id, show_ep, quote) VALUES (?, ?, ?)",
+            (show_id, episode_num.clone(), quote_text),
+        ) {
+            Ok(()) => AddResult::Added {
+                quote_id: conn.last_insert_id(),
+                show_title,
+                episode_num,
+            },
+            Err(e) => {
+                error!("Failed to insert quote: {:?}", e);
+                AddResult::QueryError(format!("Failed to insert quote: {:?}", e))
+            }
+        }
+    }
+
+    /// Add a new slogan to the database. Sends feedback to Discord.
+    pub async fn add_slogan(&self, http: &Http, msg: &Message, slogan_text: String) -> Result<()> {
+        let pool = self.pool.clone();
+        let slogan_clone = slogan_text.clone();
+
+        let result =
+            tokio::task::spawn_blocking(move || Self::add_slogan_blocking(pool, slogan_clone))
+                .await
+                .unwrap_or(AddResult::QueryError("Database task panicked".to_string()));
+
+        match result {
+            AddResult::NotConfigured => {
+                error!("❌ MySQL pool is None when handling slogan -add command");
+                msg.reply(http, "MySQL database is not configured.").await?;
+            }
+            AddResult::ConnectionFailed(e) => {
+                error!("❌ Failed to get MySQL connection for slogan -add: {}", e);
+                msg.reply(http, "Failed to connect to the slogan database.")
+                    .await?;
+            }
+            AddResult::SloganAdded { slogan_id } => {
+                msg.reply(http, format!("Added slogan #{slogan_id}."))
+                    .await?;
+            }
+            AddResult::QueryError(e) => {
+                error!("❌ Database error adding slogan: {}", e);
+                msg.reply(http, "Failed to add the slogan to the database.")
+                    .await?;
+            }
+            // These variants are quote-specific and never produced by add_slogan.
+            AddResult::ShowNotFound(_)
+            | AddResult::EpisodeNotFound { .. }
+            | AddResult::Added { .. } => {
+                error!("Unexpected AddResult variant from add_slogan");
+                msg.reply(http, "Failed to add the slogan to the database.")
+                    .await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Blocking MySQL logic for adding a slogan. Runs on a dedicated thread.
+    fn add_slogan_blocking(pool: Option<Pool>, slogan_text: String) -> AddResult {
+        let pool = match &pool {
+            Some(p) => p,
+            None => return AddResult::NotConfigured,
+        };
+
+        let mut conn = match pool.get_conn() {
+            Ok(conn) => conn,
+            Err(e) => return AddResult::ConnectionFailed(format!("{:?}", e)),
+        };
+
+        match conn.exec_drop(
+            "INSERT INTO nuke_quotes (pn_quote) VALUES (?)",
+            (slogan_text,),
+        ) {
+            Ok(()) => AddResult::SloganAdded {
+                slogan_id: conn.last_insert_id(),
+            },
+            Err(e) => {
+                error!("Failed to insert slogan: {:?}", e);
+                AddResult::QueryError(format!("Failed to insert slogan: {:?}", e))
             }
         }
     }

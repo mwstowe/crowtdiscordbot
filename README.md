@@ -75,8 +75,11 @@ A Discord bot that follows specific channels and responds to various triggers in
 - `!lastseen [name]` - Find when a user was last active
 - `!quote [term]` - Get a random quote
 - `!quote -show [show]` - Get quote from specific show
+- `!quote -show [show] [term]` - Get a random quote from a specific show containing a term
+- `!quote -add -show [show] -episode [ep] [quote]` - Add a new quote (all three elements required; the show and episode must already exist)
 - `!quote -dud [user]` - Get random message from a user (or random user if no username provided)
-- `!slogan [term]` - Get a random advertising slogan
+- `!slogan [term]` - Get a random slogan
+- `!slogan -add [slogan]` - Add a new slogan
 - `!frinkiac [term]` - Get a Simpsons animated GIF with subtitles
 - `!morbotron [term]` - Get a Futurama animated GIF with subtitles
 - `!masterofallscience [term]` - ⚠️ **Deprecated** - Service has been shut down (suggests alternatives)

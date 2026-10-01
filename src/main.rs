@@ -340,10 +340,10 @@ impl Bot {
         // Generate a comprehensive help message with all commands
         let help_message = if !parsed_config.imagine_channels.is_empty() {
             // Include the imagine command if channels are configured
-            "Available commands:\n!help - Show help\n!hello - Say hello\n!buzz - Generate corporate buzzwords\n!fightcrime - Generate a crime fighting duo\n!trump - Generate a Trump insult\n!bandname [name] - Generate music genre for a band\n!lastseen [name] - Find when a user was last active\n!quote [term] - Get a random quote\n!quote -show [show] - Get quote from specific show\n!quote -dud [user] - Get random message from a user\n!slogan [term] - Get a random advertising slogan\n!frinkiac [term] [-s season] [-e episode] - Get a Simpsons screenshot\n!morbotron [term] - Get a Futurama screenshot\n!imagine [text] - Generate an image\n!alive [name] - Check if a celebrity is alive or dead\n!info - Show bot statistics"
+            "Available commands:\n!help - Show help\n!hello - Say hello\n!buzz - Generate corporate buzzwords\n!fightcrime - Generate a crime fighting duo\n!trump - Generate a Trump insult\n!bandname [name] - Generate music genre for a band\n!lastseen [name] - Find when a user was last active\n!quote [term] - Get a random quote\n!quote -show [show] - Get quote from specific show\n!quote -show [show] [term] - Get quote from a show containing a term\n!quote -add -show [show] -episode [ep] [quote] - Add a quote (show & episode must exist)\n!quote -dud [user] - Get random message from a user\n!slogan [term] - Get a random slogan\n!slogan -add [slogan] - Add a new slogan\n!frinkiac [term] [-s season] [-e episode] - Get a Simpsons screenshot\n!morbotron [term] - Get a Futurama screenshot\n!imagine [text] - Generate an image\n!alive [name] - Check if a celebrity is alive or dead\n!info - Show bot statistics"
         } else {
             // Exclude the imagine command if no channels are configured
-            "Available commands:\n!help - Show help\n!hello - Say hello\n!buzz - Generate corporate buzzwords\n!fightcrime - Generate a crime fighting duo\n!trump - Generate a Trump insult\n!bandname [name] - Generate music genre for a band\n!lastseen [name] - Find when a user was last active\n!quote [term] - Get a random quote\n!quote -show [show] - Get quote from specific show\n!quote -dud [user] - Get random message from a user\n!slogan [term] - Get a random advertising slogan\n!frinkiac [term] [-s season] [-e episode] - Get a Simpsons screenshot\n!morbotron [term] - Get a Futurama screenshot\n!alive [name] - Check if a celebrity is alive or dead\n!info - Show bot statistics"
+            "Available commands:\n!help - Show help\n!hello - Say hello\n!buzz - Generate corporate buzzwords\n!fightcrime - Generate a crime fighting duo\n!trump - Generate a Trump insult\n!bandname [name] - Generate music genre for a band\n!lastseen [name] - Find when a user was last active\n!quote [term] - Get a random quote\n!quote -show [show] - Get quote from specific show\n!quote -show [show] [term] - Get quote from a show containing a term\n!quote -add -show [show] -episode [ep] [quote] - Add a quote (show & episode must exist)\n!quote -dud [user] - Get random message from a user\n!slogan [term] - Get a random slogan\n!slogan -add [slogan] - Add a new slogan\n!frinkiac [term] [-s season] [-e episode] - Get a Simpsons screenshot\n!morbotron [term] - Get a Futurama screenshot\n!alive [name] - Check if a celebrity is alive or dead\n!info - Show bot statistics"
         };
 
         commands.insert("help".to_string(), help_message.to_string());
@@ -757,6 +757,46 @@ impl Bot {
             .await
     }
 
+    // Handle the !slogan -add command (add a new slogan).
+    // Syntax: !slogan -add <slogan text>
+    // The slogan text may optionally be wrapped in double quotes.
+    async fn handle_slogan_add_command(&self, http: &Http, msg: &Message) -> Result<()> {
+        // Strip the leading "!slogan" from the raw content so quoted text with
+        // spaces is preserved.
+        let content = msg.content.trim_start();
+        let rest = content
+            .strip_prefix('!')
+            .and_then(|c| {
+                let lower = c.to_lowercase();
+                if lower.starts_with("slogan") {
+                    Some(c["slogan".len()..].trim_start())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or("");
+
+        let tokens = Self::tokenize_quote_args(rest);
+
+        // Drop the -add flag; everything else forms the slogan text.
+        let slogan_text = tokens
+            .into_iter()
+            .filter(|t| t != "-add")
+            .collect::<Vec<_>>()
+            .join(" ")
+            .trim()
+            .to_string();
+
+        if slogan_text.is_empty() {
+            msg.reply(http, "Usage: !slogan -add <slogan text>").await?;
+            return Ok(());
+        }
+
+        info!("Slogan -add request: slogan='{}'", slogan_text);
+
+        self.db_manager.add_slogan(http, msg, slogan_text).await
+    }
+
     // Handle the !quote command
     async fn handle_quote_command(
         &self,
@@ -771,14 +811,12 @@ impl Bot {
         let mut i = 0;
         while i < args.len() {
             if args[i] == "-show" && i + 1 < args.len() {
-                // Collect all words after -show until the next flag or end
-                let mut show = Vec::new();
+                // Treat only the first word after -show as the show name.
+                // Any subsequent non-flag words fall through to the search term,
+                // so `!quote -show mst3k clown` filters by show "mst3k" AND term "clown".
                 i += 1;
-                while i < args.len() && !args[i].starts_with('-') {
-                    show.push(args[i]);
-                    i += 1;
-                }
-                show_name = Some(show.join(" "));
+                show_name = Some(args[i].to_string());
+                i += 1;
             } else if !args[i].starts_with('-') {
                 // If not a flag, treat as search term
                 if search_term.is_none() {
@@ -812,6 +850,126 @@ impl Bot {
         self.db_manager
             .query_random_entry(http, msg, search_term, show_name, "quote")
             .await
+    }
+
+    // Handle the !quote -add command (add a new quote).
+    // Syntax: !quote -add -show <show> -episode <ep> <quote text>
+    // The quote text may be wrapped in double quotes; -show/-episode values
+    // may also be quoted to allow spaces.
+    async fn handle_quote_add_command(&self, http: &Http, msg: &Message) -> Result<()> {
+        // Strip the leading "!quote" (and any following whitespace) from the raw
+        // content so we can parse -show/-episode values that may contain spaces.
+        let content = msg.content.trim_start();
+        let rest = content
+            .strip_prefix('!')
+            .and_then(|c| {
+                let lower = c.to_lowercase();
+                if lower.starts_with("quote") {
+                    Some(c["quote".len()..].trim_start())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or("");
+
+        let tokens = Self::tokenize_quote_args(rest);
+
+        // Parse the -show, -episode flags and collect remaining tokens as the quote.
+        let mut show: Option<String> = None;
+        let mut episode: Option<String> = None;
+        let mut quote_parts: Vec<String> = Vec::new();
+
+        let mut i = 0;
+        while i < tokens.len() {
+            match tokens[i].as_str() {
+                "-add" => {
+                    i += 1;
+                }
+                "-show" if i + 1 < tokens.len() => {
+                    show = Some(tokens[i + 1].clone());
+                    i += 2;
+                }
+                "-episode" | "-ep" if i + 1 < tokens.len() => {
+                    episode = Some(tokens[i + 1].clone());
+                    i += 2;
+                }
+                _ => {
+                    quote_parts.push(tokens[i].clone());
+                    i += 1;
+                }
+            }
+        }
+
+        let quote_text = quote_parts.join(" ").trim().to_string();
+
+        // All three elements are required to add a quote.
+        let missing = {
+            let mut m = Vec::new();
+            if show.is_none() {
+                m.push("-show <show>");
+            }
+            if episode.is_none() {
+                m.push("-episode <ep>");
+            }
+            if quote_text.is_empty() {
+                m.push("<quote text>");
+            }
+            m
+        };
+
+        if !missing.is_empty() {
+            let usage = format!(
+                "Missing required argument(s): {}. Usage: !quote -add -show <show> -episode <ep> <quote text>",
+                missing.join(", ")
+            );
+            msg.reply(http, usage).await?;
+            return Ok(());
+        }
+
+        let show = show.unwrap();
+        let episode = episode.unwrap();
+
+        info!(
+            "Quote -add request: show='{}', episode='{}', quote='{}'",
+            show, episode, quote_text
+        );
+
+        self.db_manager
+            .add_quote(http, msg, show, episode, quote_text)
+            .await
+    }
+
+    // Tokenize a command argument string, honoring double-quoted substrings so
+    // that values like -show "Mystery Science Theater" or quoted quote text are
+    // treated as a single token.
+    fn tokenize_quote_args(input: &str) -> Vec<String> {
+        let mut tokens = Vec::new();
+        let mut current = String::new();
+        let mut in_quotes = false;
+        let mut has_token = false;
+
+        for c in input.chars() {
+            match c {
+                '"' => {
+                    in_quotes = !in_quotes;
+                    has_token = true;
+                }
+                c if c.is_whitespace() && !in_quotes => {
+                    if has_token {
+                        tokens.push(std::mem::take(&mut current));
+                        has_token = false;
+                    }
+                }
+                c => {
+                    current.push(c);
+                    has_token = true;
+                }
+            }
+        }
+        if has_token {
+            tokens.push(current);
+        }
+        tokens
     }
 
     // Handle the !quote -dud command (quote a user)
@@ -1242,22 +1400,35 @@ impl Bot {
                         }
                     }
                     "slogan" => {
-                        let search_term = if !args.is_empty() {
-                            Some(args.join(" "))
+                        if args.contains(&"-add") {
+                            if let Err(e) = self.handle_slogan_add_command(&ctx.http, msg).await {
+                                error!("Error handling slogan -add command: {:?}", e);
+                                if let Err(e) = msg
+                                    .channel_id
+                                    .say(&ctx.http, "Error adding slogan to database")
+                                    .await
+                                {
+                                    error!("Error sending error message: {:?}", e);
+                                }
+                            }
                         } else {
-                            None
-                        };
-                        if let Err(e) = self
-                            .handle_slogan_command(&ctx.http, msg, search_term)
-                            .await
-                        {
-                            error!("Error handling slogan command: {:?}", e);
-                            if let Err(e) = msg
-                                .channel_id
-                                .say(&ctx.http, "Error accessing slogan database")
+                            let search_term = if !args.is_empty() {
+                                Some(args.join(" "))
+                            } else {
+                                None
+                            };
+                            if let Err(e) = self
+                                .handle_slogan_command(&ctx.http, msg, search_term)
                                 .await
                             {
-                                error!("Error sending error message: {:?}", e);
+                                error!("Error handling slogan command: {:?}", e);
+                                if let Err(e) = msg
+                                    .channel_id
+                                    .say(&ctx.http, "Error accessing slogan database")
+                                    .await
+                                {
+                                    error!("Error sending error message: {:?}", e);
+                                }
                             }
                         }
                     }
@@ -1278,6 +1449,17 @@ impl Bot {
                                 if let Err(e) = msg
                                     .channel_id
                                     .say(&ctx.http, "Error retrieving user quotes")
+                                    .await
+                                {
+                                    error!("Error sending error message: {:?}", e);
+                                }
+                            }
+                        } else if args.contains(&"-add") {
+                            if let Err(e) = self.handle_quote_add_command(&ctx.http, msg).await {
+                                error!("Error handling quote -add command: {:?}", e);
+                                if let Err(e) = msg
+                                    .channel_id
+                                    .say(&ctx.http, "Error adding quote to database")
                                     .await
                                 {
                                     error!("Error sending error message: {:?}", e);
@@ -3987,5 +4169,56 @@ mod tests {
         assert!(quiet_channels.contains(&"serious-discussion".to_string()));
         assert!(quiet_channels.contains(&"work-chat".to_string()));
         assert!(!quiet_channels.contains(&"general".to_string()));
+    }
+
+    #[test]
+    fn test_tokenize_quote_args_simple() {
+        let tokens = super::Bot::tokenize_quote_args("-add -show mst3k -episode 101 hello there");
+        assert_eq!(
+            tokens,
+            vec!["-add", "-show", "mst3k", "-episode", "101", "hello", "there"]
+        );
+    }
+
+    #[test]
+    fn test_tokenize_quote_args_quoted_quote_text() {
+        let tokens = super::Bot::tokenize_quote_args(
+            "-add -show mst3k -episode 101 \"watch out for snakes\"",
+        );
+        assert_eq!(
+            tokens,
+            vec![
+                "-add",
+                "-show",
+                "mst3k",
+                "-episode",
+                "101",
+                "watch out for snakes"
+            ]
+        );
+    }
+
+    #[test]
+    fn test_tokenize_quote_args_quoted_show() {
+        let tokens = super::Bot::tokenize_quote_args(
+            "-add -show \"Mystery Science Theater\" -episode 101 \"a quote\"",
+        );
+        assert_eq!(
+            tokens,
+            vec![
+                "-add",
+                "-show",
+                "Mystery Science Theater",
+                "-episode",
+                "101",
+                "a quote"
+            ]
+        );
+    }
+
+    #[test]
+    fn test_tokenize_quote_args_extra_whitespace() {
+        let tokens = super::Bot::tokenize_quote_args("  -show   mst3k    clown  ");
+        assert_eq!(tokens, vec!["-show", "mst3k", "clown"]);
     }
 }
