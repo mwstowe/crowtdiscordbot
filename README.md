@@ -318,15 +318,14 @@ If no key is configured, the bot will never use GIF responses.
 
 The bot supports AI-powered image generation via the `!imagine [text]` command. It uses a multi-provider approach with automatic fallback:
 
-1. **Gemini Nano Banana** (primary) — Uses `gemini-2.5-flash-image` with the existing `GEMINI_API_KEY` (generous free tier, strong prompt adherence and text rendering)
-2. **Pollinations** — Tries gptimage, zimage, and flux models in order
-3. **Cloudflare Workers AI** — FLUX.1 schnell (free tier)
-4. **Together.ai** (last resort) — Uses FLUX.1 schnell / SDXL if all other providers fail
+1. **Pollinations** (primary) — Tries gptimage, zimage, and flux models in order
+2. **Cloudflare Workers AI** — FLUX.1 schnell (free tier)
+3. **Together.ai** (last resort) — Uses FLUX.1 schnell / SDXL if all other providers fail
 
 ### Configuration
 
 - Set `IMAGINE_CHANNELS` in your config to restrict image generation to specific channels
-- Works out of the box with just `GEMINI_API_KEY`; `POLLINATIONS_API_KEY`, `TOGETHER_API_KEY`, and Cloudflare credentials are optional fallbacks
+- Requires at least one of `POLLINATIONS_API_KEY`, Cloudflare credentials, or `TOGETHER_API_KEY` to be configured
 - Uses separate rate limiting from text generation via `GEMINI_IMAGE_RATE_LIMIT_MINUTE` and `GEMINI_IMAGE_RATE_LIMIT_DAY`
 - Default image generation limits are more conservative: 5 calls per minute, 25 calls per day
 

@@ -91,11 +91,6 @@ impl GeminiClient {
         &self.http_client
     }
 
-    /// Get the Gemini API key (used by the image generator for Nano Banana).
-    pub fn api_key(&self) -> &str {
-        &self.api_key
-    }
-
     /// Get API quota usage statistics
     pub async fn get_quota_stats(&self) -> (String, String, String) {
         // Get text API usage
