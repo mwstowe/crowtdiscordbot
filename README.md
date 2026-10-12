@@ -116,7 +116,7 @@ The prompt sent to Gemini can be customized by setting the `GEMINI_PROMPT_WRAPPE
 - `{user}` - The user's display name
 - `{context}` - Recent conversation history (last 5 messages)
 
-You can also configure which Gemini model to use by setting the `GEMINI_API_ENDPOINT` in your `CrowConfig.toml` file. This allows you to switch between different models like `gemini-3.1-flash-lite-preview`, `gemini-2.5-flash` or `gemini-2.5-pro`.
+You can also configure which Gemini model to use by setting the `GEMINI_API_ENDPOINT` in your `CrowConfig.toml` file. This allows you to switch between different models like `gemini-3.5-flash-lite`, `gemini-2.5-flash` or `gemini-2.5-pro`.
 
 ## Quiet Channels
 
@@ -318,13 +318,15 @@ If no key is configured, the bot will never use GIF responses.
 
 The bot supports AI-powered image generation via the `!imagine [text]` command. It uses a multi-provider approach with automatic fallback:
 
-1. **Pollinations** (primary) — Tries gptimage, zimage, and flux models in order
-2. **Together.ai** (fallback) — Uses FLUX.1 schnell if all Pollinations models fail
+1. **Gemini Nano Banana** (primary) — Uses `gemini-2.5-flash-image` with the existing `GEMINI_API_KEY` (generous free tier, strong prompt adherence and text rendering)
+2. **Pollinations** — Tries gptimage, zimage, and flux models in order
+3. **Cloudflare Workers AI** — FLUX.1 schnell (free tier)
+4. **Together.ai** (last resort) — Uses FLUX.1 schnell / SDXL if all other providers fail
 
 ### Configuration
 
 - Set `IMAGINE_CHANNELS` in your config to restrict image generation to specific channels
-- Requires at least one of `POLLINATIONS_API_KEY` or `TOGETHER_API_KEY` to be configured
+- Works out of the box with just `GEMINI_API_KEY`; `POLLINATIONS_API_KEY`, `TOGETHER_API_KEY`, and Cloudflare credentials are optional fallbacks
 - Uses separate rate limiting from text generation via `GEMINI_IMAGE_RATE_LIMIT_MINUTE` and `GEMINI_IMAGE_RATE_LIMIT_DAY`
 - Default image generation limits are more conservative: 5 calls per minute, 25 calls per day
 

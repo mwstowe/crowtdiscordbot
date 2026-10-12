@@ -43,7 +43,7 @@ pub struct GeminiConfig {
 impl GeminiClient {
     pub fn new(config: GeminiConfig) -> Self {
         // Default endpoint for Gemini API
-        let default_endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent".to_string();
+        let default_endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent".to_string();
 
         // Create prompt templates with custom personality if provided
         let mut prompt_templates = PromptTemplates::new_with_custom_personality(
@@ -89,6 +89,11 @@ impl GeminiClient {
     /// Get a reference to the HTTP client
     pub fn http_client(&self) -> &reqwest::Client {
         &self.http_client
+    }
+
+    /// Get the Gemini API key (used by the image generator for Nano Banana).
+    pub fn api_key(&self) -> &str {
+        &self.api_key
     }
 
     /// Get API quota usage statistics

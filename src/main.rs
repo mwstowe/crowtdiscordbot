@@ -1345,6 +1345,7 @@ impl Bot {
                                 msg,
                                 &prompt,
                                 &self.imagine_channels,
+                                self.gemini_client.as_ref().map(|c| c.api_key()),
                                 self.pollinations_api_key.as_deref(),
                                 self.together_api_key.as_deref(),
                                 self.cloudflare_account_id.as_deref(),

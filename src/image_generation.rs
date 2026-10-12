@@ -27,6 +27,7 @@ pub async fn handle_imagine_command(
     msg: &Message,
     prompt: &str,
     imagine_channels: &[String],
+    gemini_api_key: Option<&str>,
     pollinations_api_key: Option<&str>,
     together_api_key: Option<&str>,
     cloudflare_account_id: Option<&str>,
@@ -117,55 +118,48 @@ pub async fn handle_imagine_command(
         prompt
     };
 
-    // Try Pollinations first (paid then free), then Cloudflare Workers AI, then Together.ai
-    let image_bytes = if let Some(key) = pollinations_api_key {
-        // Paid Pollinations → Cloudflare → free Pollinations → Together.ai
-        let pollinations_result = try_pollinations(http_client, truncated_prompt, key).await;
-        match pollinations_result {
-            Some(bytes) => Some(bytes),
-            None => {
-                // Try Cloudflare Workers AI (free tier: ~173 images/day, FLUX.1 schnell)
-                if let Some(bytes) = try_cloudflare(
-                    http_client,
-                    truncated_prompt,
-                    cloudflare_account_id,
-                    cloudflare_api_token,
-                )
-                .await
-                {
-                    Some(bytes)
-                } else if let Some(bytes) =
-                    try_pollinations_free(http_client, truncated_prompt).await
-                {
-                    Some(bytes)
-                } else if let Some(key) = together_api_key {
-                    info!("All free providers failed, falling back to Together.ai");
-                    try_together(http_client, truncated_prompt, key).await
-                } else {
-                    None
-                }
-            }
+    // Provider order: Gemini Nano Banana (primary, uses existing GEMINI_API_KEY)
+    // → Pollinations (paid then free) → Cloudflare Workers AI → Together.ai.
+    // Each provider is tried in turn; the first success wins.
+    let mut image_bytes: Option<Vec<u8>> = None;
+
+    // 1. Gemini Nano Banana (gemini-2.5-flash-image) — generous free tier, strong quality
+    if let Some(key) = gemini_api_key {
+        if !key.is_empty() {
+            image_bytes = try_gemini_image(http_client, truncated_prompt, key).await;
         }
-    } else {
-        // No paid Pollinations key — try Cloudflare first, then free Pollinations, then Together.ai
-        if let Some(bytes) = try_cloudflare(
+    }
+
+    // 2. Pollinations (paid gptimage/zimage/flux → free flux)
+    if image_bytes.is_none() {
+        if let Some(key) = pollinations_api_key {
+            image_bytes = try_pollinations(http_client, truncated_prompt, key).await;
+        }
+    }
+
+    // 3. Cloudflare Workers AI (FLUX.1 schnell, free tier)
+    if image_bytes.is_none() {
+        image_bytes = try_cloudflare(
             http_client,
             truncated_prompt,
             cloudflare_account_id,
             cloudflare_api_token,
         )
-        .await
-        {
-            Some(bytes)
-        } else if let Some(bytes) = try_pollinations_free(http_client, truncated_prompt).await {
-            Some(bytes)
-        } else if let Some(key) = together_api_key {
-            info!("All free providers failed, falling back to Together.ai");
-            try_together(http_client, truncated_prompt, key).await
-        } else {
-            None
+        .await;
+    }
+
+    // 4. Free Pollinations endpoint (no key required)
+    if image_bytes.is_none() {
+        image_bytes = try_pollinations_free(http_client, truncated_prompt).await;
+    }
+
+    // 5. Together.ai (last-resort paid fallback)
+    if image_bytes.is_none() {
+        if let Some(key) = together_api_key {
+            info!("All prior providers failed, falling back to Together.ai");
+            image_bytes = try_together(http_client, truncated_prompt, key).await;
         }
-    };
+    }
 
     match image_bytes {
         Some(bytes) => {
@@ -191,6 +185,86 @@ pub async fn handle_imagine_command(
     }
 
     Ok(())
+}
+
+/// Try generating an image via Google Gemini "Nano Banana" (gemini-2.5-flash-image).
+/// Uses the same GEMINI_API_KEY as text generation and the standard generateContent
+/// REST endpoint. The image is returned as base64 inline data in the response.
+/// Returns Some(bytes) on success, None on failure.
+async fn try_gemini_image(
+    http_client: &reqwest::Client,
+    prompt: &str,
+    api_key: &str,
+) -> Option<Vec<u8>> {
+    let timeout = Duration::from_secs(90);
+    let model = "gemini-2.5-flash-image";
+    let url =
+        format!("https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent");
+
+    info!("Trying Gemini image generation (Nano Banana: {model})");
+
+    let body = serde_json::json!({
+        "contents": [{
+            "parts": [{ "text": prompt }]
+        }]
+    });
+
+    let resp = http_client
+        .post(&url)
+        .header("x-goog-api-key", api_key)
+        .header("Content-Type", "application/json")
+        .timeout(timeout)
+        .json(&body)
+        .send()
+        .await;
+
+    match resp {
+        Ok(r) if r.status().is_success() => match r.json::<serde_json::Value>().await {
+            Ok(json) => {
+                // Find the first part containing inline image data
+                if let Some(parts) = json["candidates"][0]["content"]["parts"].as_array() {
+                    for part in parts {
+                        // Support both camelCase (inlineData) and snake_case (inline_data)
+                        let data = part["inlineData"]["data"]
+                            .as_str()
+                            .or_else(|| part["inline_data"]["data"].as_str());
+                        if let Some(b64) = data {
+                            match base64::engine::general_purpose::STANDARD.decode(b64) {
+                                Ok(bytes) => {
+                                    info!(
+                                        "Image generated successfully via Gemini Nano Banana ({} bytes)",
+                                        bytes.len()
+                                    );
+                                    return Some(bytes);
+                                }
+                                Err(e) => {
+                                    error!("Failed to decode Gemini image base64: {:?}", e);
+                                    return None;
+                                }
+                            }
+                        }
+                    }
+                }
+                error!("Gemini image response contained no inline image data");
+            }
+            Err(e) => {
+                error!("Failed to parse Gemini image response: {:?}", e);
+            }
+        },
+        Ok(r) if r.status().as_u16() == 429 => {
+            warn!("Gemini image generation rate/quota limited (429)");
+        }
+        Ok(r) => {
+            let status = r.status();
+            let body = r.text().await.unwrap_or_default();
+            error!("Gemini image generation error: HTTP {} - {}", status, body);
+        }
+        Err(e) => {
+            error!("Gemini image generation request failed: {:?}", e);
+        }
+    }
+
+    None
 }
 
 /// Try generating an image via Pollinations API.
