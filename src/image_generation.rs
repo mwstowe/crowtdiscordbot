@@ -117,55 +117,38 @@ pub async fn handle_imagine_command(
         prompt
     };
 
-    // Try Pollinations first (paid then free), then Cloudflare Workers AI, then Together.ai
-    let image_bytes = if let Some(key) = pollinations_api_key {
-        // Paid Pollinations → Cloudflare → free Pollinations → Together.ai
-        let pollinations_result = try_pollinations(http_client, truncated_prompt, key).await;
-        match pollinations_result {
-            Some(bytes) => Some(bytes),
-            None => {
-                // Try Cloudflare Workers AI (free tier: ~173 images/day, FLUX.1 schnell)
-                if let Some(bytes) = try_cloudflare(
-                    http_client,
-                    truncated_prompt,
-                    cloudflare_account_id,
-                    cloudflare_api_token,
-                )
-                .await
-                {
-                    Some(bytes)
-                } else if let Some(bytes) =
-                    try_pollinations_free(http_client, truncated_prompt).await
-                {
-                    Some(bytes)
-                } else if let Some(key) = together_api_key {
-                    info!("All free providers failed, falling back to Together.ai");
-                    try_together(http_client, truncated_prompt, key).await
-                } else {
-                    None
-                }
-            }
+    // Provider order (based on live quality testing, Oct 2026):
+    // 1. Cloudflare Workers AI (FLUX.1 schnell) — best quality, free tier ~daily cap
+    // 2. Pollinations paid (gptimage/zimage/flux) — only if a funded key is set
+    // 3. Pollinations free (flux) — lower-fidelity watermarked fallback
+    // 4. Together.ai — last-resort paid fallback
+    let mut image_bytes: Option<Vec<u8>> = try_cloudflare(
+        http_client,
+        truncated_prompt,
+        cloudflare_account_id,
+        cloudflare_api_token,
+    )
+    .await;
+
+    // 2. Pollinations (paid → free, internally). Only attempted if a key is set.
+    if image_bytes.is_none() {
+        if let Some(key) = pollinations_api_key {
+            image_bytes = try_pollinations(http_client, truncated_prompt, key).await;
         }
-    } else {
-        // No paid Pollinations key — try Cloudflare first, then free Pollinations, then Together.ai
-        if let Some(bytes) = try_cloudflare(
-            http_client,
-            truncated_prompt,
-            cloudflare_account_id,
-            cloudflare_api_token,
-        )
-        .await
-        {
-            Some(bytes)
-        } else if let Some(bytes) = try_pollinations_free(http_client, truncated_prompt).await {
-            Some(bytes)
-        } else if let Some(key) = together_api_key {
-            info!("All free providers failed, falling back to Together.ai");
-            try_together(http_client, truncated_prompt, key).await
-        } else {
-            None
+    }
+
+    // 3. Free Pollinations endpoint (no key required)
+    if image_bytes.is_none() {
+        image_bytes = try_pollinations_free(http_client, truncated_prompt).await;
+    }
+
+    // 4. Together.ai (last-resort paid fallback)
+    if image_bytes.is_none() {
+        if let Some(key) = together_api_key {
+            info!("All prior image providers failed, falling back to Together.ai");
+            image_bytes = try_together(http_client, truncated_prompt, key).await;
         }
-    };
+    }
 
     match image_bytes {
         Some(bytes) => {

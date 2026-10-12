@@ -316,16 +316,16 @@ If no key is configured, the bot will never use GIF responses.
 
 ## Image Generation
 
-The bot supports AI-powered image generation via the `!imagine [text]` command. It uses a multi-provider approach with automatic fallback:
+The bot supports AI-powered image generation via the `!imagine [text]` command. It uses a multi-provider approach with automatic fallback (ordering based on live quality testing):
 
-1. **Pollinations** (primary) — Tries gptimage, zimage, and flux models in order
-2. **Cloudflare Workers AI** — FLUX.1 schnell (free tier)
-3. **Together.ai** (last resort) — Uses FLUX.1 schnell / SDXL if all other providers fail
+1. **Cloudflare Workers AI** (primary) — FLUX.1 schnell, free tier (~daily cap), best observed quality
+2. **Pollinations** — paid gptimage/zimage/flux (if a funded key is set), then the free flux endpoint
+3. **Together.ai** (last resort) — FLUX.1 schnell / SDXL if all other providers fail
 
 ### Configuration
 
 - Set `IMAGINE_CHANNELS` in your config to restrict image generation to specific channels
-- Requires at least one of `POLLINATIONS_API_KEY`, Cloudflare credentials, or `TOGETHER_API_KEY` to be configured
+- Requires at least one of Cloudflare credentials, `POLLINATIONS_API_KEY`, or `TOGETHER_API_KEY` to be configured
 - Uses separate rate limiting from text generation via `GEMINI_IMAGE_RATE_LIMIT_MINUTE` and `GEMINI_IMAGE_RATE_LIMIT_DAY`
 - Default image generation limits are more conservative: 5 calls per minute, 25 calls per day
 
