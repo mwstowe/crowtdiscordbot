@@ -13,6 +13,9 @@ use tracing::{error, info};
 pub struct GeminiClient {
     api_key: String,
     api_endpoint: String,
+    /// Secondary model endpoint tried only if the primary is persistently
+    /// unavailable after all retries (makes "trouble thinking" a last resort).
+    fallback_endpoint: String,
     pub http_client: reqwest::Client,
     prompt_templates: PromptTemplates,
     rate_limiter: RateLimiter,
@@ -45,6 +48,33 @@ impl GeminiClient {
         // Default endpoint for Gemini API
         let default_endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent".to_string();
 
+        // Resolve the primary endpoint (config override or default).
+        let api_endpoint = config.api_endpoint.unwrap_or(default_endpoint);
+
+        // Derive a fallback endpoint on a DIFFERENT model, tried only if the
+        // primary is persistently unavailable. Using a different model means a
+        // provider-side issue with one model doesn't block the bot entirely.
+        let fallback_model = "gemini-3.6-flash";
+        let fallback_endpoint = if api_endpoint.contains(fallback_model) {
+            // Primary already is the fallback model; use flash-lite as the alt.
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent".to_string()
+        } else if let Some(idx) = api_endpoint.rfind("/models/") {
+            // Swap the model path segment, preserving the :method suffix.
+            let after = &api_endpoint[idx + "/models/".len()..];
+            let method = after
+                .rfind(':')
+                .map(|c| &after[c..])
+                .unwrap_or(":generateContent");
+            format!(
+                "{}/models/{}{}",
+                &api_endpoint[..idx],
+                fallback_model,
+                method
+            )
+        } else {
+            format!("https://generativelanguage.googleapis.com/v1beta/models/{fallback_model}:generateContent")
+        };
+
         // Create prompt templates with custom personality if provided
         let mut prompt_templates = PromptTemplates::new_with_custom_personality(
             config.bot_name.clone(),
@@ -72,7 +102,8 @@ impl GeminiClient {
 
         Self {
             api_key: config.api_key,
-            api_endpoint: config.api_endpoint.unwrap_or(default_endpoint),
+            api_endpoint,
+            fallback_endpoint,
             http_client: reqwest::Client::builder()
                 .user_agent("Mozilla/5.0 (compatible; CrowBot/1.0; +https://github.com/mwstowe/crowtdiscordbot)")
                 .build()
@@ -373,16 +404,59 @@ impl GeminiClient {
                 .await;
         }
 
-        self.generate_content_text_only(prompt).await
+        self.try_text_endpoints(prompt).await
     }
 
-    // Text-only content generation with retry on overload errors
-    async fn generate_content_text_only(&self, prompt: &str) -> Result<String> {
+    /// Try the primary text endpoint; if it fails with a transient/last-resort
+    /// error (transport, overload, 503, or exhausted RECITATION — all surfaced
+    /// as SILENT_ERROR), fall back once to a different model before giving up.
+    /// Deliberate blocks (SAFETY) and billing errors are returned as-is.
+    async fn try_text_endpoints(&self, prompt: &str) -> Result<String> {
+        match self
+            .generate_content_text_only(prompt, &self.api_endpoint)
+            .await
+        {
+            Ok(text) => Ok(text),
+            Err(e) => {
+                let es = e.to_string();
+                // Only fall back for transient/exhausted-retry failures. Don't
+                // fall back for safety blocks or billing limits (same outcome).
+                let should_fallback = es.contains("SILENT_ERROR")
+                    && !es.contains("BILLING_ERROR")
+                    && self.fallback_endpoint != self.api_endpoint;
+                if should_fallback {
+                    info!(
+                        "Primary model failed ({}); trying fallback model at {}",
+                        es, self.fallback_endpoint
+                    );
+                    match self
+                        .generate_content_text_only(prompt, &self.fallback_endpoint)
+                        .await
+                    {
+                        Ok(text) => {
+                            info!("Fallback model succeeded");
+                            Ok(text)
+                        }
+                        Err(fe) => {
+                            error!("Fallback model also failed: {}", fe);
+                            Err(fe)
+                        }
+                    }
+                } else {
+                    Err(e)
+                }
+            }
+        }
+    }
+
+    // Text-only content generation with retry on overload/network errors
+    async fn generate_content_text_only(&self, prompt: &str, endpoint: &str) -> Result<String> {
         // Maximum number of retries
         const MAX_RETRIES: usize = 5;
 
-        // Initial delay in seconds (will be doubled each retry - exponential backoff)
-        let mut delay_secs = 10;
+        // Initial delay in seconds (doubled each retry — exponential backoff).
+        // Kept short since these are interactive responses.
+        let mut delay_secs = 2;
 
         // Try up to MAX_RETRIES times
         for attempt in 1..=MAX_RETRIES {
@@ -403,15 +477,38 @@ impl GeminiClient {
                 }]
             });
 
-            // Make the API call
-            let response = self
+            // Make the API call. Network/transport errors (connection reset,
+            // DNS, timeout) are transient — retry them rather than failing the
+            // whole request, which would surface "trouble thinking" to users.
+            let response = match self
                 .http_client
-                .post(&self.api_endpoint)
+                .post(endpoint)
                 .header("x-goog-api-key", &self.api_key)
                 .json(&request_body)
                 .timeout(Duration::from_secs(30))
                 .send()
-                .await?;
+                .await
+            {
+                Ok(r) => r,
+                Err(e) => {
+                    tracing::warn!(
+                        "Gemini API request transport error (attempt {}/{}): {}",
+                        attempt,
+                        MAX_RETRIES,
+                        e
+                    );
+                    if attempt < MAX_RETRIES {
+                        tokio::time::sleep(Duration::from_secs(delay_secs)).await;
+                        delay_secs *= 2;
+                        continue;
+                    }
+                    return Err(anyhow::anyhow!(
+                        "SILENT_ERROR: Gemini API transport error after {} retries: {}",
+                        MAX_RETRIES,
+                        e
+                    ));
+                }
+            };
 
             // Request was sent successfully — record it for rate limiting
             self.rate_limiter.record_request().await;
@@ -533,12 +630,27 @@ impl GeminiClient {
                             let reason = finish_reason.as_str().unwrap_or("UNKNOWN");
                             error!("Gemini API response has non-STOP finish reason: {}", reason);
                             if reason == "SAFETY" {
+                                // Deliberate content block — not retryable.
                                 return Err(anyhow::anyhow!("Gemini API safety filters triggered. The prompt may contain inappropriate content."));
-                            } else if reason == "RECITATION" {
-                                return Err(anyhow::anyhow!("Gemini API detected content recitation. The response may contain copied content."));
-                            } else if reason == "OTHER" {
+                            } else if reason == "RECITATION" || reason == "OTHER" {
+                                // Often transient / prompt-specific. Regenerating
+                                // usually yields a clean response, so retry rather
+                                // than surfacing an error to the user.
+                                if attempt < MAX_RETRIES {
+                                    tracing::warn!(
+                                        "Gemini API finish reason {} (attempt {}/{}), retrying",
+                                        reason,
+                                        attempt,
+                                        MAX_RETRIES
+                                    );
+                                    tokio::time::sleep(Duration::from_secs(delay_secs)).await;
+                                    delay_secs *= 2;
+                                    continue;
+                                }
                                 return Err(anyhow::anyhow!(
-                                    "Gemini API terminated the response for an unspecified reason."
+                                    "SILENT_ERROR: Gemini API returned {} after {} retries",
+                                    reason,
+                                    MAX_RETRIES
                                 ));
                             }
                         }
@@ -611,7 +723,7 @@ impl GeminiClient {
         youtube_urls: &[crate::media_utils::YouTubeUrl],
     ) -> Result<String> {
         if media.is_empty() && youtube_urls.is_empty() {
-            return self.generate_content_text_only(prompt).await;
+            return self.try_text_endpoints(prompt).await;
         }
 
         self.rate_limiter.acquire().await?;
@@ -660,17 +772,38 @@ impl GeminiClient {
         });
 
         const MAX_RETRIES: usize = 5;
-        let mut delay_secs = 10u64;
+        let mut delay_secs = 2u64;
 
         for attempt in 1..=MAX_RETRIES {
-            let response = self
+            let response = match self
                 .http_client
                 .post(&self.api_endpoint)
                 .header("x-goog-api-key", &self.api_key)
                 .json(&request_body)
                 .timeout(Duration::from_secs(60))
                 .send()
-                .await?;
+                .await
+            {
+                Ok(r) => r,
+                Err(e) => {
+                    tracing::warn!(
+                        "Gemini multimodal transport error (attempt {}/{}): {}",
+                        attempt,
+                        MAX_RETRIES,
+                        e
+                    );
+                    if attempt < MAX_RETRIES {
+                        tokio::time::sleep(Duration::from_secs(delay_secs)).await;
+                        delay_secs *= 2;
+                        continue;
+                    }
+                    return Err(anyhow::anyhow!(
+                        "SILENT_ERROR: Gemini multimodal transport error after {} retries: {}",
+                        MAX_RETRIES,
+                        e
+                    ));
+                }
+            };
 
             // Check HTTP status before parsing JSON
             let status = response.status();
@@ -762,6 +895,37 @@ impl GeminiClient {
 
                 error!("Gemini multimodal API error: {}", msg);
                 return Err(anyhow::anyhow!("Gemini API error: {}", msg));
+            }
+
+            // Check finish reason: retry transient RECITATION/OTHER, treat
+            // SAFETY as a deliberate (non-retryable) block.
+            if let Some(reason) = response_json
+                .pointer("/candidates/0/finishReason")
+                .and_then(|r| r.as_str())
+            {
+                if reason != "STOP" {
+                    if reason == "SAFETY" {
+                        return Err(anyhow::anyhow!("Gemini API safety filters triggered."));
+                    } else if reason == "RECITATION" || reason == "OTHER" {
+                        if attempt < MAX_RETRIES {
+                            tracing::warn!(
+                                "Gemini multimodal finish reason {} (attempt {}/{}), retrying",
+                                reason,
+                                attempt,
+                                MAX_RETRIES
+                            );
+                            tokio::time::sleep(Duration::from_secs(delay_secs)).await;
+                            delay_secs *= 2;
+                            self.rate_limiter.acquire().await?;
+                            continue;
+                        }
+                        return Err(anyhow::anyhow!(
+                            "SILENT_ERROR: Gemini multimodal returned {} after {} retries",
+                            reason,
+                            MAX_RETRIES
+                        ));
+                    }
+                }
             }
 
             // Extract text from response
