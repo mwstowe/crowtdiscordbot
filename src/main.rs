@@ -1844,6 +1844,14 @@ impl Bot {
                                     }
                                     return Ok(());
                                 }
+
+                                // GIF directive but resolution failed entirely
+                                // (e.g. Giphy unreachable). Never post the raw
+                                // "GIF:" marker as text — suppress it instead.
+                                if giphy::is_gif_directive(&response) {
+                                    info!("GIF directive did not resolve; suppressing raw marker");
+                                    return Ok(());
+                                }
                             }
 
                             // Apply realistic typing delay based on response length
@@ -2165,6 +2173,13 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                                 }
                                 return Ok(());
                             }
+
+                            // GIF directive but resolution failed entirely;
+                            // suppress rather than post the raw "GIF:" marker.
+                            if giphy::is_gif_directive(&response) {
+                                info!("GIF directive did not resolve; suppressing raw marker");
+                                return Ok(());
+                            }
                         }
 
                         // Start typing indicator
@@ -2338,6 +2353,13 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                                         info!("Embedded GIF interjection sent: {}", gif_url);
                                     }
                                     self.mark_interjection_sent().await;
+                                    return Ok(());
+                                }
+
+                                // GIF directive but resolution failed entirely;
+                                // suppress rather than post the raw "GIF:" marker.
+                                if giphy::is_gif_directive(&response) {
+                                    info!("GIF directive did not resolve; suppressing raw marker");
                                     return Ok(());
                                 }
                             }
@@ -2665,6 +2687,14 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                                     if let Err(e) = msg.channel_id.say(&ctx.http, &gif_url).await {
                                         error!("Error sending GIF reply: {:?}", e);
                                     }
+                                    return Ok(());
+                                }
+
+                                // GIF directive but resolution failed entirely
+                                // (e.g. Giphy unreachable). Never post the raw
+                                // "GIF:" marker as text — suppress it instead.
+                                if giphy::is_gif_directive(&response) {
+                                    info!("GIF directive did not resolve; suppressing raw marker");
                                     return Ok(());
                                 }
                             }
