@@ -383,7 +383,25 @@ impl GeminiClient {
                 .format_general_response(prompt, user_name, &context)
         };
 
-        self.generate_content(&formatted_prompt).await
+        // Collect candidate names (addressed user + all context display names)
+        // so we can escape markdown in any names the model echoes back.
+        let mut candidate_names: Vec<String> = Vec::new();
+        if !user_name.is_empty() {
+            candidate_names.push(user_name.to_string());
+        }
+        for (author, display_name, _pronouns, _msg) in context_messages {
+            if !display_name.is_empty() {
+                candidate_names.push(display_name.clone());
+            } else if !author.is_empty() {
+                candidate_names.push(author.clone());
+            }
+        }
+
+        let response = self.generate_content(&formatted_prompt).await?;
+        Ok(crate::display_name::escape_names_in_text(
+            &response,
+            &candidate_names,
+        ))
     }
 
     // Generate content with a raw prompt and retry on overload errors.

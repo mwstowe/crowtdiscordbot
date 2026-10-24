@@ -297,12 +297,18 @@ pub async fn handle_regex_substitution(ctx: &Context, msg: &Message) -> Result<(
 
                     // Format and send the response
                     let response = if is_this_bot_regex {
-                        // For a bot regex response, keep the original author's name
-                        // and add one more "really" to indicate another substitution
+                        // For a bot regex response, keep the original author's name.
+                        // The name was extracted from a previous bot message that was
+                        // already markdown-escaped, so do NOT escape it again.
                         let really_part = "*really* ".repeat(this_really_count + 1);
                         format!("{clean_display_name} {really_part}meant: {new_content}")
                     } else {
-                        format!("{clean_display_name} meant: {new_content}")
+                        // Escape markdown in the name so names like "shining_teh_"
+                        // don't render underscores as italics. Only the name is
+                        // escaped; new_content may contain intentional user markdown.
+                        let escaped_name =
+                            crate::display_name::escape_markdown(&clean_display_name);
+                        format!("{escaped_name} meant: {new_content}")
                     };
 
                     if let Err(e) = msg.channel_id.say(&ctx.http, response).await {

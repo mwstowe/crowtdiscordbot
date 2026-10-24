@@ -235,6 +235,45 @@ pub fn escape_markdown(name: &str) -> String {
     escaped
 }
 
+// Returns true if the name contains any Discord markdown-significant characters
+// that would need escaping when rendered.
+pub fn needs_markdown_escape(name: &str) -> bool {
+    name.chars()
+        .any(|c| matches!(c, '_' | '*' | '~' | '`' | '|' | '\\' | '>'))
+}
+
+// Escape any of the given names where they appear verbatim in `text`.
+//
+// Algorithm:
+//   1. Skip names that don't need escaping.
+//   2. For names that do, replace each exact occurrence of the raw name
+//      with its markdown-escaped form.
+//
+// This is intended for post-processing Gemini responses: the model sees the
+// natural (unescaped) name, and only the rendered output is escaped. Names are
+// processed longest-first so that a longer name is escaped before a shorter
+// name that might be a substring of it.
+pub fn escape_names_in_text(text: &str, names: &[String]) -> String {
+    // Deduplicate and keep only names that actually need escaping.
+    let mut candidates: Vec<&String> = names
+        .iter()
+        .filter(|n| !n.is_empty() && needs_markdown_escape(n))
+        .collect();
+    candidates.sort_by_key(|n| std::cmp::Reverse(n.len()));
+    candidates.dedup();
+
+    let mut result = text.to_string();
+    for name in candidates {
+        let escaped = escape_markdown(name);
+        // Only replace if the escaped form isn't already present, to avoid
+        // double-escaping if the model happened to echo an escaped name.
+        if result.contains(name.as_str()) {
+            result = result.replace(name.as_str(), &escaped);
+        }
+    }
+    result
+}
+
 // Extract pronouns from a display name
 pub fn extract_pronouns(name: &str) -> Option<String> {
     // Look for pronouns in parentheses at the end of the name

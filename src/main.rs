@@ -1791,7 +1791,19 @@ impl Bot {
                         gemini_client
                             .generate_content_with_media(&prompt, &media_items, &youtube_urls)
                             .await
-                            .map(Some)
+                            .map(|r| {
+                                // Escape markdown in any echoed names (multimodal path
+                                // bypasses the text path's name escaping).
+                                let mut names = vec![clean_display_name.clone()];
+                                names.extend(context_for_api.iter().map(|(a, d, _, _)| {
+                                    if d.is_empty() {
+                                        a.clone()
+                                    } else {
+                                        d.clone()
+                                    }
+                                }));
+                                Some(display_name::escape_names_in_text(&r, &names))
+                            })
                     } else {
                         let content_with_gif = format!("{}{}", content, gif_suffix);
                         gemini_client
@@ -2628,7 +2640,19 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                         gemini_client
                             .generate_content_with_media(&prompt, &media_items, &youtube_urls)
                             .await
-                            .map(Some)
+                            .map(|r| {
+                                // Escape markdown in any echoed names (multimodal path
+                                // bypasses the text path's name escaping).
+                                let mut names = vec![clean_display_name.clone()];
+                                names.extend(context_for_api.iter().map(|(a, d, _, _)| {
+                                    if d.is_empty() {
+                                        a.clone()
+                                    } else {
+                                        d.clone()
+                                    }
+                                }));
+                                Some(display_name::escape_names_in_text(&r, &names))
+                            })
                     } else {
                         let content_with_gif = format!("{}{}", content, gif_suffix);
                         gemini_client
