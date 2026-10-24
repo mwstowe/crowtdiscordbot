@@ -732,7 +732,11 @@ impl Bot {
             }
         };
 
-        // Use our crime fighting generator
+        // Use our crime fighting generator.
+        // Escape markdown in the speaker names so names like "shining_teh_"
+        // don't render underscores as italics in the duo description.
+        let speaker1 = display_name::escape_markdown(&speaker1);
+        let speaker2 = display_name::escape_markdown(&speaker2);
         self.crime_generator.generate_duo(&speaker1, &speaker2)
     }
 }
