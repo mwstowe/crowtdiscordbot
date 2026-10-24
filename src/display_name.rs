@@ -221,6 +221,20 @@ pub fn clean_display_name(name: &str) -> String {
     clean_name
 }
 
+// Escape Discord markdown characters in a name so it renders literally.
+// Without this, names like "shining_teh_" get interpreted as italics by Discord.
+pub fn escape_markdown(name: &str) -> String {
+    let mut escaped = String::with_capacity(name.len());
+    for c in name.chars() {
+        // These characters are meaningful in Discord markdown
+        if matches!(c, '_' | '*' | '~' | '`' | '|' | '\\' | '>') {
+            escaped.push('\\');
+        }
+        escaped.push(c);
+    }
+    escaped
+}
+
 // Extract pronouns from a display name
 pub fn extract_pronouns(name: &str) -> Option<String> {
     // Look for pronouns in parentheses at the end of the name

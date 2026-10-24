@@ -229,6 +229,8 @@ pub async fn handle_lastseen_command(
                 } else {
                     author
                 };
+                // Escape markdown so names like "shining_teh_" don't render as italics
+                let user_name = crate::display_name::escape_markdown(&user_name);
 
                 let time_ago = finder.format_time_ago(timestamp);
                 let response =

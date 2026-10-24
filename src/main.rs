@@ -1095,6 +1095,8 @@ impl Bot {
                 // Use the display_name::clean_display_name function for consistency
                 // This will also strip angle brackets if the name is in gateway format
                 let clean_display_name = display_name::clean_display_name(name_to_use);
+                // Escape markdown so names like "shining_teh_" don't render as italics
+                let clean_display_name = display_name::escape_markdown(&clean_display_name);
 
                 msg.reply(http, format!("<{clean_display_name}> {content}"))
                     .await?;
