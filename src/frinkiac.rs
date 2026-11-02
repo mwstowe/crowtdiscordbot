@@ -643,38 +643,11 @@ impl FrinkiacClient {
     }
 
     /// Score how tightly a candidate caption matches the query phrase.
-    /// Higher is better. Used to rank exact (substring) matches so the closest
-    /// match wins rather than a random one. Returns 0.0 if the phrase isn't present.
-    ///
-    /// The score rewards the phrase being a large fraction of the caption (so a
-    /// caption that *is* the quote beats one where the phrase is buried in a long
-    /// multi-sentence run), with a bonus when the caption is (nearly) exactly the
-    /// phrase.
+    /// Higher is better; 0.0 if the phrase isn't present. Delegates to the
+    /// shared `phrase_score_str` helper (also used by Morbotron).
     fn phrase_score(result: &serde_json::Value, query_lower: &str) -> f64 {
-        let content = result
-            .get("Content")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_lowercase();
-        if content.is_empty() || !content.contains(query_lower) {
-            return 0.0;
-        }
-
-        let query_len = query_lower.chars().count() as f64;
-        let content_len = content.chars().count().max(1) as f64;
-
-        // Fraction of the caption occupied by the query (0.0–1.0). A caption that is
-        // exactly the phrase scores ~1.0; a phrase buried in a long line scores low.
-        let coverage = (query_len / content_len).min(1.0);
-
-        // Bonus if the trimmed caption equals the phrase (ignoring surrounding
-        // punctuation/whitespace) — the ideal "closest match".
-        let trimmed = content
-            .trim_matches(|c: char| !c.is_alphanumeric())
-            .to_string();
-        let exact_bonus = if trimmed == query_lower { 1.0 } else { 0.0 };
-
-        coverage + exact_bonus
+        let content = result.get("Content").and_then(|v| v.as_str()).unwrap_or("");
+        phrase_score_str(content, query_lower)
     }
 
     pub async fn expand_to_sentence_boundaries(&self, result: &mut FrinkiacResult) {
@@ -756,9 +729,17 @@ impl FrinkiacClient {
                 hops += 1;
 
                 let (last_end, probe_ts) = match result.subtitles.last() {
-                    // Probe using the last card's representative timestamp first; if that
-                    // card is already included, step just past its end to reach the next.
-                    Some(s) => (s.end, s.end.saturating_add(1)),
+                    // Probe just past the current last card. Using the max of (last_end + 1)
+                    // and (representative_ts + 1) keeps the probe on a valid indexed frame.
+                    // The API returns the card containing the probe timestamp, so a single
+                    // line whose neighbour isn't indexed near last_end won't expand further —
+                    // accepted over guessing, and we never drop the existing text.
+                    Some(s) => (
+                        s.end,
+                        s.end
+                            .saturating_add(1)
+                            .max(s.representative_ts.saturating_add(1)),
+                    ),
                     None => break,
                 };
 
@@ -797,14 +778,14 @@ impl FrinkiacClient {
 
 /// True if the text begins partway through a sentence (lowercase first letter).
 /// Leading punctuation/quotes/speaker dashes are skipped before checking.
-fn starts_mid_sentence(text: &str) -> bool {
+pub(crate) fn starts_mid_sentence(text: &str) -> bool {
     text.chars()
         .find(|c| c.is_alphabetic())
         .is_some_and(|c| c.is_lowercase())
 }
 
 /// True if the text forms a complete sentence ending (terminal punctuation).
-fn ends_sentence(text: &str) -> bool {
+pub(crate) fn ends_sentence(text: &str) -> bool {
     let t = text.trim_end();
     t.ends_with('.')
         || t.ends_with('!')
@@ -815,9 +796,36 @@ fn ends_sentence(text: &str) -> bool {
 
 /// True if the text ends partway through a sentence (no terminal punctuation,
 /// or a trailing comma).
-fn ends_mid_sentence(text: &str) -> bool {
+pub(crate) fn ends_mid_sentence(text: &str) -> bool {
     let t = text.trim_end();
     t.ends_with(',') || !ends_sentence(t)
+}
+
+/// Score how tightly a caption matches a query phrase. Higher is better.
+/// Returns 0.0 if the phrase isn't present as a substring.
+///
+/// Rewards the phrase being a large fraction of the caption (so a caption that
+/// *is* the quote beats one where the phrase is buried in a long multi-sentence
+/// run), with a bonus when the caption is (nearly) exactly the phrase.
+/// `query_lower` must already be lowercased; `caption` is lowercased internally.
+pub(crate) fn phrase_score_str(caption: &str, query_lower: &str) -> f64 {
+    let content = caption.to_lowercase();
+    if content.is_empty() || !content.contains(query_lower) {
+        return 0.0;
+    }
+
+    let query_len = query_lower.chars().count() as f64;
+    let content_len = content.chars().count().max(1) as f64;
+
+    // Fraction of the caption occupied by the query (0.0–1.0).
+    let coverage = (query_len / content_len).min(1.0);
+
+    // Bonus if the trimmed caption equals the phrase (ignoring surrounding
+    // punctuation/whitespace) — the ideal "closest match".
+    let trimmed = content.trim_matches(|c: char| !c.is_alphanumeric());
+    let exact_bonus = if trimmed == query_lower { 1.0 } else { 0.0 };
+
+    coverage + exact_bonus
 }
 
 // Format a caption to proper sentence case and separate different speakers

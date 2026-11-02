@@ -188,159 +188,164 @@ impl MorbotronClient {
     pub async fn search(&self, query: &str) -> Result<Option<MorbotronResult>> {
         info!("Morbotron search for: {}", query);
 
-        // Check if this is the same query as last time
-        let same_query;
-        let result_to_use;
-
-        {
+        // If this is a repeat of the last query, cycle through the cached ranked
+        // results for variety (staying within the exact-match pool when one exists).
+        // Compute the target frame while holding the locks, then drop them before
+        // the await (the lock guards are not Send).
+        let repeat_target: Option<(String, u64)> = {
             let last_query = self.last_query.read().unwrap_or_else(|e| e.into_inner());
             let last_results = self.last_results.read().unwrap_or_else(|e| e.into_inner());
-            let last_results_len = last_results.len();
+            if last_query.as_deref() == Some(query) && !last_results.is_empty() {
+                let query_lower = query.trim_matches('"').to_lowercase();
+                let is_phrase = query_lower.contains(' ');
+                let exact_count = if is_phrase {
+                    last_results
+                        .iter()
+                        .filter(|r| r.content.to_lowercase().contains(&query_lower))
+                        .count()
+                } else {
+                    last_results.len()
+                };
+                let pool_len = if exact_count > 0 {
+                    exact_count
+                } else {
+                    last_results.len()
+                };
 
-            if let Some(last_q) = last_query.as_ref() {
-                if last_q == query && last_results_len > 0 {
-                    // Same query, increment the index to cycle through results
-                    let mut index =
-                        *self.current_index.read().unwrap_or_else(|e| e.into_inner()) + 1;
-
-                    // For phrase queries, constrain cycling to exact matches
-                    let query_lower = query.trim_matches('"').to_lowercase();
-                    let is_phrase = query_lower.contains(' ');
-                    let exact_count = if is_phrase {
-                        last_results
-                            .iter()
-                            .filter(|r| r.content.to_lowercase().contains(&query_lower))
-                            .count()
-                    } else {
-                        last_results_len
-                    };
-
-                    // Stay within exact matches if any exist
-                    let cycle_limit = if exact_count > 0 {
-                        exact_count
-                    } else {
-                        last_results_len
-                    };
-                    if index >= cycle_limit {
-                        index = 0; // Wrap around
-                    }
-
-                    // Update the current index
-                    *self
+                let index = {
+                    let mut idx = self
                         .current_index
                         .write()
-                        .unwrap_or_else(|e| e.into_inner()) = index;
-                    info!(
-                        "Same query as last time, using result {} of {} (exact matches: {})",
-                        index + 1,
-                        last_results_len,
-                        exact_count
-                    );
+                        .unwrap_or_else(|e| e.into_inner());
+                    *idx = (*idx + 1) % pool_len;
+                    *idx
+                };
 
-                    // Get the result at the current index
-                    result_to_use = Some((
-                        last_results[index].episode.clone(),
-                        last_results[index].timestamp,
-                    ));
-                    same_query = true;
-                } else {
-                    same_query = false;
-                    result_to_use = None;
-                }
+                info!(
+                    "Same query as last time, using result {} of {} (exact pool: {})",
+                    index + 1,
+                    last_results.len(),
+                    pool_len
+                );
+
+                Some((
+                    last_results[index].episode.clone(),
+                    last_results[index].timestamp,
+                ))
             } else {
-                same_query = false;
-                result_to_use = None;
+                None
             }
+        };
+
+        if let Some((episode, timestamp)) = repeat_target {
+            return self.get_caption_for_frame(&episode, timestamp).await;
         }
 
-        // If it's the same query, use the result we found
-        if same_query {
-            if let Some((episode, timestamp)) = result_to_use {
-                return self.get_caption_for_frame(&episode, timestamp).await;
-            }
-        }
-
-        // New query, reset the index and fetch new results
+        // New query: reset cycling state.
         *self
             .current_index
             .write()
             .unwrap_or_else(|e| e.into_inner()) = 0;
 
-        // Try a direct search first
-        let results = self.search_api(query).await?;
-        if !results.is_empty() {
-            // For multi-word queries, prioritize results containing the exact phrase
-            let query_lower = query.trim_matches('"').to_lowercase();
-            let is_phrase_query = query_lower.contains(' ');
-
-            let prioritized = if is_phrase_query {
-                let (mut exact, mut rest): (Vec<_>, Vec<_>) = results
-                    .into_iter()
-                    .partition(|r| r.content.to_lowercase().contains(&query_lower));
-                info!(
-                    "Phrase query '{}': {} exact matches out of {} total results",
-                    query_lower,
-                    exact.len(),
-                    exact.len() + rest.len()
-                );
-                // Deduplicate by episode within each group
-                exact.dedup_by(|a, b| a.episode == b.episode);
-                rest.dedup_by(|a, b| a.episode == b.episode);
-                exact.extend(rest);
-                exact
-            } else {
-                results
-            };
-
-            // Store the query and results for next time
-            *self.last_query.write().unwrap_or_else(|e| e.into_inner()) = Some(query.to_string());
-            *self.last_results.write().unwrap_or_else(|e| e.into_inner()) = prioritized.clone();
-
-            info!("Found {} results with direct search", prioritized.len());
-            let first_result = &prioritized[0];
-            return self
-                .get_caption_for_frame(&first_result.episode, first_result.timestamp)
-                .await;
+        // Strict direct search (phrase queries require an exact substring match).
+        if let Some(result) = self.ranked_search(query, true).await? {
+            return Ok(Some(result));
         }
 
-        // If direct search fails and it's a multi-word query, try with quotes
+        // Strict quoted search for multi-word queries.
         if query.contains(' ') {
-            let quoted_query = format!("\"{query}\"");
-            let results = self.search_api(&quoted_query).await?;
-            if !results.is_empty() {
-                // Apply the same exact phrase prioritization
-                let query_lower = query.to_lowercase();
-
-                let prioritized = {
-                    let (mut exact, mut rest): (Vec<_>, Vec<_>) = results
-                        .into_iter()
-                        .partition(|r| r.content.to_lowercase().contains(&query_lower));
-                    exact.dedup_by(|a, b| a.episode == b.episode);
-                    rest.dedup_by(|a, b| a.episode == b.episode);
-                    exact.extend(rest);
-                    exact
-                };
-
-                // Store the query and results for next time
-                *self.last_query.write().unwrap_or_else(|e| e.into_inner()) =
-                    Some(query.to_string());
-                *self.last_results.write().unwrap_or_else(|e| e.into_inner()) = prioritized.clone();
-
-                info!("Found {} results with quoted search", prioritized.len());
-                let first_result = &prioritized[0];
-                return self
-                    .get_caption_for_frame(&first_result.episode, first_result.timestamp)
-                    .await;
+            if let Some(result) = self.ranked_search(&format!("\"{query}\""), true).await? {
+                return Ok(Some(result));
             }
         }
 
-        // If all else fails, return a random result
+        // Last resort: non-strict word-level best match (API relevance order),
+        // rather than a fully random unrelated screenshot.
         info!(
-            "No results found for query: {}, returning random result",
+            "No exact match for '{}', trying non-strict word-level best match",
             query
         );
-        // Use Box::pin to avoid recursion issues
-        Box::pin(self.random()).await
+        if let Some(result) = self.ranked_search(query, false).await? {
+            return Ok(Some(result));
+        }
+
+        info!("No results found for query: {}", query);
+        Ok(None)
+    }
+
+    /// Run the API search, rank/dedupe results, cache them for cycling, and return
+    /// the best (first) result's caption. When `strict` is true, phrase queries
+    /// with no exact substring match return None instead of a word-level hit.
+    async fn ranked_search(&self, query: &str, strict: bool) -> Result<Option<MorbotronResult>> {
+        let results = self.search_api(query).await?;
+        if results.is_empty() {
+            return Ok(None);
+        }
+
+        let query_lower = query.trim_matches('"').to_lowercase();
+        let is_phrase_query = query_lower.contains(' ');
+
+        // Dedupe by episode, keeping the first (most relevant) occurrence.
+        let deduped = Self::dedupe_by_episode(results);
+
+        let prioritized: Vec<MorbotronSearchResult> = if is_phrase_query {
+            let (mut exact, rest): (Vec<_>, Vec<_>) = deduped
+                .into_iter()
+                .partition(|r| r.content.to_lowercase().contains(&query_lower));
+
+            info!(
+                "Phrase query '{}': {} exact matches out of {} total (deduped)",
+                query_lower,
+                exact.len(),
+                exact.len() + rest.len()
+            );
+
+            if exact.is_empty() && strict {
+                info!(
+                    "Phrase query '{}' had no exact matches (strict); reporting no good match",
+                    query_lower
+                );
+                return Ok(None);
+            }
+
+            // Rank exact matches by tightness; stable sort keeps API order on ties.
+            exact.sort_by(|a, b| {
+                crate::frinkiac::phrase_score_str(&b.content, &query_lower)
+                    .partial_cmp(&crate::frinkiac::phrase_score_str(&a.content, &query_lower))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+
+            if exact.is_empty() {
+                // non-strict: fall back to word-level results in API order
+                rest
+            } else {
+                exact.into_iter().chain(rest).collect()
+            }
+        } else {
+            deduped
+        };
+
+        if prioritized.is_empty() {
+            return Ok(None);
+        }
+
+        // Cache the ranked, deduped list for repeat-query cycling.
+        *self.last_query.write().unwrap_or_else(|e| e.into_inner()) = Some(query.to_string());
+        *self.last_results.write().unwrap_or_else(|e| e.into_inner()) = prioritized.clone();
+
+        info!("Found {} results (ranked/deduped)", prioritized.len());
+        let first = &prioritized[0];
+        self.get_caption_for_frame(&first.episode, first.timestamp)
+            .await
+    }
+
+    /// Deduplicate search results by episode, keeping the first occurrence of each.
+    fn dedupe_by_episode(results: Vec<MorbotronSearchResult>) -> Vec<MorbotronSearchResult> {
+        let mut seen = std::collections::HashSet::new();
+        results
+            .into_iter()
+            .filter(|r| seen.insert(r.episode.clone()))
+            .collect()
     }
 
     async fn get_caption_for_frame(
@@ -482,89 +487,123 @@ impl MorbotronClient {
         Ok(search_results)
     }
 
-    /// Expand subtitles to sentence boundaries by fetching adjacent captions.
+    /// Expand subtitles to sentence boundaries by stepping through adjacent
+    /// caption cards using their real timestamps (shared logic with Frinkiac).
     pub async fn expand_to_sentence_boundaries(&self, result: &mut MorbotronResult) {
+        use crate::frinkiac::{ends_mid_sentence, ends_sentence, starts_mid_sentence};
+
         let episode = result._episode.clone();
 
-        let first_starts_mid = result
+        // Bound the number of adjacent-card hops in each direction.
+        const MAX_HOPS: usize = 4;
+
+        // --- Expand backwards to the start of the sentence ---
+        if result
             .subtitles
             .first()
-            .is_some_and(|s| s.text.chars().next().is_some_and(|c| c.is_lowercase()));
-        let first_start = result.subtitles.first().map(|s| s.start).unwrap_or(0);
+            .is_some_and(|s| starts_mid_sentence(&s.text))
+        {
+            let mut hops = 0;
+            loop {
+                if hops >= MAX_HOPS {
+                    break;
+                }
+                hops += 1;
 
-        if first_starts_mid {
-            let earlier_ts = first_start.saturating_sub(2000);
-            let expanded =
-                if let Ok(Some(earlier)) = self.get_caption_for_frame(&episode, earlier_ts).await {
-                    let mut to_prepend = Vec::new();
-                    for sub in earlier.subtitles.iter().rev() {
-                        if sub.end <= first_start {
-                            to_prepend.push(sub.clone());
-                            if sub.text.chars().next().is_some_and(|c| c.is_uppercase()) {
-                                break;
-                            }
-                        }
-                    }
-                    to_prepend.reverse();
-                    if let Some(first_new) = to_prepend.first() {
-                        result.start_timestamp = first_new.start;
-                        for (i, sub) in to_prepend.into_iter().enumerate() {
-                            result.subtitles.insert(i, sub);
-                        }
-                        true
-                    } else {
-                        false
-                    }
-                } else {
-                    false
+                let first_start = match result.subtitles.first() {
+                    Some(s) => s.start,
+                    None => break,
+                };
+                if first_start == 0 {
+                    break;
+                }
+
+                // Probe just before the current first card's start to reach the previous card.
+                let probe_ts = first_start.saturating_sub(1);
+                let earlier = match self.get_caption_for_frame(&episode, probe_ts).await {
+                    Ok(Some(e)) => e,
+                    _ => break,
                 };
 
-            if !expanded && !result.subtitles.is_empty() {
-                result.subtitles.remove(0);
-                if let Some(new_first) = result.subtitles.first() {
-                    result.start_timestamp = new_first.start;
+                let preceding: Vec<crate::frinkiac::TimedSubtitle> = earlier
+                    .subtitles
+                    .into_iter()
+                    .filter(|s| s.end <= first_start)
+                    .collect();
+                if preceding.is_empty() {
+                    break;
+                }
+
+                result.start_timestamp = preceding.first().map(|s| s.start).unwrap_or(first_start);
+                for (i, sub) in preceding.iter().cloned().enumerate() {
+                    result.subtitles.insert(i, sub);
+                }
+
+                if result
+                    .subtitles
+                    .first()
+                    .is_some_and(|s| !starts_mid_sentence(&s.text))
+                {
+                    break;
                 }
             }
         }
 
-        let last_ends_mid = result.subtitles.last().is_some_and(|s| {
-            s.text.ends_with(',')
-                || (!s.text.ends_with('.')
-                    && !s.text.ends_with('!')
-                    && !s.text.ends_with('?')
-                    && !s.text.ends_with('"'))
-        });
-        let last_rep_ts = result
+        // --- Expand forwards to the end of the sentence ---
+        if result
             .subtitles
             .last()
-            .map(|s| s.representative_ts)
-            .unwrap_or(0);
-        let last_end = result.subtitles.last().map(|s| s.end).unwrap_or(0);
+            .is_some_and(|s| ends_mid_sentence(&s.text))
+        {
+            let mut hops = 0;
+            loop {
+                if hops >= MAX_HOPS {
+                    break;
+                }
+                hops += 1;
 
-        if last_ends_mid {
-            let later_ts = last_rep_ts;
-            let mut expanded = false;
-            if let Ok(Some(later)) = self.get_caption_for_frame(&episode, later_ts).await {
-                for sub in &later.subtitles {
-                    if sub.start >= last_end {
-                        result.end_timestamp = sub.end;
-                        result.subtitles.push(sub.clone());
-                        expanded = true;
-                        if sub.text.ends_with('.')
-                            || sub.text.ends_with('!')
-                            || sub.text.ends_with('?')
-                            || sub.text.ends_with('"')
-                        {
-                            break;
-                        }
+                // Probe just past the current last card to reach the next one. Using the
+                // max of (last_end + 1) and (representative_ts + 1) keeps the probe on a
+                // valid indexed frame. NOTE: the API returns the card *containing* the
+                // probe timestamp, so a single-line quote whose neighbour isn't indexed
+                // near last_end simply won't expand — we accept that over guessing, and
+                // never drop the existing text.
+                let (last_end, probe_ts) = match result.subtitles.last() {
+                    Some(s) => (
+                        s.end,
+                        s.end
+                            .saturating_add(1)
+                            .max(s.representative_ts.saturating_add(1)),
+                    ),
+                    None => break,
+                };
+
+                let later = match self.get_caption_for_frame(&episode, probe_ts).await {
+                    Ok(Some(l)) => l,
+                    _ => break,
+                };
+
+                let following: Vec<crate::frinkiac::TimedSubtitle> = later
+                    .subtitles
+                    .into_iter()
+                    .filter(|s| s.start >= last_end)
+                    .collect();
+                if following.is_empty() {
+                    break;
+                }
+
+                let mut reached_end = false;
+                for sub in following {
+                    result.end_timestamp = sub.end;
+                    let terminal = ends_sentence(&sub.text);
+                    result.subtitles.push(sub);
+                    if terminal {
+                        reached_end = true;
+                        break;
                     }
                 }
-            }
-
-            if !expanded && result.subtitles.len() > 1 {
-                result.subtitles.pop();
-                if let Some(new_last) = result.subtitles.last() {
-                    result.end_timestamp = new_last.end;
+                if reached_end {
+                    break;
                 }
             }
         }
