@@ -657,8 +657,18 @@ impl FrinkiacClient {
         // and prevents runaway expansion on captions that never hit a clean boundary.
         const MAX_HOPS: usize = 4;
 
+        // The caption window we already have often contains the whole sentence
+        // (the API returns several adjacent cards per frame). The loops below only
+        // need to hop outward when the window's *edge* card is itself mid-sentence.
+        //
+        // Hops are anchored on the edge card's RepresentativeTimestamp, which is
+        // guaranteed to be an indexed ("on-grid") frame, and stepped by the spacing
+        // observed within the current window. Probing arbitrary off-grid timestamps
+        // (e.g. end+1) returns 404 on the sparse, irregular frame grid, which is why
+        // earlier attempts silently failed.
+        let step = observed_frame_step(&result.subtitles);
+
         // --- Expand backwards to the start of the sentence ---
-        // The first subtitle starts mid-sentence if its first character is lowercase.
         if result
             .subtitles
             .first()
@@ -671,24 +681,23 @@ impl FrinkiacClient {
                 }
                 hops += 1;
 
-                let first_start = match result.subtitles.first() {
-                    Some(s) => s.start,
+                let (first_start, first_rep) = match result.subtitles.first() {
+                    Some(s) => (s.start, s.representative_ts),
                     None => break,
                 };
-                if first_start == 0 {
+                if first_rep == 0 {
                     break;
                 }
 
-                // Step to the card immediately before the current first card by probing
-                // just before its start timestamp (1ms earlier maps to the previous card).
-                let probe_ts = first_start.saturating_sub(1);
+                // Probe one frame-step before the edge card's on-grid anchor.
+                let probe_ts = first_rep.saturating_sub(step).max(1);
                 let earlier = match self.get_caption_for_frame(&episode, probe_ts).await {
                     Ok(Some(e)) => e,
                     _ => break,
                 };
 
-                // Collect the earlier card's subtitles that fall strictly before our
-                // current start, in chronological order.
+                // Prepend any cards from the probed window that fall strictly before
+                // our current start (dedupe by start timestamp), in chronological order.
                 let preceding: Vec<TimedSubtitle> = earlier
                     .subtitles
                     .into_iter()
@@ -698,7 +707,6 @@ impl FrinkiacClient {
                     break;
                 }
 
-                // Prepend them and advance the start timestamp.
                 result.start_timestamp = preceding.first().map(|s| s.start).unwrap_or(first_start);
                 for (i, sub) in preceding.iter().cloned().enumerate() {
                     result.subtitles.insert(i, sub);
@@ -728,27 +736,23 @@ impl FrinkiacClient {
                 }
                 hops += 1;
 
-                let (last_end, probe_ts) = match result.subtitles.last() {
-                    // Probe just past the current last card. Using the max of (last_end + 1)
-                    // and (representative_ts + 1) keeps the probe on a valid indexed frame.
-                    // The API returns the card containing the probe timestamp, so a single
-                    // line whose neighbour isn't indexed near last_end won't expand further —
-                    // accepted over guessing, and we never drop the existing text.
-                    Some(s) => (
-                        s.end,
-                        s.end
-                            .saturating_add(1)
-                            .max(s.representative_ts.saturating_add(1)),
-                    ),
+                let (last_end, last_rep) = match result.subtitles.last() {
+                    Some(s) => (s.end, s.representative_ts),
                     None => break,
                 };
+                if last_rep == 0 {
+                    break;
+                }
 
+                // Probe one frame-step past the edge card's on-grid anchor.
+                let probe_ts = last_rep.saturating_add(step);
                 let later = match self.get_caption_for_frame(&episode, probe_ts).await {
                     Ok(Some(l)) => l,
                     _ => break,
                 };
 
-                // Append subtitles that start at/after our current end, in order.
+                // Append any cards from the probed window that start at/after our
+                // current end, in chronological order.
                 let following: Vec<TimedSubtitle> = later
                     .subtitles
                     .into_iter()
@@ -799,6 +803,43 @@ pub(crate) fn ends_sentence(text: &str) -> bool {
 pub(crate) fn ends_mid_sentence(text: &str) -> bool {
     let t = text.trim_end();
     t.ends_with(',') || !ends_sentence(t)
+}
+
+/// Estimate the indexed-frame step (ms) to use when hopping to adjacent caption
+/// cards. Derived from the spacing between consecutive cards in the current
+/// window; falls back to a conservative default when the window has too few
+/// cards to measure. Clamped to a sane range so a single outlier gap can't
+/// produce a wild probe.
+pub(crate) fn observed_frame_step(subs: &[TimedSubtitle]) -> u64 {
+    // Default when we can't observe spacing: ~1 card width. The grid is sparse
+    // and irregular across sources, so this is a best-effort anchor step; probing
+    // lands within a neighbouring card's window because windows overlap.
+    const DEFAULT_STEP: u64 = 1200;
+    const MIN_STEP: u64 = 600;
+    const MAX_STEP: u64 = 2500;
+
+    // Gaps between consecutive cards' representative timestamps (on-grid anchors).
+    let mut gaps: Vec<u64> = subs
+        .windows(2)
+        .filter_map(|w| {
+            let a = w[0].representative_ts;
+            let b = w[1].representative_ts;
+            if b > a {
+                Some(b - a)
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if gaps.is_empty() {
+        return DEFAULT_STEP;
+    }
+
+    // Use the smallest observed gap: adjacent cards are the closest neighbours,
+    // so the minimum spacing best approximates one hop.
+    gaps.sort_unstable();
+    gaps[0].clamp(MIN_STEP, MAX_STEP)
 }
 
 /// Score how tightly a caption matches a query phrase. Higher is better.
@@ -1242,5 +1283,33 @@ mod tests {
             FrinkiacClient::phrase_score(&json!({ "Content": "d'oh!" }), "false advertising"),
             0.0
         );
+    }
+
+    fn ts(rep: u64) -> TimedSubtitle {
+        TimedSubtitle {
+            text: String::new(),
+            start: rep.saturating_sub(100),
+            end: rep.saturating_add(100),
+            representative_ts: rep,
+        }
+    }
+
+    #[test]
+    fn observed_frame_step_uses_min_gap_clamped() {
+        // Gaps: 1877, 1877 -> min 1877 (within range)
+        let subs = vec![ts(133008), ts(134885), ts(136762)];
+        assert_eq!(observed_frame_step(&subs), 1877);
+
+        // Fewer than 2 cards -> default
+        assert_eq!(observed_frame_step(&[ts(100000)]), 1200);
+        assert_eq!(observed_frame_step(&[]), 1200);
+
+        // Tiny gap clamps up to MIN_STEP (600)
+        let close = vec![ts(1000), ts(1200)]; // gap 200
+        assert_eq!(observed_frame_step(&close), 600);
+
+        // Huge gap clamps down to MAX_STEP (2500)
+        let far = vec![ts(1000), ts(99999)]; // gap ~99k
+        assert_eq!(observed_frame_step(&far), 2500);
     }
 }

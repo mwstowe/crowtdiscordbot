@@ -488,14 +488,19 @@ impl MorbotronClient {
     }
 
     /// Expand subtitles to sentence boundaries by stepping through adjacent
-    /// caption cards using their real timestamps (shared logic with Frinkiac).
+    /// caption cards (shared logic/helpers with Frinkiac). The caption window
+    /// often already contains the whole sentence; we only hop outward when the
+    /// window's edge card is itself mid-sentence, anchoring probes on the edge
+    /// card's on-grid RepresentativeTimestamp stepped by the observed spacing.
     pub async fn expand_to_sentence_boundaries(&self, result: &mut MorbotronResult) {
-        use crate::frinkiac::{ends_mid_sentence, ends_sentence, starts_mid_sentence};
+        use crate::frinkiac::{
+            ends_mid_sentence, ends_sentence, observed_frame_step, starts_mid_sentence,
+        };
 
         let episode = result._episode.clone();
 
-        // Bound the number of adjacent-card hops in each direction.
         const MAX_HOPS: usize = 4;
+        let step = observed_frame_step(&result.subtitles);
 
         // --- Expand backwards to the start of the sentence ---
         if result
@@ -510,16 +515,15 @@ impl MorbotronClient {
                 }
                 hops += 1;
 
-                let first_start = match result.subtitles.first() {
-                    Some(s) => s.start,
+                let (first_start, first_rep) = match result.subtitles.first() {
+                    Some(s) => (s.start, s.representative_ts),
                     None => break,
                 };
-                if first_start == 0 {
+                if first_rep == 0 {
                     break;
                 }
 
-                // Probe just before the current first card's start to reach the previous card.
-                let probe_ts = first_start.saturating_sub(1);
+                let probe_ts = first_rep.saturating_sub(step).max(1);
                 let earlier = match self.get_caption_for_frame(&episode, probe_ts).await {
                     Ok(Some(e)) => e,
                     _ => break,
@@ -562,22 +566,15 @@ impl MorbotronClient {
                 }
                 hops += 1;
 
-                // Probe just past the current last card to reach the next one. Using the
-                // max of (last_end + 1) and (representative_ts + 1) keeps the probe on a
-                // valid indexed frame. NOTE: the API returns the card *containing* the
-                // probe timestamp, so a single-line quote whose neighbour isn't indexed
-                // near last_end simply won't expand — we accept that over guessing, and
-                // never drop the existing text.
-                let (last_end, probe_ts) = match result.subtitles.last() {
-                    Some(s) => (
-                        s.end,
-                        s.end
-                            .saturating_add(1)
-                            .max(s.representative_ts.saturating_add(1)),
-                    ),
+                let (last_end, last_rep) = match result.subtitles.last() {
+                    Some(s) => (s.end, s.representative_ts),
                     None => break,
                 };
+                if last_rep == 0 {
+                    break;
+                }
 
+                let probe_ts = last_rep.saturating_add(step);
                 let later = match self.get_caption_for_frame(&episode, probe_ts).await {
                     Ok(Some(l)) => l,
                     _ => break,
