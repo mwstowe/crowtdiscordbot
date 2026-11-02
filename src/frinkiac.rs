@@ -167,8 +167,9 @@ impl FrinkiacClient {
 
         info!("Using random search term: {}", random_term);
 
-        // Use search_with_strategy directly to avoid recursion
-        self.search_with_strategy(&random_term).await
+        // Use search_with_strategy directly to avoid recursion (non-strict: a random
+        // term should always yield something).
+        self.search_with_strategy(&random_term, false).await
     }
 
     // Try to get a random screenshot using Frinkiac's random API
@@ -212,30 +213,49 @@ impl FrinkiacClient {
     pub async fn search(&self, query: &str) -> Result<Option<FrinkiacResult>> {
         info!("Frinkiac search for: {}", query);
 
-        // Try a direct search first
-        if let Some(result) = self.search_with_strategy(query).await? {
+        // Try a direct search first, strictly (phrase queries require an exact
+        // substring match; word-salad word-level hits are rejected).
+        if let Some(result) = self.search_with_strategy(query, true).await? {
             info!("Found result with direct search");
             return Ok(Some(result));
         }
 
-        // If direct search fails and it's a multi-word query, try with quotes
+        // If direct search fails and it's a multi-word query, try with quotes (strict).
         if query.contains(' ') {
-            if let Some(result) = self.search_with_strategy(&format!("\"{query}\"")).await? {
+            if let Some(result) = self
+                .search_with_strategy(&format!("\"{query}\""), true)
+                .await?
+            {
                 info!("Found result with quoted search");
                 return Ok(Some(result));
             }
         }
 
-        // If all else fails, return a random result
+        // No exact phrase match found. As a last resort, allow a non-strict
+        // word-level best match (API relevance order) rather than a fully random,
+        // unrelated screenshot — but only if the API actually returned something.
         info!(
-            "No results found for query: {}, returning random result",
+            "No exact match for '{}', trying non-strict word-level best match",
             query
         );
-        self.get_random_direct().await
+        if let Some(result) = self.search_with_strategy(query, false).await? {
+            info!("Found result with non-strict word-level search");
+            return Ok(Some(result));
+        }
+
+        // Nothing matched at all.
+        info!("No results found for query: {}", query);
+        Ok(None)
     }
 
-    // Internal method to perform the actual API call with a specific search strategy
-    async fn search_with_strategy(&self, query: &str) -> Result<Option<FrinkiacResult>> {
+    // Internal method to perform the actual API call with a specific search strategy.
+    // When `strict` is true, phrase queries with no exact substring match return None
+    // instead of falling back to word-level (AND) matches, which are often unrelated.
+    async fn search_with_strategy(
+        &self,
+        query: &str,
+        strict: bool,
+    ) -> Result<Option<FrinkiacResult>> {
         // URL encode the query
         let encoded_query = urlencoding::encode(query);
 
@@ -268,55 +288,50 @@ impl FrinkiacClient {
             })
             .collect();
 
-        // If this is a phrase query, partition results into exact matches and the rest
-        let (mut classic_exact, mut classic_rest): (
-            Vec<&serde_json::Value>,
-            Vec<&serde_json::Value>,
-        ) = if is_phrase_query {
-            classic_unique.into_iter().partition(|r| {
-                r.get("Content")
-                    .and_then(|v| v.as_str())
-                    .is_some_and(|c| c.to_lowercase().contains(&query_lower))
-            })
-        } else {
-            (classic_unique, Vec::new())
+        // Helper: does a candidate's caption contain the exact phrase as a substring?
+        let contains_phrase = |r: &serde_json::Value| -> bool {
+            r.get("Content")
+                .and_then(|v| v.as_str())
+                .is_some_and(|c| c.to_lowercase().contains(&query_lower))
         };
 
-        let (mut later_exact, mut later_rest): (Vec<&serde_json::Value>, Vec<&serde_json::Value>) =
+        // If this is a phrase query, partition results into exact matches and the rest.
+        // IMPORTANT: preserve Frinkiac's relevance order within each partition.
+        let (classic_exact, classic_rest): (Vec<&serde_json::Value>, Vec<&serde_json::Value>) =
             if is_phrase_query {
-                later_unique.into_iter().partition(|r| {
-                    r.get("Content")
-                        .and_then(|v| v.as_str())
-                        .is_some_and(|c| c.to_lowercase().contains(&query_lower))
-                })
+                classic_unique.into_iter().partition(|r| contains_phrase(r))
+            } else {
+                (classic_unique, Vec::new())
+            };
+
+        let (later_exact, later_rest): (Vec<&serde_json::Value>, Vec<&serde_json::Value>) =
+            if is_phrase_query {
+                later_unique.into_iter().partition(|r| contains_phrase(r))
             } else {
                 (later_unique, Vec::new())
             };
 
-        // Shuffle within each partition for variety
-        use rand::seq::SliceRandom;
-        classic_exact.shuffle(&mut rand::rng());
-        classic_rest.shuffle(&mut rand::rng());
-        later_exact.shuffle(&mut rand::rng());
-        later_rest.shuffle(&mut rand::rng());
+        // Build the exact-match tier (classics before later seasons), keeping API order,
+        // then sort by match tightness so the closest match wins. Ties keep API order
+        // because sort_by is stable.
+        let mut exact: Vec<&serde_json::Value> =
+            classic_exact.into_iter().chain(later_exact).collect();
+        if is_phrase_query {
+            exact.sort_by(|a, b| {
+                Self::phrase_score(b, &query_lower)
+                    .partial_cmp(&Self::phrase_score(a, &query_lower))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+        }
+        let exact_count = exact.len();
 
-        // Order: exact matches first (classics before later), then non-exact (classics before later)
-        let ordered_results: Vec<&serde_json::Value> = classic_exact
-            .into_iter()
-            .chain(later_exact)
-            .chain(classic_rest)
-            .chain(later_rest)
-            .collect();
+        // Non-exact tier keeps API relevance order (classics first).
+        let rest: Vec<&serde_json::Value> = classic_rest.into_iter().chain(later_rest).collect();
+
+        let ordered_results: Vec<&serde_json::Value> =
+            exact.iter().copied().chain(rest.iter().copied()).collect();
 
         if is_phrase_query {
-            let exact_count = ordered_results
-                .iter()
-                .filter(|r| {
-                    r.get("Content")
-                        .and_then(|v| v.as_str())
-                        .is_some_and(|c| c.to_lowercase().contains(&query_lower))
-                })
-                .count();
             info!(
                 "Phrase query '{}': {} exact matches out of {} total results",
                 query_lower,
@@ -330,8 +345,28 @@ impl FrinkiacClient {
             return Ok(None);
         }
 
-        // Pick the next result, rotating through results for repeated queries
-        // Since exact matches are ordered first, we only cycle within the same tier
+        // For phrase queries with NO exact match, the API only did word-level AND matching,
+        // which routinely produces unrelated word-salad frames (e.g. "never-ending story"
+        // matching "never" + "story" in different sentences). In strict mode, treat that as
+        // "no good match" so search() can decide how to fall back. In non-strict mode, allow
+        // the API's top (relevance-ordered) result as a best-effort.
+        if strict && is_phrase_query && exact_count == 0 {
+            info!(
+                "Phrase query '{}' had no exact matches (strict); reporting no good match",
+                query_lower
+            );
+            return Ok(None);
+        }
+
+        // Determine the pool we cycle within: exact matches if any exist, else everything.
+        let pool_len = if exact_count > 0 {
+            exact_count
+        } else {
+            ordered_results.len()
+        };
+
+        // Selection: on the FIRST call for a query, always return the best match (index 0).
+        // On repeated identical queries, rotate for variety — but only within the pool.
         let index = {
             let mut last_q = self.last_query.write().unwrap_or_else(|e| e.into_inner());
             let mut idx = self
@@ -339,31 +374,11 @@ impl FrinkiacClient {
                 .write()
                 .unwrap_or_else(|e| e.into_inner());
             if last_q.as_deref() == Some(query) {
-                *idx = (*idx + 1) % ordered_results.len();
+                *idx = (*idx + 1) % pool_len;
             } else {
                 *last_q = Some(query.to_string());
                 *idx = 0;
             }
-
-            // For phrase queries, ensure we stay within exact matches if any exist
-            let exact_count = if is_phrase_query {
-                ordered_results
-                    .iter()
-                    .filter(|r| {
-                        r.get("Content")
-                            .and_then(|v| v.as_str())
-                            .is_some_and(|c| c.to_lowercase().contains(&query_lower))
-                    })
-                    .count()
-            } else {
-                ordered_results.len()
-            };
-
-            // If there are exact matches, constrain cycling to them
-            if exact_count > 0 && *idx >= exact_count {
-                *idx = 0;
-            }
-
             *idx
         };
 
@@ -627,98 +642,182 @@ impl FrinkiacClient {
             .collect()
     }
 
+    /// Score how tightly a candidate caption matches the query phrase.
+    /// Higher is better. Used to rank exact (substring) matches so the closest
+    /// match wins rather than a random one. Returns 0.0 if the phrase isn't present.
+    ///
+    /// The score rewards the phrase being a large fraction of the caption (so a
+    /// caption that *is* the quote beats one where the phrase is buried in a long
+    /// multi-sentence run), with a bonus when the caption is (nearly) exactly the
+    /// phrase.
+    fn phrase_score(result: &serde_json::Value, query_lower: &str) -> f64 {
+        let content = result
+            .get("Content")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_lowercase();
+        if content.is_empty() || !content.contains(query_lower) {
+            return 0.0;
+        }
+
+        let query_len = query_lower.chars().count() as f64;
+        let content_len = content.chars().count().max(1) as f64;
+
+        // Fraction of the caption occupied by the query (0.0–1.0). A caption that is
+        // exactly the phrase scores ~1.0; a phrase buried in a long line scores low.
+        let coverage = (query_len / content_len).min(1.0);
+
+        // Bonus if the trimmed caption equals the phrase (ignoring surrounding
+        // punctuation/whitespace) — the ideal "closest match".
+        let trimmed = content
+            .trim_matches(|c: char| !c.is_alphanumeric())
+            .to_string();
+        let exact_bonus = if trimmed == query_lower { 1.0 } else { 0.0 };
+
+        coverage + exact_bonus
+    }
+
     pub async fn expand_to_sentence_boundaries(&self, result: &mut FrinkiacResult) {
         let episode = result._episode.clone();
 
-        // Check if first subtitle starts mid-sentence (lowercase first char)
-        let first_starts_mid = result
+        // Maximum number of adjacent-card hops in each direction. Bounds API calls
+        // and prevents runaway expansion on captions that never hit a clean boundary.
+        const MAX_HOPS: usize = 4;
+
+        // --- Expand backwards to the start of the sentence ---
+        // The first subtitle starts mid-sentence if its first character is lowercase.
+        if result
             .subtitles
             .first()
-            .is_some_and(|s| s.text.chars().next().is_some_and(|c| c.is_lowercase()));
-        let first_start = result.subtitles.first().map(|s| s.start).unwrap_or(0);
+            .is_some_and(|s| starts_mid_sentence(&s.text))
+        {
+            let mut hops = 0;
+            loop {
+                if hops >= MAX_HOPS {
+                    break;
+                }
+                hops += 1;
 
-        if first_starts_mid {
-            let earlier_ts = first_start.saturating_sub(2000);
-            let expanded =
-                if let Ok(Some(earlier)) = self.get_caption_for_frame(&episode, earlier_ts).await {
-                    let mut to_prepend = Vec::new();
-                    for sub in earlier.subtitles.iter().rev() {
-                        if sub.end <= first_start {
-                            to_prepend.push(sub.clone());
-                            if sub.text.chars().next().is_some_and(|c| c.is_uppercase()) {
-                                break;
-                            }
-                        }
-                    }
-                    to_prepend.reverse();
-                    if let Some(first_new) = to_prepend.first() {
-                        result.start_timestamp = first_new.start;
-                        for (i, sub) in to_prepend.into_iter().enumerate() {
-                            result.subtitles.insert(i, sub);
-                        }
-                        true
-                    } else {
-                        false
-                    }
-                } else {
-                    false
+                let first_start = match result.subtitles.first() {
+                    Some(s) => s.start,
+                    None => break,
+                };
+                if first_start == 0 {
+                    break;
+                }
+
+                // Step to the card immediately before the current first card by probing
+                // just before its start timestamp (1ms earlier maps to the previous card).
+                let probe_ts = first_start.saturating_sub(1);
+                let earlier = match self.get_caption_for_frame(&episode, probe_ts).await {
+                    Ok(Some(e)) => e,
+                    _ => break,
                 };
 
-            // If we couldn't find the sentence start, drop the dangling fragment
-            if !expanded && !result.subtitles.is_empty() {
-                let removed = result.subtitles.remove(0);
-                if let Some(new_first) = result.subtitles.first() {
-                    result.start_timestamp = new_first.start;
+                // Collect the earlier card's subtitles that fall strictly before our
+                // current start, in chronological order.
+                let preceding: Vec<TimedSubtitle> = earlier
+                    .subtitles
+                    .into_iter()
+                    .filter(|s| s.end <= first_start)
+                    .collect();
+                if preceding.is_empty() {
+                    break;
                 }
-                info!("Dropped dangling subtitle fragment: {:?}", removed.text);
+
+                // Prepend them and advance the start timestamp.
+                result.start_timestamp = preceding.first().map(|s| s.start).unwrap_or(first_start);
+                for (i, sub) in preceding.iter().cloned().enumerate() {
+                    result.subtitles.insert(i, sub);
+                }
+
+                // Stop once the (new) first subtitle begins a sentence.
+                if result
+                    .subtitles
+                    .first()
+                    .is_some_and(|s| !starts_mid_sentence(&s.text))
+                {
+                    break;
+                }
             }
         }
 
-        // Check if last subtitle ends mid-sentence
-        let last_ends_mid = result.subtitles.last().is_some_and(|s| {
-            s.text.ends_with(',')
-                || (!s.text.ends_with('.')
-                    && !s.text.ends_with('!')
-                    && !s.text.ends_with('?')
-                    && !s.text.ends_with('"'))
-        });
-        let last_rep_ts = result
+        // --- Expand forwards to the end of the sentence ---
+        if result
             .subtitles
             .last()
-            .map(|s| s.representative_ts)
-            .unwrap_or(0);
-        let last_end = result.subtitles.last().map(|s| s.end).unwrap_or(0);
+            .is_some_and(|s| ends_mid_sentence(&s.text))
+        {
+            let mut hops = 0;
+            loop {
+                if hops >= MAX_HOPS {
+                    break;
+                }
+                hops += 1;
 
-        if last_ends_mid {
-            let later_ts = last_rep_ts;
-            let mut expanded = false;
+                let (last_end, probe_ts) = match result.subtitles.last() {
+                    // Probe using the last card's representative timestamp first; if that
+                    // card is already included, step just past its end to reach the next.
+                    Some(s) => (s.end, s.end.saturating_add(1)),
+                    None => break,
+                };
 
-            if let Ok(Some(later)) = self.get_caption_for_frame(&episode, later_ts).await {
-                for sub in &later.subtitles {
-                    if sub.start >= last_end {
-                        result.end_timestamp = sub.end;
-                        result.subtitles.push(sub.clone());
-                        expanded = true;
-                        if sub.text.ends_with('.')
-                            || sub.text.ends_with('!')
-                            || sub.text.ends_with('?')
-                            || sub.text.ends_with('"')
-                        {
-                            break;
-                        }
+                let later = match self.get_caption_for_frame(&episode, probe_ts).await {
+                    Ok(Some(l)) => l,
+                    _ => break,
+                };
+
+                // Append subtitles that start at/after our current end, in order.
+                let following: Vec<TimedSubtitle> = later
+                    .subtitles
+                    .into_iter()
+                    .filter(|s| s.start >= last_end)
+                    .collect();
+                if following.is_empty() {
+                    break;
+                }
+
+                let mut reached_end = false;
+                for sub in following {
+                    result.end_timestamp = sub.end;
+                    let terminal = ends_sentence(&sub.text);
+                    result.subtitles.push(sub);
+                    if terminal {
+                        reached_end = true;
+                        break;
                     }
                 }
-            }
-
-            // If we couldn't find the sentence end, drop the trailing fragment
-            if !expanded && result.subtitles.len() > 1 {
-                result.subtitles.pop();
-                if let Some(new_last) = result.subtitles.last() {
-                    result.end_timestamp = new_last.end;
+                if reached_end {
+                    break;
                 }
             }
         }
     }
+}
+
+/// True if the text begins partway through a sentence (lowercase first letter).
+/// Leading punctuation/quotes/speaker dashes are skipped before checking.
+fn starts_mid_sentence(text: &str) -> bool {
+    text.chars()
+        .find(|c| c.is_alphabetic())
+        .is_some_and(|c| c.is_lowercase())
+}
+
+/// True if the text forms a complete sentence ending (terminal punctuation).
+fn ends_sentence(text: &str) -> bool {
+    let t = text.trim_end();
+    t.ends_with('.')
+        || t.ends_with('!')
+        || t.ends_with('?')
+        || t.ends_with('"')
+        || t.ends_with('\u{201d}') // right double quotation mark
+}
+
+/// True if the text ends partway through a sentence (no terminal punctuation,
+/// or a trailing comma).
+fn ends_mid_sentence(text: &str) -> bool {
+    let t = text.trim_end();
+    t.ends_with(',') || !ends_sentence(t)
 }
 
 // Format a caption to proper sentence case and separate different speakers
@@ -1071,4 +1170,69 @@ pub struct FrinkiacClient {
     http_client: HttpClient,
     last_query: std::sync::RwLock<Option<String>>,
     current_index: std::sync::RwLock<usize>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn starts_mid_sentence_detects_lowercase_opening() {
+        assert!(starts_mid_sentence("just like the one on the sign."));
+        assert!(!starts_mid_sentence("That's false advertising."));
+        // Leading punctuation / speaker dash is skipped before judging.
+        assert!(!starts_mid_sentence("\"Man, that's some story.\""));
+        assert!(starts_mid_sentence("- and then he left."));
+    }
+
+    #[test]
+    fn ends_sentence_and_mid_detection() {
+        assert!(ends_sentence("That's false advertising!"));
+        assert!(ends_sentence("Is it though?"));
+        assert!(ends_sentence("\"the end.\""));
+        assert!(!ends_sentence("Man, that is"));
+
+        assert!(ends_mid_sentence("Man, that is flagrant"));
+        assert!(ends_mid_sentence("one thing,"));
+        assert!(!ends_mid_sentence("That's false advertising!"));
+    }
+
+    #[test]
+    fn phrase_score_prefers_tighter_match() {
+        let q = "false advertising";
+
+        // Caption that is essentially the phrase should outscore one where the
+        // phrase is buried in a long multi-sentence run.
+        let tight = json!({ "Content": "Man, that is flagrant false advertising!" });
+        let buried = json!({
+            "Content": "just like the one on the sign. D'oh! Nuts. \
+                        That's false advertising. Sorry, sir. No refunds."
+        });
+
+        let s_tight = FrinkiacClient::phrase_score(&tight, q);
+        let s_buried = FrinkiacClient::phrase_score(&buried, q);
+        assert!(
+            s_tight > s_buried,
+            "tight={s_tight} should beat buried={s_buried}"
+        );
+    }
+
+    #[test]
+    fn phrase_score_exact_caption_gets_bonus() {
+        let q = "false advertising";
+        let exact = json!({ "Content": "False advertising!" });
+        let partial = json!({ "Content": "that is false advertising for sure right" });
+        assert!(
+            FrinkiacClient::phrase_score(&exact, q) > FrinkiacClient::phrase_score(&partial, q)
+        );
+    }
+
+    #[test]
+    fn phrase_score_zero_when_absent() {
+        assert_eq!(
+            FrinkiacClient::phrase_score(&json!({ "Content": "d'oh!" }), "false advertising"),
+            0.0
+        );
+    }
 }
