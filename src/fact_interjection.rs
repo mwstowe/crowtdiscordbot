@@ -325,6 +325,21 @@ pub async fn handle_spontaneous_fact_interjection(
         Vec::new()
     };
 
+    // Spontaneous interjections fire after long silences, so any media in the
+    // recent context is stale. Strip it so it can't be attached or commented on.
+    let context_messages: Vec<_> = context_messages
+        .into_iter()
+        .map(|(author, display_name, pronouns, content, reply)| {
+            (
+                author,
+                display_name,
+                pronouns,
+                crate::media_utils::strip_media_urls_from_context(&content),
+                reply,
+            )
+        })
+        .collect();
+
     handle_fact_interjection_common(
         http,
         channel_id,

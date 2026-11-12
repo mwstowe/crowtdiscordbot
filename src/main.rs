@@ -1130,6 +1130,74 @@ impl Bot {
     }
 }
 
+/// Recent channel messages formatted for a prompt (oldest first, one
+/// "Name: text" line each), with media URLs removed. Empty if unavailable.
+async fn recent_context_text(
+    db: &Option<Arc<Connection>>,
+    channel_id: ChannelId,
+    limit: usize,
+) -> String {
+    let Some(db) = db else {
+        return String::new();
+    };
+    let messages = match db_utils::get_recent_messages_with_reply_context(
+        db.clone(),
+        limit,
+        Some(&channel_id.to_string()),
+    )
+    .await
+    {
+        Ok(messages) => messages,
+        Err(e) => {
+            error!("Error retrieving context for rating: {:?}", e);
+            return String::new();
+        }
+    };
+    // Messages arrive newest first; the prompt wants chronological order.
+    let lines: Vec<String> = messages
+        .iter()
+        .rev()
+        .map(|(author, display_name, _pronouns, content, _reply)| {
+            let name = if display_name.is_empty() {
+                author
+            } else {
+                display_name
+            };
+            format!(
+                "{name}: {}",
+                media_utils::strip_media_urls_from_context(content)
+            )
+        })
+        .collect();
+    lines.join("\n")
+}
+
+/// Prompt asking the model to rate a spontaneous comment. When conversation
+/// context is available the rating is judged against it: a quip that only
+/// works as a standalone one-liner, or that refers to something not in the
+/// conversation, should not pass as "relevant".
+fn spontaneous_rating_prompt(comment: &str, context: &str, require_relevance: bool) -> String {
+    if context.trim().is_empty() || !require_relevance {
+        return format!(
+            "Rate the following spontaneous comment on a scale of 1-10 for humor, relevance, and naturalness. \
+            A 10 is laugh-out-loud funny and perfectly relevant. A 1 is awkward and forced.\n\n\
+            Comment: \"{comment}\"\n\n\
+            Respond with ONLY a single number from 1 to 10."
+        );
+    }
+    format!(
+        "Rate the following spontaneous comment on a scale of 1-10 for humor, relevance, and naturalness. \
+        A 10 is laugh-out-loud funny and perfectly relevant to what people were just talking about. \
+        A 1 is awkward and forced.\n\n\
+        Recent conversation (oldest first):\n{context}\n\n\
+        Comment: \"{comment}\"\n\n\
+        Judge relevance against the conversation above. If the comment refers to something that is \
+        not part of the conversation (an unrelated topic, or an old image or message), or it only works \
+        as a standalone quip that could have been posted anywhere, rate it 4 or lower.\n\n\
+        Respond with ONLY a single number from 1 to 10."
+    )
+}
+
 /// Spawn a background task that refreshes the typing indicator every 8 seconds.
 /// Returns a JoinHandle that should be aborted when the API call completes.
 fn keep_typing(
@@ -1775,6 +1843,9 @@ impl Bot {
                         ""
                     };
 
+                    // Unselected response options, used if the selected one is a GIF
+                    // request with no good match.
+                    let mut alternatives: Vec<String> = Vec::new();
                     let typing_task = keep_typing(ctx.http.clone(), msg.channel_id);
                     // Use multimodal path if media is present, otherwise standard text path
                     let response_result = if has_media {
@@ -1811,7 +1882,7 @@ impl Bot {
                     } else {
                         let content_with_gif = format!("{}{}", content, gif_suffix);
                         gemini_client
-                            .generate_best_response_with_context_and_pronouns(
+                            .generate_best_response_with_alternatives(
                                 &content_with_gif,
                                 &clean_display_name,
                                 &context_for_api,
@@ -1819,11 +1890,28 @@ impl Bot {
                                 true, // Always respond when directly addressed by name
                             )
                             .await
+                            .map(|choice| {
+                                choice.map(|c| {
+                                    alternatives = c.alternatives;
+                                    c.selected
+                                })
+                            })
                     };
 
                     typing_task.abort();
                     match response_result {
                         Ok(Some(response)) => {
+                            // If the selected option is a GIF request with no relevant match,
+                            // use a text alternative rather than a poor GIF (or nothing).
+                            let response = match &self.giphy_client {
+                                Some(giphy_client) => {
+                                    giphy_client
+                                        .choose_resolvable(response, &alternatives)
+                                        .await
+                                }
+                                None => response,
+                            };
+
                             // Check if the response is a GIF request
                             if let Some(giphy_client) = &self.giphy_client {
                                 if let Some(gif_url) = giphy_client.try_resolve_gif(&response).await
@@ -2624,6 +2712,9 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                         ""
                     };
 
+                    // Unselected response options, used if the selected one is a GIF
+                    // request with no good match.
+                    let mut alternatives: Vec<String> = Vec::new();
                     let typing_task = keep_typing(ctx.http.clone(), msg.channel_id);
                     // Use multimodal path if media is present, otherwise standard text path
                     let response_result = if has_media {
@@ -2660,7 +2751,7 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                     } else {
                         let content_with_gif = format!("{}{}", content, gif_suffix);
                         gemini_client
-                            .generate_best_response_with_context_and_pronouns(
+                            .generate_best_response_with_alternatives(
                                 &content_with_gif,
                                 &clean_display_name,
                                 &context_for_api,
@@ -2668,6 +2759,12 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                                 true, // Always respond when directly mentioned
                             )
                             .await
+                            .map(|choice| {
+                                choice.map(|c| {
+                                    alternatives = c.alternatives;
+                                    c.selected
+                                })
+                            })
                     };
 
                     typing_task.abort();
@@ -2681,6 +2778,17 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                                 error!("Mention response error: API returned prompt text");
                                 return Ok(());
                             }
+
+                            // If the selected option is a GIF request with no relevant match,
+                            // use a text alternative rather than a poor GIF (or nothing).
+                            let response = match &self.giphy_client {
+                                Some(giphy_client) => {
+                                    giphy_client
+                                        .choose_resolvable(response, &alternatives)
+                                        .await
+                                }
+                                None => response,
+                            };
 
                             // Check for GIF resolution
                             if let Some(giphy_client) = &self.giphy_client {
@@ -3879,7 +3987,8 @@ Keep it brief and natural, as if you're just another participant in the conversa
                                         )
                                         .collect();
 
-                                    match gemini_client.generate_content(&ai_prompt).await {
+                                    match gemini_client.generate_content_no_media(&ai_prompt).await
+                                    {
                                         Ok(response) => {
                                             // Check if the response is "pass" - if so, don't send anything
                                             if response.trim().to_lowercase() == "pass" {
@@ -3997,7 +4106,10 @@ Be creative but realistic with your article title and URL."#)
                                         .replace("{context}", &context_text);
 
                                     // Prompt is already fully formed — send directly
-                                    match gemini_client.generate_content(&news_prompt).await {
+                                    match gemini_client
+                                        .generate_content_no_media(&news_prompt)
+                                        .await
+                                    {
                                         Ok(response) => {
                                             // Check if the response is "pass" - if so, don't send anything
                                             if response.trim().to_lowercase() == "pass" {
@@ -4109,14 +4221,16 @@ Be creative but realistic with your article title and URL."#)
 
                             // Ask Gemini to self-rate the response
                             let should_send = if let Some(gemini) = &task_gemini_client {
-                                let rating_prompt = format!(
-                                    "Rate the following spontaneous comment on a scale of 1-10 for humor, relevance, and naturalness. \
-                                    A 10 is laugh-out-loud funny and perfectly relevant. A 1 is awkward and forced.\n\n\
-                                    Comment: \"{}\"\n\n\
-                                    Respond with ONLY a single number from 1 to 10.",
-                                    message.trim()
+                                // AI interjections (type 3) are only worth sending if they fit the
+                                // conversation. News (type 5) is allowed to be a topic change.
+                                let rating_context =
+                                    recent_context_text(&message_db_clone, *channel_id, 6).await;
+                                let rating_prompt = spontaneous_rating_prompt(
+                                    message.trim(),
+                                    &rating_context,
+                                    interjection_type == 3,
                                 );
-                                match gemini.generate_content(&rating_prompt).await {
+                                match gemini.generate_content_no_media(&rating_prompt).await {
                                     Ok(rating_response) => {
                                         let rating =
                                             rating_response.trim().parse::<u8>().unwrap_or(5);
@@ -4218,6 +4332,31 @@ Be creative but realistic with your article title and URL."#)
 
 #[cfg(test)]
 mod tests {
+    use super::spontaneous_rating_prompt;
+
+    #[test]
+    fn rating_prompt_includes_conversation_and_demands_relevance() {
+        let prompt = spontaneous_rating_prompt(
+            "That slide looks like it was designed by a committee.",
+            "Queued: something about vaccines\nQueued: !frinkiac first you get the sugar",
+            true,
+        );
+        assert!(prompt.contains("Recent conversation"));
+        assert!(prompt.contains("Queued: something about vaccines"));
+        assert!(prompt.contains("That slide looks like it was designed by a committee."));
+        assert!(prompt.contains("rate it 4 or lower"));
+    }
+
+    #[test]
+    fn rating_prompt_is_unchanged_without_context_or_for_news() {
+        let plain = spontaneous_rating_prompt("A comment", "", true);
+        assert!(!plain.contains("Recent conversation"));
+
+        // News may legitimately change the subject, so no strict relevance rule.
+        let news = spontaneous_rating_prompt("A news item", "Someone: hi", false);
+        assert!(!news.contains("Recent conversation"));
+        assert!(!news.contains("rate it 4 or lower"));
+    }
 
     #[test]
     fn test_quiet_channels_configuration() {

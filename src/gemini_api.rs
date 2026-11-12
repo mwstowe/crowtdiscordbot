@@ -25,6 +25,10 @@ pub struct GeminiClient {
     log_prompts: bool,
     // Track when image generation quota was exhausted
     image_quota_exhausted_until: Arc<Mutex<Option<DateTime<Utc>>>>,
+    /// Bot's own name, used to keep its own posts out of the media context.
+    bot_name: String,
+    /// Downloaded context media, so the same image isn't re-fetched per request.
+    media_cache: crate::media_utils::MediaCache,
 }
 
 /// Configuration for creating a GeminiClient
@@ -41,6 +45,24 @@ pub struct GeminiConfig {
     pub context_messages: usize,
     pub log_prompts: bool,
     pub personality_description: Option<String>,
+}
+
+/// A selected response plus the other generated options, ordered by how they
+/// should be preferred if the selected one can't be used.
+#[derive(Debug, Clone)]
+pub struct ResponseChoice {
+    pub selected: String,
+    pub alternatives: Vec<String>,
+}
+
+/// Option indices in fallback-preference order. This mirrors the selection
+/// weighting (option #2 first, then #3, then the rest in order).
+fn preference_order(len: usize) -> Vec<usize> {
+    [1usize, 2]
+        .into_iter()
+        .chain((0..len).filter(|&i| i != 1 && i != 2))
+        .filter(|&i| i < len)
+        .collect()
 }
 
 impl GeminiClient {
@@ -76,6 +98,7 @@ impl GeminiClient {
         };
 
         // Create prompt templates with custom personality if provided
+        let bot_name = config.bot_name.clone();
         let mut prompt_templates = PromptTemplates::new_with_custom_personality(
             config.bot_name.clone(),
             config.personality_description,
@@ -114,6 +137,8 @@ impl GeminiClient {
             context_messages: config.context_messages,
             log_prompts: config.log_prompts,
             image_quota_exhausted_until: Arc::new(Mutex::new(None)),
+            bot_name,
+            media_cache: crate::media_utils::MediaCache::default(),
         }
     }
 
@@ -221,6 +246,30 @@ impl GeminiClient {
         user_pronouns: Option<&str>,
         should_respond: bool,
     ) -> Result<Option<String>> {
+        Ok(self
+            .generate_best_response_with_alternatives(
+                prompt,
+                user_name,
+                context_messages,
+                user_pronouns,
+                should_respond,
+            )
+            .await?
+            .map(|choice| choice.selected))
+    }
+
+    /// Same as `generate_best_response_with_context_and_pronouns`, but also
+    /// returns the options that weren't selected. Callers whose selected option
+    /// turns out to be unusable (e.g. a GIF request that finds no good match)
+    /// can fall back to an alternative instead of sending nothing.
+    pub async fn generate_best_response_with_alternatives(
+        &self,
+        prompt: &str,
+        user_name: &str,
+        context_messages: &[(String, String, Option<String>, String)],
+        user_pronouns: Option<&str>,
+        should_respond: bool,
+    ) -> Result<Option<ResponseChoice>> {
         // Create a modified prompt that asks for multiple responses
         let pass_instruction = if should_respond {
             "You MUST respond — do not pass. If you're stuck, respond with 'GIF: [search term]' for a reaction GIF instead. Generate at least 3 options."
@@ -270,7 +319,10 @@ impl GeminiClient {
                 if options.is_empty() {
                     // Fallback: use the original response if no options were parsed
                     if should_respond {
-                        Ok(Some(trimmed.to_string()))
+                        Ok(Some(ResponseChoice {
+                            selected: trimmed.to_string(),
+                            alternatives: Vec::new(),
+                        }))
                     } else {
                         Ok(None)
                     }
@@ -297,7 +349,15 @@ impl GeminiClient {
 
                     let selected = &options[selected_idx];
                     if should_respond {
-                        Ok(Some(selected.clone()))
+                        let alternatives = preference_order(options.len())
+                            .into_iter()
+                            .filter(|&i| i != selected_idx)
+                            .map(|i| options[i].clone())
+                            .collect();
+                        Ok(Some(ResponseChoice {
+                            selected: selected.clone(),
+                            alternatives,
+                        }))
                     } else {
                         Ok(None)
                     }
@@ -406,23 +466,42 @@ impl GeminiClient {
 
     // Generate content with a raw prompt and retry on overload errors.
     // Automatically detects image/video URLs in context and upgrades to multimodal.
+    // Media from the bot itself and stale media are excluded (see MediaContextPolicy).
     pub async fn generate_content(&self, prompt: &str) -> Result<String> {
         // Check if the prompt contains embedded media URLs from context
-        let context_media =
-            crate::media_utils::fetch_media_from_context(&self.http_client, prompt, 3).await;
+        let policy = crate::media_utils::MediaContextPolicy::standard(&self.bot_name);
+        let context_media = crate::media_utils::fetch_media_from_context(
+            &self.http_client,
+            &self.media_cache,
+            prompt,
+            3,
+            &policy,
+        )
+        .await;
+
+        // Always strip the raw CDN URLs from the text, whether or not any media
+        // ended up attached: the model should see "[Image: name]", not signed links.
+        let clean_prompt = crate::media_utils::strip_media_urls_from_context(prompt);
 
         if !context_media.is_empty() {
             info!(
                 "Auto-upgrading to multimodal: found {} media items in context",
                 context_media.len()
             );
-            let clean_prompt = crate::media_utils::strip_media_urls_from_context(prompt);
             return self
                 .generate_content_with_media(&clean_prompt, &context_media, &[])
                 .await;
         }
 
-        self.try_text_endpoints(prompt).await
+        self.try_text_endpoints(&clean_prompt).await
+    }
+
+    /// Like `generate_content`, but never attaches context media. Used for
+    /// spontaneous (fill-silence) interjections, where the context is stale by
+    /// definition and an old image would otherwise become the thing commented on.
+    pub async fn generate_content_no_media(&self, prompt: &str) -> Result<String> {
+        let clean_prompt = crate::media_utils::strip_media_urls_from_context(prompt);
+        self.try_text_endpoints(&clean_prompt).await
     }
 
     /// Try the primary text endpoint; if it fails with a transient/last-resort
@@ -966,6 +1045,15 @@ impl GeminiClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn preference_order_matches_selection_weighting() {
+        assert_eq!(preference_order(0), Vec::<usize>::new());
+        assert_eq!(preference_order(1), vec![0]);
+        assert_eq!(preference_order(2), vec![1, 0]);
+        assert_eq!(preference_order(3), vec![1, 2, 0]);
+        assert_eq!(preference_order(5), vec![1, 2, 0, 3, 4]);
+    }
 
     #[tokio::test]
     async fn test_image_quota_exhaustion() {
