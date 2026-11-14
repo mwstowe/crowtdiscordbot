@@ -167,9 +167,10 @@ impl FrinkiacClient {
 
         info!("Using random search term: {}", random_term);
 
-        // Use search_with_strategy directly to avoid recursion (non-strict: a random
+        // Use search_with_strategy directly to avoid recursion (any mode: a random
         // term should always yield something).
-        self.search_with_strategy(&random_term, false).await
+        self.search_with_strategy(&random_term, MatchMode::Any)
+            .await
     }
 
     // Try to get a random screenshot using Frinkiac's random API
@@ -213,17 +214,17 @@ impl FrinkiacClient {
     pub async fn search(&self, query: &str) -> Result<Option<FrinkiacResult>> {
         info!("Frinkiac search for: {}", query);
 
-        // Try a direct search first, strictly (phrase queries require an exact
-        // substring match; word-salad word-level hits are rejected).
-        if let Some(result) = self.search_with_strategy(query, true).await? {
+        // 1. Strict: a multi-word query needs the exact phrase in a caption, and a
+        //    single-word query needs a caption that actually contains that word.
+        if let Some(result) = self.search_with_strategy(query, MatchMode::Strict).await? {
             info!("Found result with direct search");
             return Ok(Some(result));
         }
 
-        // If direct search fails and it's a multi-word query, try with quotes (strict).
+        // 2. Multi-word queries: ask the API for the quoted phrase (still strict).
         if query.contains(' ') {
             if let Some(result) = self
-                .search_with_strategy(&format!("\"{query}\""), true)
+                .search_with_strategy(&format!("\"{query}\""), MatchMode::Strict)
                 .await?
             {
                 info!("Found result with quoted search");
@@ -231,30 +232,31 @@ impl FrinkiacClient {
             }
         }
 
-        // No exact phrase match found. As a last resort, allow a non-strict
-        // word-level best match (API relevance order) rather than a fully random,
-        // unrelated screenshot — but only if the API actually returned something.
+        // 3. Loose: the caption sharing the most query words, provided it shares at
+        //    least half of them. This beats returning the API's top fuzzy hit, which
+        //    can have no words in common with the query ("thrusting" -> "Testing.").
         info!(
-            "No exact match for '{}', trying non-strict word-level best match",
+            "No exact match for '{}', trying best word-level match",
             query
         );
-        if let Some(result) = self.search_with_strategy(query, false).await? {
-            info!("Found result with non-strict word-level search");
+        if let Some(result) = self.search_with_strategy(query, MatchMode::Loose).await? {
+            info!("Found result with word-level search");
             return Ok(Some(result));
         }
 
-        // Nothing matched at all.
+        // Nothing matched well enough.
         info!("No results found for query: {}", query);
         Ok(None)
     }
 
-    // Internal method to perform the actual API call with a specific search strategy.
-    // When `strict` is true, phrase queries with no exact substring match return None
-    // instead of falling back to word-level (AND) matches, which are often unrelated.
+    // Internal method to perform the actual API call and pick the best candidate.
+    // Candidates from classic seasons and later seasons are ranked together on match
+    // quality; season order (classics first) only breaks ties. `mode` decides how good
+    // the best candidate must be before it is accepted.
     async fn search_with_strategy(
         &self,
         query: &str,
-        strict: bool,
+        mode: MatchMode,
     ) -> Result<Option<FrinkiacResult>> {
         // URL encode the query
         let encoded_query = urlencoding::encode(query);
@@ -263,13 +265,10 @@ impl FrinkiacClient {
         let classic_url = format!("{FRINKIAC_BASE_URL}?q={encoded_query}&smin=1&smax=11");
         let classic_results = self.fetch_search_results(&classic_url).await?;
 
-        // Then get unfiltered results (for later seasons fallback)
+        // Then get unfiltered results (for later seasons)
         let all_url = format!("{FRINKIAC_BASE_URL}?q={encoded_query}");
         let all_results = self.fetch_search_results(&all_url).await?;
 
-        // For multi-word queries, prioritize results containing the exact phrase
-        // The API does word-level matching, so "my cube" returns anything with "my" AND "cube"
-        // We filter client-side to prefer results with the exact phrase as a substring
         let query_lower = query.trim_matches('"').to_lowercase();
         let is_phrase_query = query_lower.contains(' ');
 
@@ -288,85 +287,45 @@ impl FrinkiacClient {
             })
             .collect();
 
-        // Helper: does a candidate's caption contain the exact phrase as a substring?
-        let contains_phrase = |r: &serde_json::Value| -> bool {
-            r.get("Content")
-                .and_then(|v| v.as_str())
-                .is_some_and(|c| c.to_lowercase().contains(&query_lower))
-        };
+        // One pool: classic seasons first, then later seasons, each in API order.
+        let pool: Vec<&serde_json::Value> =
+            classic_unique.into_iter().chain(later_unique).collect();
 
-        // If this is a phrase query, partition results into exact matches and the rest.
-        // IMPORTANT: preserve Frinkiac's relevance order within each partition.
-        let (classic_exact, classic_rest): (Vec<&serde_json::Value>, Vec<&serde_json::Value>) =
-            if is_phrase_query {
-                classic_unique.into_iter().partition(|r| contains_phrase(r))
-            } else {
-                (classic_unique, Vec::new())
-            };
-
-        let (later_exact, later_rest): (Vec<&serde_json::Value>, Vec<&serde_json::Value>) =
-            if is_phrase_query {
-                later_unique.into_iter().partition(|r| contains_phrase(r))
-            } else {
-                (later_unique, Vec::new())
-            };
-
-        // Build the exact-match tier (classics before later seasons), keeping API order,
-        // then sort by match tightness so the closest match wins. Ties keep API order
-        // because sort_by is stable.
-        let mut exact: Vec<&serde_json::Value> =
-            classic_exact.into_iter().chain(later_exact).collect();
-        if is_phrase_query {
-            exact.sort_by(|a, b| {
-                Self::phrase_score(b, &query_lower)
-                    .partial_cmp(&Self::phrase_score(a, &query_lower))
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
+        if pool.is_empty() {
+            info!("No results found for query: {}", query);
+            return Ok(None);
         }
-        let exact_count = exact.len();
 
-        // Non-exact tier keeps API relevance order (classics first).
-        let rest: Vec<&serde_json::Value> = classic_rest.into_iter().chain(later_rest).collect();
-
-        let ordered_results: Vec<&serde_json::Value> =
-            exact.iter().copied().chain(rest.iter().copied()).collect();
+        let ranked = rank_candidates(pool, &query_lower);
 
         if is_phrase_query {
             info!(
                 "Phrase query '{}': {} exact matches out of {} total results",
                 query_lower,
-                exact_count,
-                ordered_results.len()
+                ranked.iter().filter(|c| c.phrase_match).count(),
+                ranked.len()
             );
         }
 
-        if ordered_results.is_empty() {
-            info!("No results found for query: {}", query);
-            return Ok(None);
-        }
-
-        // For phrase queries with NO exact match, the API only did word-level AND matching,
-        // which routinely produces unrelated word-salad frames (e.g. "never-ending story"
-        // matching "never" + "story" in different sentences). In strict mode, treat that as
-        // "no good match" so search() can decide how to fall back. In non-strict mode, allow
-        // the API's top (relevance-ordered) result as a best-effort.
-        if strict && is_phrase_query && exact_count == 0 {
+        let best = &ranked[0];
+        if !is_acceptable(best, is_phrase_query, mode) {
             info!(
-                "Phrase query '{}' had no exact matches (strict); reporting no good match",
-                query_lower
+                "Query '{}' has no acceptable match in {:?} mode (best word coverage {:.2})",
+                query_lower, mode, best.coverage
             );
             return Ok(None);
         }
 
-        // Determine the pool we cycle within: exact matches if any exist, else everything.
-        let pool_len = if exact_count > 0 {
-            exact_count
-        } else {
-            ordered_results.len()
-        };
+        // The pool we cycle within: every candidate tied with the best on match quality.
+        let pool_len = ranked
+            .iter()
+            .take_while(|c| {
+                c.phrase_match == best.phrase_match && (c.coverage - best.coverage).abs() < 1e-9
+            })
+            .count();
 
         // Selection: on the FIRST call for a query, always return the best match (index 0).
-        // On repeated identical queries, rotate for variety — but only within the pool.
+        // On repeated identical queries, rotate for variety, but only within the pool.
         let index = {
             let mut last_q = self.last_query.write().unwrap_or_else(|e| e.into_inner());
             let mut idx = self
@@ -382,7 +341,8 @@ impl FrinkiacClient {
             *idx
         };
 
-        let result = ordered_results[index];
+        let chosen = &ranked[index];
+        let result = chosen.result;
 
         // Extract the episode and timestamp
         let episode = result
@@ -394,6 +354,19 @@ impl FrinkiacClient {
             .get("Timestamp")
             .and_then(|v| v.as_u64())
             .ok_or_else(|| anyhow!("Missing Timestamp in search result"))?;
+
+        info!(
+            "Frinkiac chose {} t={} (phrase match: {}, word coverage {:.2}): '{}'",
+            episode,
+            timestamp,
+            chosen.phrase_match,
+            chosen.coverage,
+            result
+                .get("Content")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .replace('\n', " ")
+        );
 
         // Get the caption for this frame
         self.get_caption_for_frame(episode, timestamp).await
@@ -421,122 +394,9 @@ impl FrinkiacClient {
         info!("Caption API response status: {}", status);
 
         if !status.is_success() {
-            // If we get a 404, try with a different URL format
-            if status.as_u16() == 404 {
-                info!("Got 404 for caption, trying alternative URL format");
-
-                // Try with a different format - some episodes might be formatted differently
-                let alt_episode = if episode.contains("E") || episode.contains("S") {
-                    // If it's already in SxxExx format, try with just the episode number
-                    let parts: Vec<&str> = episode.split(['E', 'S']).collect();
-                    if parts.len() > 1 {
-                        parts[parts.len() - 1].to_string()
-                    } else {
-                        episode.to_string()
-                    }
-                } else {
-                    // If it's not in SxxExx format, try with that format
-                    let episode_num = episode.parse::<u32>().unwrap_or(1);
-                    format!("S01E{episode_num:02}")
-                };
-
-                let alt_caption_url =
-                    format!("{FRINKIAC_CAPTION_URL}?e={alt_episode}&t={timestamp}");
-                info!("Trying alternative caption URL: {}", alt_caption_url);
-
-                let alt_caption_response = self
-                    .http_client
-                    .get(&alt_caption_url)
-                    .send()
-                    .await
-                    .map_err(|e| anyhow!("Failed to get caption with alternative URL: {}", e))?;
-
-                if !alt_caption_response.status().is_success() {
-                    return Err(anyhow!(
-                        "Frinkiac caption request failed with both URL formats"
-                    ));
-                }
-
-                // Parse the caption result as a generic JSON Value
-                let caption_result: serde_json::Value = alt_caption_response
-                    .json()
-                    .await
-                    .map_err(|e| anyhow!("Failed to parse Frinkiac caption result: {}", e))?;
-
-                // Extract episode information
-                let episode_info = caption_result
-                    .get("Episode")
-                    .ok_or_else(|| anyhow!("Missing Episode info in caption result"))?;
-
-                let episode_title = episode_info
-                    .get("Title")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("Unknown")
-                    .to_string();
-
-                let season = episode_info
-                    .get("Season")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0) as u32;
-
-                let episode_number = episode_info
-                    .get("EpisodeNumber")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0) as u32;
-
-                // Extract subtitles/caption
-                let subtitles = caption_result
-                    .get("Subtitles")
-                    .and_then(|v| v.as_array())
-                    .ok_or_else(|| anyhow!("Missing Subtitles in caption result"))?;
-
-                let caption = subtitles
-                    .iter()
-                    .filter_map(|s| s.get("Content").and_then(|c| c.as_str()))
-                    .collect::<Vec<&str>>()
-                    .join(" ");
-
-                let timed_subs: Vec<TimedSubtitle> = subtitles
-                    .iter()
-                    .filter_map(|s| {
-                        Some(TimedSubtitle {
-                            text: s.get("Content")?.as_str()?.to_string(),
-                            start: s.get("StartTimestamp")?.as_u64()?,
-                            end: s.get("EndTimestamp")?.as_u64()?,
-                            representative_ts: s.get("RepresentativeTimestamp")?.as_u64()?,
-                        })
-                    })
-                    .collect();
-
-                // Extract subtitle time range
-                let start_ts = timed_subs.first().map(|s| s.start).unwrap_or(timestamp);
-                let end_ts = timed_subs.last().map(|s| s.end).unwrap_or(timestamp + 4000);
-
-                // Format the image URL
-                let image_url = format!("{FRINKIAC_IMAGE_URL}/{alt_episode}/{timestamp}.jpg");
-
-                // Format the meme URL (for sharing)
-                let meme_url = format!("{FRINKIAC_MEME_URL}/{alt_episode}/{timestamp}.jpg");
-
-                return Ok(Some(FrinkiacResult {
-                    _episode: alt_episode,
-                    episode_title,
-                    season,
-                    episode_number,
-                    _timestamp: timestamp.to_string(),
-                    image_url,
-                    _meme_url: meme_url,
-                    caption: format_caption(&caption),
-                    start_timestamp: start_ts,
-                    end_timestamp: end_ts,
-                    subtitles: timed_subs,
-                    gif_url: None,
-                }));
-            }
-
             return Err(anyhow!(
                 "Frinkiac caption request failed with status: {}",
-                caption_response.status()
+                status
             ));
         }
 
@@ -869,6 +729,167 @@ pub(crate) fn phrase_score_str(caption: &str, query_lower: &str) -> f64 {
     coverage + exact_bonus
 }
 
+/// How good the best search candidate must be before it is accepted.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum MatchMode {
+    /// A multi-word query needs the exact phrase; a single word needs a caption
+    /// containing that word.
+    Strict,
+    /// The best candidate must contain at least `MIN_LOOSE_COVERAGE` of the query words.
+    Loose,
+    /// Accept the best-ranked candidate regardless of overlap (random search terms).
+    Any,
+}
+
+/// Minimum fraction of a query's significant words a candidate must contain in `Loose` mode.
+const MIN_LOOSE_COVERAGE: f64 = 0.5;
+
+/// Words ignored when measuring overlap, so "the" or "is" can't carry a weak match.
+const QUERY_STOPWORDS: &[&str] = &[
+    "a", "an", "and", "are", "as", "at", "be", "but", "for", "in", "is", "it", "of", "on", "or",
+    "the", "to", "was", "with",
+];
+
+/// A search result scored against the query.
+struct Candidate<'a> {
+    result: &'a serde_json::Value,
+    /// The caption contains the whole query as a substring (multi-word queries only).
+    phrase_match: bool,
+    /// Fraction (0.0-1.0) of the query's significant words found in the caption.
+    coverage: f64,
+    /// Tightness of the phrase match; 0.0 when `phrase_match` is false.
+    phrase_score: f64,
+}
+
+/// Split text into lowercase words. Apostrophes stay inside words ("can't"); any other
+/// non-alphanumeric character separates words ("hip-thrusting" is two words).
+pub(crate) fn split_words(text: &str) -> Vec<String> {
+    text.to_lowercase()
+        .replace('\u{2019}', "'")
+        .split(|c: char| !(c.is_alphanumeric() || c == '\''))
+        .map(|w| w.trim_matches('\''))
+        .filter(|w| !w.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+/// The query's meaningful words. Falls back to every word when the query is only stopwords.
+fn significant_words(query_lower: &str) -> Vec<String> {
+    let all = split_words(query_lower);
+    let significant: Vec<String> = all
+        .iter()
+        .filter(|w| !QUERY_STOPWORDS.contains(&w.as_str()))
+        .cloned()
+        .collect();
+    if significant.is_empty() {
+        all
+    } else {
+        significant
+    }
+}
+
+/// Credit for matching one query word against one caption word: 1.0 for the same word,
+/// 0.75 for the same stem ("thrust" vs "thrusting"), otherwise 0.0.
+fn word_credit(query_word: &str, caption_word: &str) -> f64 {
+    if query_word == caption_word {
+        return 1.0;
+    }
+    let (short, long) = if query_word.len() <= caption_word.len() {
+        (query_word, caption_word)
+    } else {
+        (caption_word, query_word)
+    };
+    if short.chars().count() >= 4 && long.starts_with(short) && long.len() - short.len() <= 4 {
+        0.75
+    } else {
+        0.0
+    }
+}
+
+/// Fraction (0.0-1.0) of the query's significant words that appear in the caption.
+pub(crate) fn word_coverage(caption: &str, query_words: &[String]) -> f64 {
+    if query_words.is_empty() {
+        return 0.0;
+    }
+    let caption_words = split_words(caption);
+    let total: f64 = query_words
+        .iter()
+        .map(|q| {
+            caption_words
+                .iter()
+                .map(|c| word_credit(q, c))
+                .fold(0.0, f64::max)
+        })
+        .sum();
+    total / query_words.len() as f64
+}
+
+/// Score every result against the query and order them best-first: exact phrase matches,
+/// then higher word coverage, then tighter phrase matches. The sort is stable, so ties
+/// keep the input order (classic seasons first, then the API's relevance order).
+fn rank_candidates<'a>(
+    results: Vec<&'a serde_json::Value>,
+    query_lower: &str,
+) -> Vec<Candidate<'a>> {
+    let is_phrase_query = query_lower.contains(' ');
+    let query_words = significant_words(query_lower);
+
+    let mut ranked: Vec<Candidate<'a>> = results
+        .into_iter()
+        .map(|result| {
+            let content = result.get("Content").and_then(|v| v.as_str()).unwrap_or("");
+            let phrase_match = is_phrase_query && content.to_lowercase().contains(query_lower);
+            let coverage = if phrase_match {
+                1.0
+            } else {
+                word_coverage(content, &query_words)
+            };
+            let phrase_score = if phrase_match {
+                FrinkiacClient::phrase_score(result, query_lower)
+            } else {
+                0.0
+            };
+            Candidate {
+                result,
+                phrase_match,
+                coverage,
+                phrase_score,
+            }
+        })
+        .collect();
+
+    ranked.sort_by(|a, b| {
+        b.phrase_match
+            .cmp(&a.phrase_match)
+            .then(
+                b.coverage
+                    .partial_cmp(&a.coverage)
+                    .unwrap_or(std::cmp::Ordering::Equal),
+            )
+            .then(
+                b.phrase_score
+                    .partial_cmp(&a.phrase_score)
+                    .unwrap_or(std::cmp::Ordering::Equal),
+            )
+    });
+    ranked
+}
+
+/// Is this candidate good enough for the given mode?
+fn is_acceptable(candidate: &Candidate, is_phrase_query: bool, mode: MatchMode) -> bool {
+    match mode {
+        MatchMode::Any => true,
+        MatchMode::Strict => {
+            if is_phrase_query {
+                candidate.phrase_match
+            } else {
+                candidate.coverage >= 1.0
+            }
+        }
+        MatchMode::Loose => candidate.coverage >= MIN_LOOSE_COVERAGE,
+    }
+}
+
 // Format a caption to proper sentence case and separate different speakers
 fn format_caption(caption: &str) -> String {
     text_formatting::format_caption(caption, text_formatting::SIMPSONS_PROPER_NOUNS)
@@ -1160,8 +1181,6 @@ pub async fn handle_frinkiac_command(
 
     // If we have a search term, search for it
     if let Some(term) = search_term {
-        info!("Frinkiac search for: {}", term);
-
         match frinkiac_client.search(&term).await {
             Ok(Some(mut result)) => {
                 let filtered_out = season_filter.is_some_and(|s| result.season != s)
@@ -1311,5 +1330,152 @@ mod tests {
         // Huge gap clamps down to MAX_STEP (2500)
         let far = vec![ts(1000), ts(99999)]; // gap ~99k
         assert_eq!(observed_frame_step(&far), 2500);
+    }
+    // --- Search ranking (fixtures mirror real Frinkiac responses for the
+    //     "thrusting" / "duffman thrusting" incident) ---
+
+    fn hit(episode: &str, ts: u64, content: &str) -> serde_json::Value {
+        json!({ "Episode": episode, "Timestamp": ts, "Content": content })
+    }
+
+    /// Classic-season hits first, then later-season hits, as `search_with_strategy` builds them.
+    fn thrusting_pool() -> Vec<serde_json::Value> {
+        vec![
+            hit("S08E25", 245829, "Testing."),
+            hit("S03E13", 428094, "Testing."),
+            hit("S11E12", 1000541, "Thrust! Parry!"),
+            hit("S12E15", 968634, "Duffman is thrusting"),
+            hit(
+                "S34E07",
+                178052,
+                "You're gonna mop the floor with that hip-thrusting has-been.",
+            ),
+        ]
+    }
+
+    fn best_episode(pool: &[serde_json::Value], query: &str, mode: MatchMode) -> Option<String> {
+        let refs: Vec<&serde_json::Value> = pool.iter().collect();
+        let ranked = rank_candidates(refs, query);
+        let best = ranked.first()?;
+        if !is_acceptable(best, query.contains(' '), mode) {
+            return None;
+        }
+        best.result["Episode"].as_str().map(str::to_string)
+    }
+
+    #[test]
+    fn single_word_query_prefers_caption_containing_the_word() {
+        let pool = thrusting_pool();
+        // "Testing." (the API's top fuzzy hit) must lose to a caption with "thrusting".
+        assert_eq!(
+            best_episode(&pool, "thrusting", MatchMode::Strict).as_deref(),
+            Some("S12E15")
+        );
+    }
+
+    #[test]
+    fn single_word_strict_rejects_when_no_caption_has_the_word() {
+        let pool = vec![hit("S08E25", 1, "Testing."), hit("S03E13", 2, "Resting.")];
+        assert_eq!(best_episode(&pool, "thrusting", MatchMode::Strict), None);
+        // Loose needs at least half the words too, so the fuzzy junk is rejected.
+        assert_eq!(best_episode(&pool, "thrusting", MatchMode::Loose), None);
+    }
+
+    #[test]
+    fn stem_match_is_accepted_loosely_but_not_strictly() {
+        let pool = vec![
+            hit("S08E25", 1, "Testing."),
+            hit("S11E12", 2, "Thrust! Parry!"),
+        ];
+        assert_eq!(best_episode(&pool, "thrusting", MatchMode::Strict), None);
+        assert_eq!(
+            best_episode(&pool, "thrusting", MatchMode::Loose).as_deref(),
+            Some("S11E12")
+        );
+    }
+
+    #[test]
+    fn multi_word_loose_prefers_caption_with_most_query_words() {
+        let mut pool = vec![
+            hit("S11E16", 229146, "Duffman!"),
+            hit("S09E01", 131757, "Hey, it's Duffman--"),
+        ];
+        pool.push(hit("S12E15", 968634, "Duffman is thrusting"));
+        // No caption holds the exact phrase, so strict fails...
+        assert_eq!(
+            best_episode(&pool, "duffman thrusting", MatchMode::Strict),
+            None
+        );
+        // ...and loose picks the caption containing both words, not the API's first hit.
+        assert_eq!(
+            best_episode(&pool, "duffman thrusting", MatchMode::Loose).as_deref(),
+            Some("S12E15")
+        );
+    }
+
+    #[test]
+    fn exact_phrase_beats_higher_ranked_partial_matches() {
+        let pool = vec![
+            hit("S01E01", 1, "Duffman says a lot of things."),
+            hit("S02E02", 2, "Oh, yeah! Duffman thrusting forward!"),
+        ];
+        assert_eq!(
+            best_episode(&pool, "duffman thrusting", MatchMode::Strict).as_deref(),
+            Some("S02E02")
+        );
+    }
+
+    #[test]
+    fn season_order_only_breaks_ties() {
+        // Equal match quality: the earlier (classic) entry stays first.
+        let pool = vec![
+            hit("S05E05", 1, "Everything's coming up Milhouse!"),
+            hit("S20E01", 2, "Everything's coming up Milhouse!"),
+        ];
+        assert_eq!(
+            best_episode(&pool, "milhouse", MatchMode::Strict).as_deref(),
+            Some("S05E05")
+        );
+        // A better later-season match outranks a weaker classic one.
+        let pool = vec![
+            hit("S05E05", 1, "Testing."),
+            hit("S20E01", 2, "Everything's coming up Milhouse!"),
+        ];
+        assert_eq!(
+            best_episode(&pool, "milhouse", MatchMode::Strict).as_deref(),
+            Some("S20E01")
+        );
+    }
+
+    #[test]
+    fn any_mode_always_accepts_best_ranked() {
+        let pool = vec![hit("S08E25", 1, "Testing.")];
+        assert_eq!(
+            best_episode(&pool, "thrusting", MatchMode::Any).as_deref(),
+            Some("S08E25")
+        );
+    }
+
+    #[test]
+    fn stopwords_cannot_carry_a_loose_match() {
+        // "the" alone is half of the query; it must not make an unrelated caption acceptable.
+        let pool = vec![hit("S01E01", 1, "The weather is nice today.")];
+        assert_eq!(best_episode(&pool, "the thrusting", MatchMode::Loose), None);
+    }
+
+    #[test]
+    fn split_words_handles_hyphens_apostrophes_and_curly_quotes() {
+        assert_eq!(split_words("Hip-thrusting!"), vec!["hip", "thrusting"]);
+        assert_eq!(split_words("Can't stop"), vec!["can't", "stop"]);
+        assert_eq!(split_words("Can\u{2019}t"), vec!["can't"]);
+    }
+
+    #[test]
+    fn word_credit_rules() {
+        assert_eq!(word_credit("thrusting", "thrusting"), 1.0);
+        assert_eq!(word_credit("thrusting", "thrust"), 0.75);
+        assert_eq!(word_credit("thrusting", "testing"), 0.0);
+        // Short words never stem-match ("the" vs "then").
+        assert_eq!(word_credit("the", "then"), 0.0);
     }
 }
