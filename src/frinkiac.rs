@@ -1,3 +1,4 @@
+use crate::clip_selection;
 use crate::gemini_api::GeminiClient;
 use crate::text_formatting;
 use anyhow::{anyhow, Result};
@@ -131,6 +132,7 @@ impl FrinkiacClient {
             http_client,
             last_query: std::sync::RwLock::new(None),
             current_index: std::sync::RwLock::new(0),
+            clip_cache: std::sync::Mutex::new(std::collections::HashMap::new()),
         }
     }
 
@@ -508,6 +510,86 @@ impl FrinkiacClient {
     fn phrase_score(result: &serde_json::Value, query_lower: &str) -> f64 {
         let content = result.get("Content").and_then(|v| v.as_str()).unwrap_or("");
         phrase_score_str(content, query_lower)
+    }
+
+    /// Narrow `result.subtitles` to the cards that make the best clip (see `clip_selection`):
+    /// the matched sentence, one sentence of setup, and the answer if it is a question.
+    /// With a query and a Gemini client, Gemini proposes the range (validated, and cached
+    /// per frame and query); otherwise, or on any problem, the deterministic baseline is used.
+    pub async fn select_clip(
+        &self,
+        result: &mut FrinkiacResult,
+        query: Option<&str>,
+        gemini: Option<&GeminiClient>,
+    ) {
+        let cards = result.subtitles.clone();
+        let frame_ts: u64 = result._timestamp.parse().unwrap_or(0);
+        let Some(anchor) = clip_selection::anchor_card_index(&cards, frame_ts) else {
+            return;
+        };
+
+        let mut range = clip_selection::baseline_selection(&cards, anchor);
+        let mut source = "baseline";
+
+        if let (Some(query), Some(gemini)) = (query, gemini) {
+            let key: ClipCacheKey = (result._episode.clone(), frame_ts, query.to_lowercase());
+            if let Some(cached) = self.cached_clip(&key, &cards, anchor) {
+                range = cached;
+                source = "cached";
+            } else if let Some(picked) =
+                clip_selection::gemini_selection(gemini, query, &cards, anchor).await
+            {
+                self.store_clip(key, &cards, picked);
+                range = picked;
+                source = "gemini";
+            }
+        }
+
+        let (first, last) = range;
+        let chosen = &cards[first..=last];
+        let text = chosen
+            .iter()
+            .map(|c| c.text.as_str())
+            .collect::<Vec<_>>()
+            .join(" ");
+        info!(
+            "Frinkiac clip ({}): cards {}-{} of {}: '{}'",
+            source,
+            first + 1,
+            last + 1,
+            cards.len(),
+            text.replace('\n', " ")
+        );
+
+        result.subtitles = chosen.to_vec();
+        result.start_timestamp = cards[first].start;
+        result.end_timestamp = cards[last].end;
+        result.caption = format_caption(&text);
+    }
+
+    /// A previously chosen clip for this key, rebuilt from the current cards.
+    fn cached_clip(
+        &self,
+        key: &ClipCacheKey,
+        cards: &[TimedSubtitle],
+        anchor: usize,
+    ) -> Option<(usize, usize)> {
+        let last_start = *self
+            .clip_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(key)?;
+        let last = cards.iter().position(|c| c.start == last_start)?;
+        clip_selection::selection_ending_at(cards, anchor, last)
+    }
+
+    /// Remember where a clip ended, clearing the cache first if it has grown too large.
+    fn store_clip(&self, key: ClipCacheKey, cards: &[TimedSubtitle], range: (usize, usize)) {
+        let mut cache = self.clip_cache.lock().unwrap_or_else(|e| e.into_inner());
+        if cache.len() >= CLIP_CACHE_LIMIT {
+            cache.clear();
+        }
+        cache.insert(key, cards[range.1].start);
     }
 
     pub async fn expand_to_sentence_boundaries(&self, result: &mut FrinkiacResult) {
@@ -1128,7 +1210,7 @@ pub async fn handle_frinkiac_command(
     msg: &Message,
     args: Option<String>,
     frinkiac_client: &FrinkiacClient,
-    _gemini_client: Option<&GeminiClient>,
+    gemini_client: Option<&GeminiClient>,
 ) -> Result<()> {
     // Parse arguments to support filtering by season/episode
     let (search_term, season_filter, episode_filter) = if let Some(args_str) = args {
@@ -1146,6 +1228,7 @@ pub async fn handle_frinkiac_command(
 
         match frinkiac_client.random().await {
             Ok(Some(mut result)) => {
+                frinkiac_client.select_clip(&mut result, None, None).await;
                 frinkiac_client
                     .expand_to_sentence_boundaries(&mut result)
                     .await;
@@ -1190,6 +1273,9 @@ pub async fn handle_frinkiac_command(
                     let _ = msg.channel_id.say(http, format!("Couldn't find any Simpsons screenshots matching \"{term}\" in the specified season/episode.")).await;
                 } else {
                     frinkiac_client
+                        .select_clip(&mut result, Some(&term), gemini_client)
+                        .await;
+                    frinkiac_client
                         .expand_to_sentence_boundaries(&mut result)
                         .await;
                     result.gif_url = generate_gif(
@@ -1233,11 +1319,20 @@ pub async fn handle_frinkiac_command(
     Ok(())
 }
 
+/// Cache key for a chosen clip: episode, matched frame timestamp, lowercased query.
+type ClipCacheKey = (String, u64, String);
+
+/// Most clip choices remembered before the cache is cleared.
+const CLIP_CACHE_LIMIT: usize = 256;
+
 // Frinkiac client struct
 pub struct FrinkiacClient {
     http_client: HttpClient,
     last_query: std::sync::RwLock<Option<String>>,
     current_index: std::sync::RwLock<usize>,
+    /// Where Gemini ended the clip, as the last card's start in ms, so the same frame and
+    /// query always give the same clip.
+    clip_cache: std::sync::Mutex<std::collections::HashMap<ClipCacheKey, u64>>,
 }
 
 #[cfg(test)]
@@ -1477,5 +1572,94 @@ mod tests {
         assert_eq!(word_credit("thrusting", "testing"), 0.0);
         // Short words never stem-match ("the" vs "then").
         assert_eq!(word_credit("the", "then"), 0.0);
+    }
+
+    // --- Clip selection wiring ---
+
+    fn timed(text: &str, start: u64, end: u64) -> TimedSubtitle {
+        TimedSubtitle {
+            text: text.to_string(),
+            start,
+            end,
+            representative_ts: (start + end) / 2,
+        }
+    }
+
+    fn thrusting_result() -> FrinkiacResult {
+        let subtitles = vec![
+            timed("It's such a beautiful day.", 968_000, 969_877),
+            timed("Where are the crowds?", 969_960, 971_253),
+            timed("Duffman is thrusting", 971_336, 972_880),
+            timed("in the direction of the problem.", 972_963, 974_631),
+        ];
+        FrinkiacResult {
+            _episode: "S12E15".to_string(),
+            episode_title: "Hungry, Hungry Homer".to_string(),
+            season: 12,
+            episode_number: 15,
+            _timestamp: "972000".to_string(),
+            image_url: String::new(),
+            _meme_url: String::new(),
+            caption: String::new(),
+            start_timestamp: 968_000,
+            end_timestamp: 974_631,
+            subtitles,
+            gif_url: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn select_clip_baseline_keeps_one_setup_sentence_and_updates_window() {
+        let client = FrinkiacClient::new();
+        let mut result = thrusting_result();
+        client
+            .select_clip(&mut result, Some("thrusting"), None)
+            .await;
+
+        let texts: Vec<&str> = result.subtitles.iter().map(|c| c.text.as_str()).collect();
+        assert_eq!(
+            texts,
+            vec![
+                "Where are the crowds?",
+                "Duffman is thrusting",
+                "in the direction of the problem."
+            ]
+        );
+        assert_eq!(result.start_timestamp, 969_960);
+        assert_eq!(result.end_timestamp, 974_631);
+        assert!(result.caption.contains("Duffman is thrusting"));
+        assert!(!result.caption.contains("beautiful day"));
+    }
+
+    #[tokio::test]
+    async fn select_clip_without_cards_is_a_no_op() {
+        let client = FrinkiacClient::new();
+        let mut result = thrusting_result();
+        result.subtitles.clear();
+        result.start_timestamp = 5;
+        result.end_timestamp = 9;
+        client.select_clip(&mut result, None, None).await;
+        assert_eq!((result.start_timestamp, result.end_timestamp), (5, 9));
+    }
+
+    #[test]
+    fn clip_cache_round_trips_and_revalidates() {
+        let client = FrinkiacClient::new();
+        let cards = thrusting_result().subtitles;
+        let key: ClipCacheKey = ("S12E15".to_string(), 972_000, "thrusting".to_string());
+
+        assert_eq!(client.cached_clip(&key, &cards, 2), None);
+        client.store_clip(key.clone(), &cards, (1, 3));
+        assert_eq!(client.cached_clip(&key, &cards, 2), Some((1, 3)));
+        // A cached end that falls before the matched card is discarded.
+        let early: ClipCacheKey = ("S12E15".to_string(), 972_000, "early".to_string());
+        client.store_clip(early.clone(), &cards, (0, 1));
+        assert_eq!(client.cached_clip(&early, &cards, 2), None);
+        // Cards that no longer line up with the stored timestamp give no hit.
+        let shifted: Vec<TimedSubtitle> = cards
+            .iter()
+            .map(|c| timed(&c.text, c.start + 1, c.end + 1))
+            .collect();
+        assert_eq!(client.cached_clip(&key, &shifted, 2), None);
     }
 }

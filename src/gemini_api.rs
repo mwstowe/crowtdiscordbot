@@ -147,6 +147,40 @@ impl GeminiClient {
         &self.http_client
     }
 
+    /// Ask the text model for a JSON answer matching `schema` (Gemini structured output).
+    ///
+    /// Meant for optional refinements, so it fails fast: one attempt, a caller-chosen
+    /// timeout, and the shared text rate limiter is checked without waiting. Callers are
+    /// expected to fall back to a non-AI result on any error.
+    pub async fn generate_structured_json(
+        &self,
+        prompt: &str,
+        schema: serde_json::Value,
+        timeout: Duration,
+    ) -> Result<serde_json::Value> {
+        self.rate_limiter.check().await?;
+
+        if self.log_prompts {
+            info!("Gemini API Structured Prompt: {}", prompt);
+        }
+
+        let request_body = structured_request_body(prompt, schema);
+
+        let response = self
+            .http_client
+            .post(&self.api_endpoint)
+            .header("x-goog-api-key", &self.api_key)
+            .json(&request_body)
+            .timeout(timeout)
+            .send()
+            .await?;
+        self.rate_limiter.record_request().await;
+
+        let status = response.status();
+        let body: serde_json::Value = response.json().await?;
+        parse_structured_response(status.is_success(), &body)
+    }
+
     /// Get API quota usage statistics
     pub async fn get_quota_stats(&self) -> (String, String, String) {
         // Get text API usage
@@ -1042,6 +1076,55 @@ impl GeminiClient {
     }
 }
 
+/// Request body for a structured (JSON schema) generateContent call.
+fn structured_request_body(prompt: &str, schema: serde_json::Value) -> serde_json::Value {
+    serde_json::json!({
+        "contents": [{ "parts": [{ "text": prompt }] }],
+        "generationConfig": {
+            "responseMimeType": "application/json",
+            "responseSchema": schema,
+            "temperature": 0.0
+        }
+    })
+}
+
+/// Pull the JSON answer out of a structured generateContent response.
+/// Text parts are joined (thought parts skipped) and parsed as JSON.
+fn parse_structured_response(
+    http_success: bool,
+    body: &serde_json::Value,
+) -> Result<serde_json::Value> {
+    if !http_success {
+        let message = body
+            .pointer("/error/message")
+            .and_then(|m| m.as_str())
+            .unwrap_or("no error message");
+        return Err(anyhow::anyhow!(
+            "Gemini structured request failed: {}",
+            &message[..message.len().min(200)]
+        ));
+    }
+
+    let text: String = body
+        .pointer("/candidates/0/content/parts")
+        .and_then(|p| p.as_array())
+        .map(|parts| {
+            parts
+                .iter()
+                .filter(|p| p.get("thought").and_then(|t| t.as_bool()) != Some(true))
+                .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
+                .collect::<Vec<_>>()
+                .join("")
+        })
+        .unwrap_or_default();
+    if text.is_empty() {
+        return Err(anyhow::anyhow!("Gemini structured response had no text"));
+    }
+
+    serde_json::from_str(&text)
+        .map_err(|e| anyhow::anyhow!("Gemini structured response was not valid JSON: {e}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1118,5 +1201,67 @@ mod tests {
         });
 
         assert!(!client.is_image_quota_exhausted().await);
+    }
+
+    // --- Structured (JSON schema) requests ---
+
+    #[test]
+    fn structured_request_body_asks_for_json_matching_the_schema() {
+        let schema = serde_json::json!({ "type": "OBJECT" });
+        let body = structured_request_body("pick a card", schema.clone());
+        assert_eq!(body["contents"][0]["parts"][0]["text"], "pick a card");
+        let cfg = &body["generationConfig"];
+        assert_eq!(cfg["responseMimeType"], "application/json");
+        assert_eq!(cfg["responseSchema"], schema);
+        assert_eq!(cfg["temperature"], 0.0);
+    }
+
+    #[test]
+    fn parse_structured_response_reads_a_real_shaped_response() {
+        // Shape taken from live responses: a text part carrying a thoughtSignature.
+        let body = serde_json::json!({
+            "candidates": [{
+                "content": {
+                    "parts": [{
+                        "text": "{\"last\": 3, \"reason\": \"payoff\"}",
+                        "thoughtSignature": "abc"
+                    }],
+                    "role": "model"
+                },
+                "finishReason": "STOP"
+            }],
+            "modelVersion": "gemini-3.5-flash-lite"
+        });
+        let v = parse_structured_response(true, &body).unwrap();
+        assert_eq!(v["last"], 3);
+        assert_eq!(v["reason"], "payoff");
+    }
+
+    #[test]
+    fn parse_structured_response_skips_thought_parts() {
+        let body = serde_json::json!({
+            "candidates": [{ "content": { "parts": [
+                { "text": "thinking out loud", "thought": true },
+                { "text": "{\"last\": 1, \"reason\": \"x\"}" }
+            ]}}]
+        });
+        assert_eq!(parse_structured_response(true, &body).unwrap()["last"], 1);
+    }
+
+    #[test]
+    fn parse_structured_response_reports_failures() {
+        let err = serde_json::json!({ "error": { "message": "quota exceeded" } });
+        let msg = parse_structured_response(false, &err)
+            .unwrap_err()
+            .to_string();
+        assert!(msg.contains("quota exceeded"));
+
+        let empty = serde_json::json!({ "candidates": [{ "content": { "parts": [] } }] });
+        assert!(parse_structured_response(true, &empty).is_err());
+
+        let not_json = serde_json::json!({
+            "candidates": [{ "content": { "parts": [{ "text": "pass" }] } }]
+        });
+        assert!(parse_structured_response(true, &not_json).is_err());
     }
 }
