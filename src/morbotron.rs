@@ -3,6 +3,7 @@ use crate::caption_match::{
 };
 use crate::clip_selection::{self, ClipSelector};
 use crate::gemini_api::GeminiClient;
+use crate::http_retry;
 use crate::text_formatting;
 use anyhow::{anyhow, Result};
 use rand::seq::IndexedRandom;
@@ -376,13 +377,25 @@ impl MorbotronClient {
     ) -> Result<Option<MorbotronResult>> {
         // Use the correct URL format: /api/caption?e=S01E02&t=242434
         let caption_url = format!("{MORBOTRON_CAPTION_URL}?e={episode}&t={timestamp}");
+        self.caption_from_url(&caption_url, episode, timestamp)
+            .await
+    }
+
+    /// Fetch and parse the caption at `caption_url` (with retries).
+    ///
+    /// A failed request is an error, not a substitute screenshot: callers such as the
+    /// sentence-expansion probes treat an error as "stop here", and a random frame from
+    /// another episode would otherwise be mistaken for the neighbouring caption.
+    async fn caption_from_url(
+        &self,
+        caption_url: &str,
+        episode: &str,
+        timestamp: u64,
+    ) -> Result<Option<MorbotronResult>> {
         info!("Using caption URL: {}", caption_url);
 
         // Make the caption request
-        let caption_response = self
-            .http_client
-            .get(&caption_url)
-            .send()
+        let caption_response = http_retry::get_with_retry(&self.http_client, caption_url)
             .await
             .map_err(|e| anyhow!("Failed to get Morbotron caption: {}", e))?;
 
@@ -390,12 +403,10 @@ impl MorbotronClient {
         info!("Caption API response status: {}", status);
 
         if !status.is_success() {
-            // If the request failed, return a random result instead of an error
-            info!(
-                "Caption request failed with status: {}, returning random result",
+            return Err(anyhow!(
+                "Morbotron caption request failed with status: {}",
                 status
-            );
-            return Box::pin(self.random()).await;
+            ));
         }
 
         // Parse the caption result
@@ -460,14 +471,15 @@ impl MorbotronClient {
         // URL encode the query
         let encoded_query = urlencoding::encode(query);
         let search_url = format!("{MORBOTRON_BASE_URL}?q={encoded_query}");
+        self.fetch_search(&search_url).await
+    }
 
+    /// GET a search URL (with retries) and parse the hits.
+    async fn fetch_search(&self, search_url: &str) -> Result<Vec<MorbotronSearchResult>> {
         info!("Sending request to Morbotron API: {}", search_url);
 
         // Make the search request
-        let search_response = self
-            .http_client
-            .get(&search_url)
-            .send()
+        let search_response = http_retry::get_with_retry(&self.http_client, search_url)
             .await
             .map_err(|e| anyhow!("Failed to search Morbotron: {}", e))?;
 
@@ -907,5 +919,66 @@ mod tests {
         result.end_timestamp = 9;
         client.select_clip(&mut result, None, None).await;
         assert_eq!((result.start_timestamp, result.end_timestamp), (5, 9));
+    }
+
+    // --- Retries, and failed caption requests no longer become random screenshots ---
+
+    use crate::http_retry::test_server::{serve, Reply};
+    use std::sync::atomic::Ordering;
+
+    const CAPTION_JSON: &str = r#"{
+        "Episode": {"Id": 1, "Key": "S06E03", "Season": 6, "EpisodeNumber": 3,
+                    "Title": "Attack of the Killer App", "Director": "", "Writer": "",
+                    "OriginalAirDate": "", "WikiLink": ""},
+        "Subtitles": [{"Id": 1, "RepresentativeTimestamp": 3000, "Episode": "S06E03",
+                       "StartTimestamp": 2400, "EndTimestamp": 3900,
+                       "Content": "Shut up and take my money!", "Language": "en"}]
+    }"#;
+
+    #[tokio::test]
+    async fn caption_request_is_retried_after_a_dropped_connection() {
+        let (base, hits) = serve(vec![Reply::Drop, Reply::Json(CAPTION_JSON)]);
+        let client = MorbotronClient::new();
+        let result = client
+            .caption_from_url(&base, "S06E03", 3000)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(result.episode_title, "Attack of the Killer App");
+        assert_eq!(result.subtitles[0].text, "Shut up and take my money!");
+        assert_eq!(hits.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn failed_caption_request_is_an_error_not_a_random_screenshot() {
+        // Previously a 404 here returned a random frame from some other episode, which
+        // the expansion probes then mistook for the neighbouring caption.
+        let (base, hits) = serve(vec![Reply::Status(404)]);
+        let client = MorbotronClient::new();
+        let err = client
+            .caption_from_url(&base, "S06E03", 3000)
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("404"), "{err}");
+        assert_eq!(
+            hits.load(Ordering::SeqCst),
+            1,
+            "a 404 is not retried and not replaced"
+        );
+    }
+
+    #[tokio::test]
+    async fn search_request_is_retried_after_a_server_error() {
+        let (base, hits) = serve(vec![
+            Reply::Status(502),
+            Reply::Json(
+                r#"[{"Id":1,"Episode":"S06E03","Timestamp":3000,"Content":"Shut up and take my money!"}]"#,
+            ),
+        ]);
+        let client = MorbotronClient::new();
+        let results = client.fetch_search(&base).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].episode, "S06E03");
+        assert_eq!(hits.load(Ordering::SeqCst), 2);
     }
 }

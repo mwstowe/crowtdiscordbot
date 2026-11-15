@@ -3,6 +3,7 @@ use crate::caption_match::{
 };
 use crate::clip_selection::{self, ClipSelector};
 use crate::gemini_api::GeminiClient;
+use crate::http_retry;
 use crate::text_formatting;
 use anyhow::{anyhow, Result};
 use rand::seq::IndexedRandom;
@@ -181,10 +182,7 @@ impl FrinkiacClient {
     // Try to get a random screenshot using Frinkiac's random API
     async fn get_random_direct(&self) -> Result<Option<FrinkiacResult>> {
         // Make the request to the random API
-        let random_response = self
-            .http_client
-            .get(FRINKIAC_RANDOM_URL)
-            .send()
+        let random_response = http_retry::get_with_retry(&self.http_client, FRINKIAC_RANDOM_URL)
             .await
             .map_err(|e| anyhow!("Failed to get random screenshot from Frinkiac: {}", e))?;
 
@@ -387,10 +385,7 @@ impl FrinkiacClient {
 
         info!("Fetching caption from URL: {}", caption_url);
 
-        let caption_response = self
-            .http_client
-            .get(&caption_url)
-            .send()
+        let caption_response = http_retry::get_with_retry(&self.http_client, &caption_url)
             .await
             .map_err(|e| anyhow!("Failed to get caption from Frinkiac: {}", e))?;
 
@@ -486,8 +481,15 @@ impl FrinkiacClient {
     /// If the last subtitle ends mid-sentence, fetches later context.
     /// Fetch raw search results from a frinkiac search URL
     async fn fetch_search_results(&self, url: &str) -> Result<Vec<serde_json::Value>> {
-        let response = self.http_client.get(url).send().await?;
-        if !response.status().is_success() {
+        let response = http_retry::get_with_retry(&self.http_client, url).await?;
+        let status = response.status();
+        if http_retry::is_retryable_status(status) {
+            // Still failing after the retries: say so, rather than reporting that the
+            // search found nothing.
+            return Err(anyhow!("Frinkiac search failed with status: {status}"));
+        }
+        if !status.is_success() {
+            // Any other refusal (e.g. a 400 for an unusable query) means no results.
             return Ok(Vec::new());
         }
         let results: Vec<serde_json::Value> = response.json().await.unwrap_or_default();
@@ -1207,5 +1209,47 @@ mod tests {
         result.end_timestamp = 9;
         client.select_clip(&mut result, None, None).await;
         assert_eq!((result.start_timestamp, result.end_timestamp), (5, 9));
+    }
+
+    // --- Retries and error reporting on search requests ---
+
+    use crate::http_retry::test_server::{serve, Reply};
+    use std::sync::atomic::Ordering;
+
+    #[tokio::test]
+    async fn search_retries_a_transient_failure_and_parses_the_result() {
+        let (base, hits) = serve(vec![
+            Reply::Drop,
+            Reply::Json(
+                r#"[{"Episode":"S12E15","Timestamp":968634,"Content":"Duffman is thrusting"}]"#,
+            ),
+        ]);
+        let client = FrinkiacClient::new();
+        let results = client.fetch_search_results(&base).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["Episode"], "S12E15");
+        assert_eq!(hits.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn search_that_keeps_failing_is_an_error_not_no_results() {
+        let (base, hits) = serve(vec![
+            Reply::Status(503),
+            Reply::Status(503),
+            Reply::Status(503),
+        ]);
+        let client = FrinkiacClient::new();
+        let err = client.fetch_search_results(&base).await.unwrap_err();
+        assert!(err.to_string().contains("503"), "{err}");
+        assert_eq!(hits.load(Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
+    async fn search_with_an_unusable_query_still_means_no_results() {
+        let (base, hits) = serve(vec![Reply::Status(400)]);
+        let client = FrinkiacClient::new();
+        let results = client.fetch_search_results(&base).await.unwrap();
+        assert!(results.is_empty());
+        assert_eq!(hits.load(Ordering::SeqCst), 1, "a 400 is not retried");
     }
 }

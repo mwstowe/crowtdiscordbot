@@ -30,6 +30,7 @@ mod fill_silence;
 mod frinkiac;
 mod gemini_api;
 mod giphy;
+mod http_retry;
 mod image_generation;
 mod lastseen;
 mod media_utils;
