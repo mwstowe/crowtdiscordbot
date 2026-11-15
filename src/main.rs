@@ -17,6 +17,7 @@ use tracing::{debug, error, info};
 
 // Import modules
 mod buzz;
+mod caption_match;
 mod clip_selection;
 mod config;
 mod crime_fighting;

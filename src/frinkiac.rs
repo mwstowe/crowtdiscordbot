@@ -1,4 +1,7 @@
-use crate::clip_selection;
+use crate::caption_match::{
+    is_acceptable, is_phrase_query, rank_candidates, top_tier_len, MatchMode,
+};
+use crate::clip_selection::{self, ClipSelector};
 use crate::gemini_api::GeminiClient;
 use crate::text_formatting;
 use anyhow::{anyhow, Result};
@@ -132,7 +135,7 @@ impl FrinkiacClient {
             http_client,
             last_query: std::sync::RwLock::new(None),
             current_index: std::sync::RwLock::new(0),
-            clip_cache: std::sync::Mutex::new(std::collections::HashMap::new()),
+            clip_selector: ClipSelector::new("The Simpsons"),
         }
     }
 
@@ -272,7 +275,7 @@ impl FrinkiacClient {
         let all_results = self.fetch_search_results(&all_url).await?;
 
         let query_lower = query.trim_matches('"').to_lowercase();
-        let is_phrase_query = query_lower.contains(' ');
+        let is_phrase = is_phrase_query(&query_lower);
 
         // Deduplicate each set by episode
         let classic_unique = Self::dedupe_by_episode(&classic_results);
@@ -298,9 +301,13 @@ impl FrinkiacClient {
             return Ok(None);
         }
 
-        let ranked = rank_candidates(pool, &query_lower);
+        let ranked = rank_candidates(
+            pool,
+            |r| r.get("Content").and_then(|v| v.as_str()).unwrap_or(""),
+            &query_lower,
+        );
 
-        if is_phrase_query {
+        if is_phrase {
             info!(
                 "Phrase query '{}': {} exact matches out of {} total results",
                 query_lower,
@@ -310,7 +317,7 @@ impl FrinkiacClient {
         }
 
         let best = &ranked[0];
-        if !is_acceptable(best, is_phrase_query, mode) {
+        if !is_acceptable(best, mode) {
             info!(
                 "Query '{}' has no acceptable match in {:?} mode (best word coverage {:.2})",
                 query_lower, mode, best.coverage
@@ -319,12 +326,7 @@ impl FrinkiacClient {
         }
 
         // The pool we cycle within: every candidate tied with the best on match quality.
-        let pool_len = ranked
-            .iter()
-            .take_while(|c| {
-                c.phrase_match == best.phrase_match && (c.coverage - best.coverage).abs() < 1e-9
-            })
-            .count();
+        let pool_len = top_tier_len(&ranked);
 
         // Selection: on the FIRST call for a query, always return the best match (index 0).
         // On repeated identical queries, rotate for variety, but only within the pool.
@@ -344,7 +346,7 @@ impl FrinkiacClient {
         };
 
         let chosen = &ranked[index];
-        let result = chosen.result;
+        let result = chosen.item;
 
         // Extract the episode and timestamp
         let episode = result
@@ -504,18 +506,10 @@ impl FrinkiacClient {
             .collect()
     }
 
-    /// Score how tightly a candidate caption matches the query phrase.
-    /// Higher is better; 0.0 if the phrase isn't present. Delegates to the
-    /// shared `phrase_score_str` helper (also used by Morbotron).
-    fn phrase_score(result: &serde_json::Value, query_lower: &str) -> f64 {
-        let content = result.get("Content").and_then(|v| v.as_str()).unwrap_or("");
-        phrase_score_str(content, query_lower)
-    }
-
     /// Narrow `result.subtitles` to the cards that make the best clip (see `clip_selection`):
     /// the matched sentence, one sentence of setup, and the answer if it is a question.
-    /// With a query and a Gemini client, Gemini proposes the range (validated, and cached
-    /// per frame and query); otherwise, or on any problem, the deterministic baseline is used.
+    /// With a query and a Gemini client, Gemini decides where the clip ends; otherwise, or
+    /// on any problem, the deterministic baseline is used.
     pub async fn select_clip(
         &self,
         result: &mut FrinkiacResult,
@@ -524,72 +518,27 @@ impl FrinkiacClient {
     ) {
         let cards = result.subtitles.clone();
         let frame_ts: u64 = result._timestamp.parse().unwrap_or(0);
-        let Some(anchor) = clip_selection::anchor_card_index(&cards, frame_ts) else {
+        let Some(choice) = self
+            .clip_selector
+            .select(&result._episode, frame_ts, &cards, query, gemini)
+            .await
+        else {
             return;
         };
 
-        let mut range = clip_selection::baseline_selection(&cards, anchor);
-        let mut source = "baseline";
-
-        if let (Some(query), Some(gemini)) = (query, gemini) {
-            let key: ClipCacheKey = (result._episode.clone(), frame_ts, query.to_lowercase());
-            if let Some(cached) = self.cached_clip(&key, &cards, anchor) {
-                range = cached;
-                source = "cached";
-            } else if let Some(picked) =
-                clip_selection::gemini_selection(gemini, query, &cards, anchor).await
-            {
-                self.store_clip(key, &cards, picked);
-                range = picked;
-                source = "gemini";
-            }
-        }
-
-        let (first, last) = range;
-        let chosen = &cards[first..=last];
-        let text = chosen
-            .iter()
-            .map(|c| c.text.as_str())
-            .collect::<Vec<_>>()
-            .join(" ");
+        let clip = clip_selection::clip_from_range(&cards, choice.range);
         info!(
             "Frinkiac clip ({}): cards {}-{} of {}: '{}'",
-            source,
-            first + 1,
-            last + 1,
+            choice.source,
+            choice.range.0 + 1,
+            choice.range.1 + 1,
             cards.len(),
-            text.replace('\n', " ")
+            clip.text.replace('\n', " ")
         );
-
-        result.subtitles = chosen.to_vec();
-        result.start_timestamp = cards[first].start;
-        result.end_timestamp = cards[last].end;
-        result.caption = format_caption(&text);
-    }
-
-    /// A previously chosen clip for this key, rebuilt from the current cards.
-    fn cached_clip(
-        &self,
-        key: &ClipCacheKey,
-        cards: &[TimedSubtitle],
-        anchor: usize,
-    ) -> Option<(usize, usize)> {
-        let last_start = *self
-            .clip_cache
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .get(key)?;
-        let last = cards.iter().position(|c| c.start == last_start)?;
-        clip_selection::selection_ending_at(cards, anchor, last)
-    }
-
-    /// Remember where a clip ended, clearing the cache first if it has grown too large.
-    fn store_clip(&self, key: ClipCacheKey, cards: &[TimedSubtitle], range: (usize, usize)) {
-        let mut cache = self.clip_cache.lock().unwrap_or_else(|e| e.into_inner());
-        if cache.len() >= CLIP_CACHE_LIMIT {
-            cache.clear();
-        }
-        cache.insert(key, cards[range.1].start);
+        result.subtitles = clip.cards;
+        result.start_timestamp = clip.start;
+        result.end_timestamp = clip.end;
+        result.caption = format_caption(&clip.text);
     }
 
     pub async fn expand_to_sentence_boundaries(&self, result: &mut FrinkiacResult) {
@@ -782,194 +731,6 @@ pub(crate) fn observed_frame_step(subs: &[TimedSubtitle]) -> u64 {
     // so the minimum spacing best approximates one hop.
     gaps.sort_unstable();
     gaps[0].clamp(MIN_STEP, MAX_STEP)
-}
-
-/// Score how tightly a caption matches a query phrase. Higher is better.
-/// Returns 0.0 if the phrase isn't present as a substring.
-///
-/// Rewards the phrase being a large fraction of the caption (so a caption that
-/// *is* the quote beats one where the phrase is buried in a long multi-sentence
-/// run), with a bonus when the caption is (nearly) exactly the phrase.
-/// `query_lower` must already be lowercased; `caption` is lowercased internally.
-pub(crate) fn phrase_score_str(caption: &str, query_lower: &str) -> f64 {
-    let content = caption.to_lowercase();
-    if content.is_empty() || !content.contains(query_lower) {
-        return 0.0;
-    }
-
-    let query_len = query_lower.chars().count() as f64;
-    let content_len = content.chars().count().max(1) as f64;
-
-    // Fraction of the caption occupied by the query (0.0–1.0).
-    let coverage = (query_len / content_len).min(1.0);
-
-    // Bonus if the trimmed caption equals the phrase (ignoring surrounding
-    // punctuation/whitespace) — the ideal "closest match".
-    let trimmed = content.trim_matches(|c: char| !c.is_alphanumeric());
-    let exact_bonus = if trimmed == query_lower { 1.0 } else { 0.0 };
-
-    coverage + exact_bonus
-}
-
-/// How good the best search candidate must be before it is accepted.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum MatchMode {
-    /// A multi-word query needs the exact phrase; a single word needs a caption
-    /// containing that word.
-    Strict,
-    /// The best candidate must contain at least `MIN_LOOSE_COVERAGE` of the query words.
-    Loose,
-    /// Accept the best-ranked candidate regardless of overlap (random search terms).
-    Any,
-}
-
-/// Minimum fraction of a query's significant words a candidate must contain in `Loose` mode.
-const MIN_LOOSE_COVERAGE: f64 = 0.5;
-
-/// Words ignored when measuring overlap, so "the" or "is" can't carry a weak match.
-const QUERY_STOPWORDS: &[&str] = &[
-    "a", "an", "and", "are", "as", "at", "be", "but", "for", "in", "is", "it", "of", "on", "or",
-    "the", "to", "was", "with",
-];
-
-/// A search result scored against the query.
-struct Candidate<'a> {
-    result: &'a serde_json::Value,
-    /// The caption contains the whole query as a substring (multi-word queries only).
-    phrase_match: bool,
-    /// Fraction (0.0-1.0) of the query's significant words found in the caption.
-    coverage: f64,
-    /// Tightness of the phrase match; 0.0 when `phrase_match` is false.
-    phrase_score: f64,
-}
-
-/// Split text into lowercase words. Apostrophes stay inside words ("can't"); any other
-/// non-alphanumeric character separates words ("hip-thrusting" is two words).
-pub(crate) fn split_words(text: &str) -> Vec<String> {
-    text.to_lowercase()
-        .replace('\u{2019}', "'")
-        .split(|c: char| !(c.is_alphanumeric() || c == '\''))
-        .map(|w| w.trim_matches('\''))
-        .filter(|w| !w.is_empty())
-        .map(str::to_string)
-        .collect()
-}
-
-/// The query's meaningful words. Falls back to every word when the query is only stopwords.
-fn significant_words(query_lower: &str) -> Vec<String> {
-    let all = split_words(query_lower);
-    let significant: Vec<String> = all
-        .iter()
-        .filter(|w| !QUERY_STOPWORDS.contains(&w.as_str()))
-        .cloned()
-        .collect();
-    if significant.is_empty() {
-        all
-    } else {
-        significant
-    }
-}
-
-/// Credit for matching one query word against one caption word: 1.0 for the same word,
-/// 0.75 for the same stem ("thrust" vs "thrusting"), otherwise 0.0.
-fn word_credit(query_word: &str, caption_word: &str) -> f64 {
-    if query_word == caption_word {
-        return 1.0;
-    }
-    let (short, long) = if query_word.len() <= caption_word.len() {
-        (query_word, caption_word)
-    } else {
-        (caption_word, query_word)
-    };
-    if short.chars().count() >= 4 && long.starts_with(short) && long.len() - short.len() <= 4 {
-        0.75
-    } else {
-        0.0
-    }
-}
-
-/// Fraction (0.0-1.0) of the query's significant words that appear in the caption.
-pub(crate) fn word_coverage(caption: &str, query_words: &[String]) -> f64 {
-    if query_words.is_empty() {
-        return 0.0;
-    }
-    let caption_words = split_words(caption);
-    let total: f64 = query_words
-        .iter()
-        .map(|q| {
-            caption_words
-                .iter()
-                .map(|c| word_credit(q, c))
-                .fold(0.0, f64::max)
-        })
-        .sum();
-    total / query_words.len() as f64
-}
-
-/// Score every result against the query and order them best-first: exact phrase matches,
-/// then higher word coverage, then tighter phrase matches. The sort is stable, so ties
-/// keep the input order (classic seasons first, then the API's relevance order).
-fn rank_candidates<'a>(
-    results: Vec<&'a serde_json::Value>,
-    query_lower: &str,
-) -> Vec<Candidate<'a>> {
-    let is_phrase_query = query_lower.contains(' ');
-    let query_words = significant_words(query_lower);
-
-    let mut ranked: Vec<Candidate<'a>> = results
-        .into_iter()
-        .map(|result| {
-            let content = result.get("Content").and_then(|v| v.as_str()).unwrap_or("");
-            let phrase_match = is_phrase_query && content.to_lowercase().contains(query_lower);
-            let coverage = if phrase_match {
-                1.0
-            } else {
-                word_coverage(content, &query_words)
-            };
-            let phrase_score = if phrase_match {
-                FrinkiacClient::phrase_score(result, query_lower)
-            } else {
-                0.0
-            };
-            Candidate {
-                result,
-                phrase_match,
-                coverage,
-                phrase_score,
-            }
-        })
-        .collect();
-
-    ranked.sort_by(|a, b| {
-        b.phrase_match
-            .cmp(&a.phrase_match)
-            .then(
-                b.coverage
-                    .partial_cmp(&a.coverage)
-                    .unwrap_or(std::cmp::Ordering::Equal),
-            )
-            .then(
-                b.phrase_score
-                    .partial_cmp(&a.phrase_score)
-                    .unwrap_or(std::cmp::Ordering::Equal),
-            )
-    });
-    ranked
-}
-
-/// Is this candidate good enough for the given mode?
-fn is_acceptable(candidate: &Candidate, is_phrase_query: bool, mode: MatchMode) -> bool {
-    match mode {
-        MatchMode::Any => true,
-        MatchMode::Strict => {
-            if is_phrase_query {
-                candidate.phrase_match
-            } else {
-                candidate.coverage >= 1.0
-            }
-        }
-        MatchMode::Loose => candidate.coverage >= MIN_LOOSE_COVERAGE,
-    }
 }
 
 // Format a caption to proper sentence case and separate different speakers
@@ -1319,26 +1080,18 @@ pub async fn handle_frinkiac_command(
     Ok(())
 }
 
-/// Cache key for a chosen clip: episode, matched frame timestamp, lowercased query.
-type ClipCacheKey = (String, u64, String);
-
-/// Most clip choices remembered before the cache is cleared.
-const CLIP_CACHE_LIMIT: usize = 256;
-
 // Frinkiac client struct
 pub struct FrinkiacClient {
     http_client: HttpClient,
     last_query: std::sync::RwLock<Option<String>>,
     current_index: std::sync::RwLock<usize>,
-    /// Where Gemini ended the clip, as the last card's start in ms, so the same frame and
-    /// query always give the same clip.
-    clip_cache: std::sync::Mutex<std::collections::HashMap<ClipCacheKey, u64>>,
+    /// Picks which caption cards go into the GIF (see `clip_selection`).
+    clip_selector: ClipSelector,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
 
     #[test]
     fn starts_mid_sentence_detects_lowercase_opening() {
@@ -1359,44 +1112,6 @@ mod tests {
         assert!(ends_mid_sentence("Man, that is flagrant"));
         assert!(ends_mid_sentence("one thing,"));
         assert!(!ends_mid_sentence("That's false advertising!"));
-    }
-
-    #[test]
-    fn phrase_score_prefers_tighter_match() {
-        let q = "false advertising";
-
-        // Caption that is essentially the phrase should outscore one where the
-        // phrase is buried in a long multi-sentence run.
-        let tight = json!({ "Content": "Man, that is flagrant false advertising!" });
-        let buried = json!({
-            "Content": "just like the one on the sign. D'oh! Nuts. \
-                        That's false advertising. Sorry, sir. No refunds."
-        });
-
-        let s_tight = FrinkiacClient::phrase_score(&tight, q);
-        let s_buried = FrinkiacClient::phrase_score(&buried, q);
-        assert!(
-            s_tight > s_buried,
-            "tight={s_tight} should beat buried={s_buried}"
-        );
-    }
-
-    #[test]
-    fn phrase_score_exact_caption_gets_bonus() {
-        let q = "false advertising";
-        let exact = json!({ "Content": "False advertising!" });
-        let partial = json!({ "Content": "that is false advertising for sure right" });
-        assert!(
-            FrinkiacClient::phrase_score(&exact, q) > FrinkiacClient::phrase_score(&partial, q)
-        );
-    }
-
-    #[test]
-    fn phrase_score_zero_when_absent() {
-        assert_eq!(
-            FrinkiacClient::phrase_score(&json!({ "Content": "d'oh!" }), "false advertising"),
-            0.0
-        );
     }
 
     fn ts(rep: u64) -> TimedSubtitle {
@@ -1426,154 +1141,6 @@ mod tests {
         let far = vec![ts(1000), ts(99999)]; // gap ~99k
         assert_eq!(observed_frame_step(&far), 2500);
     }
-    // --- Search ranking (fixtures mirror real Frinkiac responses for the
-    //     "thrusting" / "duffman thrusting" incident) ---
-
-    fn hit(episode: &str, ts: u64, content: &str) -> serde_json::Value {
-        json!({ "Episode": episode, "Timestamp": ts, "Content": content })
-    }
-
-    /// Classic-season hits first, then later-season hits, as `search_with_strategy` builds them.
-    fn thrusting_pool() -> Vec<serde_json::Value> {
-        vec![
-            hit("S08E25", 245829, "Testing."),
-            hit("S03E13", 428094, "Testing."),
-            hit("S11E12", 1000541, "Thrust! Parry!"),
-            hit("S12E15", 968634, "Duffman is thrusting"),
-            hit(
-                "S34E07",
-                178052,
-                "You're gonna mop the floor with that hip-thrusting has-been.",
-            ),
-        ]
-    }
-
-    fn best_episode(pool: &[serde_json::Value], query: &str, mode: MatchMode) -> Option<String> {
-        let refs: Vec<&serde_json::Value> = pool.iter().collect();
-        let ranked = rank_candidates(refs, query);
-        let best = ranked.first()?;
-        if !is_acceptable(best, query.contains(' '), mode) {
-            return None;
-        }
-        best.result["Episode"].as_str().map(str::to_string)
-    }
-
-    #[test]
-    fn single_word_query_prefers_caption_containing_the_word() {
-        let pool = thrusting_pool();
-        // "Testing." (the API's top fuzzy hit) must lose to a caption with "thrusting".
-        assert_eq!(
-            best_episode(&pool, "thrusting", MatchMode::Strict).as_deref(),
-            Some("S12E15")
-        );
-    }
-
-    #[test]
-    fn single_word_strict_rejects_when_no_caption_has_the_word() {
-        let pool = vec![hit("S08E25", 1, "Testing."), hit("S03E13", 2, "Resting.")];
-        assert_eq!(best_episode(&pool, "thrusting", MatchMode::Strict), None);
-        // Loose needs at least half the words too, so the fuzzy junk is rejected.
-        assert_eq!(best_episode(&pool, "thrusting", MatchMode::Loose), None);
-    }
-
-    #[test]
-    fn stem_match_is_accepted_loosely_but_not_strictly() {
-        let pool = vec![
-            hit("S08E25", 1, "Testing."),
-            hit("S11E12", 2, "Thrust! Parry!"),
-        ];
-        assert_eq!(best_episode(&pool, "thrusting", MatchMode::Strict), None);
-        assert_eq!(
-            best_episode(&pool, "thrusting", MatchMode::Loose).as_deref(),
-            Some("S11E12")
-        );
-    }
-
-    #[test]
-    fn multi_word_loose_prefers_caption_with_most_query_words() {
-        let mut pool = vec![
-            hit("S11E16", 229146, "Duffman!"),
-            hit("S09E01", 131757, "Hey, it's Duffman--"),
-        ];
-        pool.push(hit("S12E15", 968634, "Duffman is thrusting"));
-        // No caption holds the exact phrase, so strict fails...
-        assert_eq!(
-            best_episode(&pool, "duffman thrusting", MatchMode::Strict),
-            None
-        );
-        // ...and loose picks the caption containing both words, not the API's first hit.
-        assert_eq!(
-            best_episode(&pool, "duffman thrusting", MatchMode::Loose).as_deref(),
-            Some("S12E15")
-        );
-    }
-
-    #[test]
-    fn exact_phrase_beats_higher_ranked_partial_matches() {
-        let pool = vec![
-            hit("S01E01", 1, "Duffman says a lot of things."),
-            hit("S02E02", 2, "Oh, yeah! Duffman thrusting forward!"),
-        ];
-        assert_eq!(
-            best_episode(&pool, "duffman thrusting", MatchMode::Strict).as_deref(),
-            Some("S02E02")
-        );
-    }
-
-    #[test]
-    fn season_order_only_breaks_ties() {
-        // Equal match quality: the earlier (classic) entry stays first.
-        let pool = vec![
-            hit("S05E05", 1, "Everything's coming up Milhouse!"),
-            hit("S20E01", 2, "Everything's coming up Milhouse!"),
-        ];
-        assert_eq!(
-            best_episode(&pool, "milhouse", MatchMode::Strict).as_deref(),
-            Some("S05E05")
-        );
-        // A better later-season match outranks a weaker classic one.
-        let pool = vec![
-            hit("S05E05", 1, "Testing."),
-            hit("S20E01", 2, "Everything's coming up Milhouse!"),
-        ];
-        assert_eq!(
-            best_episode(&pool, "milhouse", MatchMode::Strict).as_deref(),
-            Some("S20E01")
-        );
-    }
-
-    #[test]
-    fn any_mode_always_accepts_best_ranked() {
-        let pool = vec![hit("S08E25", 1, "Testing.")];
-        assert_eq!(
-            best_episode(&pool, "thrusting", MatchMode::Any).as_deref(),
-            Some("S08E25")
-        );
-    }
-
-    #[test]
-    fn stopwords_cannot_carry_a_loose_match() {
-        // "the" alone is half of the query; it must not make an unrelated caption acceptable.
-        let pool = vec![hit("S01E01", 1, "The weather is nice today.")];
-        assert_eq!(best_episode(&pool, "the thrusting", MatchMode::Loose), None);
-    }
-
-    #[test]
-    fn split_words_handles_hyphens_apostrophes_and_curly_quotes() {
-        assert_eq!(split_words("Hip-thrusting!"), vec!["hip", "thrusting"]);
-        assert_eq!(split_words("Can't stop"), vec!["can't", "stop"]);
-        assert_eq!(split_words("Can\u{2019}t"), vec!["can't"]);
-    }
-
-    #[test]
-    fn word_credit_rules() {
-        assert_eq!(word_credit("thrusting", "thrusting"), 1.0);
-        assert_eq!(word_credit("thrusting", "thrust"), 0.75);
-        assert_eq!(word_credit("thrusting", "testing"), 0.0);
-        // Short words never stem-match ("the" vs "then").
-        assert_eq!(word_credit("the", "then"), 0.0);
-    }
-
     // --- Clip selection wiring ---
 
     fn timed(text: &str, start: u64, end: u64) -> TimedSubtitle {
@@ -1640,26 +1207,5 @@ mod tests {
         result.end_timestamp = 9;
         client.select_clip(&mut result, None, None).await;
         assert_eq!((result.start_timestamp, result.end_timestamp), (5, 9));
-    }
-
-    #[test]
-    fn clip_cache_round_trips_and_revalidates() {
-        let client = FrinkiacClient::new();
-        let cards = thrusting_result().subtitles;
-        let key: ClipCacheKey = ("S12E15".to_string(), 972_000, "thrusting".to_string());
-
-        assert_eq!(client.cached_clip(&key, &cards, 2), None);
-        client.store_clip(key.clone(), &cards, (1, 3));
-        assert_eq!(client.cached_clip(&key, &cards, 2), Some((1, 3)));
-        // A cached end that falls before the matched card is discarded.
-        let early: ClipCacheKey = ("S12E15".to_string(), 972_000, "early".to_string());
-        client.store_clip(early.clone(), &cards, (0, 1));
-        assert_eq!(client.cached_clip(&early, &cards, 2), None);
-        // Cards that no longer line up with the stored timestamp give no hit.
-        let shifted: Vec<TimedSubtitle> = cards
-            .iter()
-            .map(|c| timed(&c.text, c.start + 1, c.end + 1))
-            .collect();
-        assert_eq!(client.cached_clip(&key, &shifted, 2), None);
     }
 }

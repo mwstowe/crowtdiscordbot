@@ -19,6 +19,8 @@
 
 use crate::frinkiac::{ends_mid_sentence, starts_mid_sentence, TimedSubtitle};
 use crate::gemini_api::GeminiClient;
+use std::collections::HashMap;
+use std::sync::Mutex;
 use std::time::Duration;
 use tracing::{info, warn};
 
@@ -187,6 +189,7 @@ pub(crate) fn selection_schema() -> serde_json::Value {
 
 /// The prompt asking Gemini where the clip should end. Cards are numbered from 1.
 pub(crate) fn build_selection_prompt(
+    show: &str,
     query: &str,
     cards: &[TimedSubtitle],
     anchor_card: usize,
@@ -213,7 +216,7 @@ pub(crate) fn build_selection_prompt(
         .join("\n");
 
     format!(
-        "You help trim a looping GIF clip from The Simpsons that a chat bot posts after a \
+        "You help trim a looping GIF clip from {show} that a chat bot posts after a \
          search. Below are consecutive subtitle cards around one moment, numbered from 1, with \
          start and end times. The user searched for: \"{query}\". The card marked as the matched \
          line is why this moment was chosen.\n\n\
@@ -247,6 +250,7 @@ pub(crate) fn parse_last_card(value: &serde_json::Value, n: usize) -> Option<usi
 /// indices). `None` means the caller should use the baseline.
 pub(crate) async fn gemini_selection(
     gemini: &GeminiClient,
+    show: &str,
     query: &str,
     cards: &[TimedSubtitle],
     anchor_card: usize,
@@ -256,7 +260,7 @@ pub(crate) async fn gemini_selection(
         return None;
     }
 
-    let prompt = build_selection_prompt(query, cards, anchor_card);
+    let prompt = build_selection_prompt(show, query, cards, anchor_card);
     let answer = match gemini
         .generate_structured_json(&prompt, selection_schema(), GEMINI_TIMEOUT)
         .await
@@ -280,6 +284,127 @@ pub(crate) async fn gemini_selection(
         answer.get("reason").and_then(|r| r.as_str()).unwrap_or("")
     );
     selection
+}
+
+/// Cache key for a chosen clip: episode, matched frame timestamp, lowercased query.
+type ClipCacheKey = (String, u64, String);
+
+/// Most clip choices remembered before the cache is cleared.
+const CLIP_CACHE_LIMIT: usize = 256;
+
+/// A chosen clip and where the choice came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ClipChoice {
+    /// Inclusive card indices.
+    pub range: (usize, usize),
+    /// "baseline", "gemini" or "cached".
+    pub source: &'static str,
+}
+
+/// The cards of a chosen clip with the time window and caption text they cover.
+pub(crate) struct Clip {
+    pub cards: Vec<TimedSubtitle>,
+    pub start: u64,
+    pub end: u64,
+    /// The cards' text joined with spaces.
+    pub text: String,
+}
+
+/// Cut `range` (inclusive card indices, as returned by the selection functions) out of `cards`.
+pub(crate) fn clip_from_range(cards: &[TimedSubtitle], range: (usize, usize)) -> Clip {
+    let chosen = &cards[range.0..=range.1];
+    Clip {
+        cards: chosen.to_vec(),
+        start: chosen.first().map(|c| c.start).unwrap_or(0),
+        end: chosen.last().map(|c| c.end).unwrap_or(0),
+        text: chosen
+            .iter()
+            .map(|c| c.text.as_str())
+            .collect::<Vec<_>>()
+            .join(" "),
+    }
+}
+
+/// Picks the clip for one show's results. Each client owns one, so episode ids that
+/// repeat across shows (S01E01) never share cache entries.
+pub(crate) struct ClipSelector {
+    /// Show name used in the Gemini prompt, e.g. "The Simpsons".
+    show: &'static str,
+    /// Where Gemini ended each clip, as the last card's start in ms, so the same frame
+    /// and query always give the same clip.
+    cache: Mutex<HashMap<ClipCacheKey, u64>>,
+}
+
+impl ClipSelector {
+    pub(crate) fn new(show: &'static str) -> Self {
+        Self {
+            show,
+            cache: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Choose the clip for a result: `cards` is the caption window and `frame_ts` the
+    /// matched frame. With a query and a Gemini client, Gemini decides where the clip
+    /// ends; otherwise, or on any problem, the baseline is used. `None` when the window
+    /// has no cards.
+    pub(crate) async fn select(
+        &self,
+        episode: &str,
+        frame_ts: u64,
+        cards: &[TimedSubtitle],
+        query: Option<&str>,
+        gemini: Option<&GeminiClient>,
+    ) -> Option<ClipChoice> {
+        let anchor = anchor_card_index(cards, frame_ts)?;
+        let mut choice = ClipChoice {
+            range: baseline_selection(cards, anchor),
+            source: "baseline",
+        };
+
+        if let (Some(query), Some(gemini)) = (query, gemini) {
+            let key: ClipCacheKey = (episode.to_string(), frame_ts, query.to_lowercase());
+            if let Some(range) = self.cached(&key, cards, anchor) {
+                choice = ClipChoice {
+                    range,
+                    source: "cached",
+                };
+            } else if let Some(range) =
+                gemini_selection(gemini, self.show, query, cards, anchor).await
+            {
+                self.store(key, cards, range);
+                choice = ClipChoice {
+                    range,
+                    source: "gemini",
+                };
+            }
+        }
+        Some(choice)
+    }
+
+    /// A previously chosen clip for this key, rebuilt from the current cards.
+    fn cached(
+        &self,
+        key: &ClipCacheKey,
+        cards: &[TimedSubtitle],
+        anchor: usize,
+    ) -> Option<(usize, usize)> {
+        let last_start = *self
+            .cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(key)?;
+        let last = cards.iter().position(|c| c.start == last_start)?;
+        selection_ending_at(cards, anchor, last)
+    }
+
+    /// Remember where a clip ended, clearing the cache first if it has grown too large.
+    fn store(&self, key: ClipCacheKey, cards: &[TimedSubtitle], range: (usize, usize)) {
+        let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
+        if cache.len() >= CLIP_CACHE_LIMIT {
+            cache.clear();
+        }
+        cache.insert(key, cards[range.1].start);
+    }
 }
 
 #[cfg(test)]
@@ -509,7 +634,8 @@ mod tests {
 
     #[test]
     fn prompt_numbers_cards_marks_match_and_states_the_rules() {
-        let p = build_selection_prompt("thrusting", &thrusting(), 2);
+        let p = build_selection_prompt("The Simpsons", "thrusting", &thrusting(), 2);
+        assert!(p.contains("from The Simpsons"));
         assert!(p.contains("\"thrusting\""));
         assert!(p.contains("1 [0.0-1.9s] It's such a beautiful day."));
         assert!(p.contains("3 [3.3-4.9s] Duffman is thrusting   <-- matched line"));
@@ -530,5 +656,112 @@ mod tests {
         assert_eq!(parse_last_card(&json!({"last": 5}), 4), None);
         assert_eq!(parse_last_card(&json!({"last": "3"}), 4), None);
         assert_eq!(parse_last_card(&json!({}), 4), None);
+    }
+
+    #[test]
+    fn prompt_names_the_show() {
+        let p = build_selection_prompt("Futurama", "bite my shiny metal", &bite_my(), 0);
+        assert!(p.contains("from Futurama"));
+        assert!(!p.contains("Simpsons"));
+    }
+
+    #[test]
+    fn clip_from_range_reports_window_and_text() {
+        let clip = clip_from_range(&thrusting(), (1, 3));
+        assert_eq!(clip.cards.len(), 3);
+        assert_eq!((clip.start, clip.end), (1960, 6631));
+        assert_eq!(
+            clip.text,
+            "Where are the crowds? Duffman is thrusting in the direction of the problem."
+        );
+    }
+
+    #[test]
+    fn cache_round_trips_and_revalidates() {
+        let selector = ClipSelector::new("The Simpsons");
+        let cards = thrusting();
+        let key: ClipCacheKey = ("S12E15".to_string(), 4000, "thrusting".to_string());
+
+        assert_eq!(selector.cached(&key, &cards, 2), None);
+        selector.store(key.clone(), &cards, (1, 3));
+        assert_eq!(selector.cached(&key, &cards, 2), Some((1, 3)));
+        // A cached end that falls before the matched card is discarded.
+        let early: ClipCacheKey = ("S12E15".to_string(), 4000, "early".to_string());
+        selector.store(early.clone(), &cards, (0, 1));
+        assert_eq!(selector.cached(&early, &cards, 2), None);
+        // Cards that no longer line up with the stored timestamp give no hit.
+        let shifted: Vec<TimedSubtitle> = cards
+            .iter()
+            .map(|c| TimedSubtitle {
+                text: c.text.clone(),
+                start: c.start + 1,
+                end: c.end + 1,
+                representative_ts: c.representative_ts + 1,
+            })
+            .collect();
+        assert_eq!(selector.cached(&key, &shifted, 2), None);
+    }
+
+    #[tokio::test]
+    async fn select_without_gemini_uses_the_baseline() {
+        let selector = ClipSelector::new("The Simpsons");
+        let choice = selector
+            .select("S12E15", 4000, &thrusting(), Some("thrusting"), None)
+            .await
+            .unwrap();
+        assert_eq!(choice.range, (1, 3));
+        assert_eq!(choice.source, "baseline");
+        assert!(selector
+            .select("S12E15", 4000, &[], None, None)
+            .await
+            .is_none());
+    }
+
+    // --- Futurama windows (real Morbotron captions) ---
+
+    /// "Bite my shiny metal..." then an unrelated, unfinished line from the next beat.
+    fn bite_my() -> Vec<TimedSubtitle> {
+        cards(&[
+            ("Bite my shiny metal...", 0, 1300),
+            ("Oh, forget it.", 1400, 2400),
+            ("Now, I just need a piece of you, Hermes,", 2500, 5800),
+        ])
+    }
+
+    #[test]
+    fn futurama_trailing_unfinished_line_is_left_out() {
+        // Baseline stops at the matched sentence; the old code would have hopped forward
+        // to finish the unrelated Hermes sentence.
+        assert_eq!(baseline_selection(&bite_my(), 0), (0, 0));
+        // Gemini may extend to the payoff "Oh, forget it."
+        assert_eq!(selection_ending_at(&bite_my(), 0, 1), Some((0, 1)));
+        // Ending on the unfinished Hermes line trims back to the last whole sentence.
+        assert_eq!(selection_ending_at(&bite_my(), 0, 2), Some((0, 1)));
+    }
+
+    #[test]
+    fn futurama_quote_drops_leading_fragment_and_trailing_line() {
+        let c = cards(&[
+            (
+                "the battery can't hold a charge and the reception isn't very...",
+                0,
+                2400,
+            ),
+            ("Shut up and take my money!", 2400, 3900),
+            ("The new eyePhone is wonderful.", 3900, 6300),
+        ]);
+        // The leading line starts mid-sentence, so it can't be setup; nothing follows.
+        assert_eq!(baseline_selection(&c, 1), (1, 1));
+    }
+
+    #[test]
+    fn futurama_split_sentence_stays_whole() {
+        let c = cards(&[
+            ("Kif, you have so much creativity and niceness,", 0, 3800),
+            ("but I'm not sure if I...", 3800, 6000),
+            ("Hush. Before you answer, come thither.", 6000, 9400),
+        ]);
+        // The matched card is the second half of a sentence: both halves, no tail.
+        assert_eq!(baseline_selection(&c, 1), (0, 1));
     }
 }
