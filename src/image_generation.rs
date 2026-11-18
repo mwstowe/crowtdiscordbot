@@ -316,8 +316,18 @@ async fn try_pollinations_free(http_client: &reqwest::Client, prompt: &str) -> O
     None
 }
 
-/// Try generating an image via Cloudflare Workers AI (free tier: ~173 images/day).
-/// Uses the flux-1-schnell model. Requires a free Cloudflare account with Account ID and API token.
+/// Outcome of a single Cloudflare Workers AI model call.
+enum CloudflareOutcome {
+    Image(Vec<u8>),
+    /// The shared daily free allocation is used up; other Cloudflare models will fail too.
+    QuotaExhausted,
+    /// Model-specific failure (content filter, outage, bad response); another model may work.
+    Failed,
+}
+
+/// Try generating an image via Cloudflare Workers AI (free tier: 10,000 neurons/day).
+/// Tries FLUX.2 klein 4B first (better quality, ~96 images/day), then FLUX.1 schnell
+/// (~173 images/day). Both draw from the same daily pool, so a quota error stops the chain.
 /// Returns Some(bytes) on success, None on failure or if not configured.
 async fn try_cloudflare(
     http_client: &reqwest::Client,
@@ -330,64 +340,108 @@ async fn try_cloudflare(
         _ => return None, // Not configured, skip silently
     };
 
-    let timeout = Duration::from_secs(60);
-    let model = "@cf/black-forest-labs/flux-1-schnell";
-    let url = format!("https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{model}");
+    // (model, uses multipart form body instead of JSON)
+    let models = [
+        ("@cf/black-forest-labs/flux-2-klein-4b", true),
+        ("@cf/black-forest-labs/flux-1-schnell", false),
+    ];
 
-    info!("Trying Cloudflare Workers AI (flux-1-schnell)");
-
-    let body = serde_json::json!({
-        "prompt": prompt,
-        "steps": 4
-    });
-
-    let resp = http_client
-        .post(&url)
-        .header("Authorization", format!("Bearer {api_token}"))
-        .header("Content-Type", "application/json")
-        .timeout(timeout)
-        .json(&body)
-        .send()
-        .await;
-
-    match resp {
-        Ok(r) if r.status().is_success() => match r.json::<serde_json::Value>().await {
-            Ok(json) => {
-                if let Some(b64_image) = json["result"]["image"].as_str() {
-                    match base64::engine::general_purpose::STANDARD.decode(b64_image) {
-                        Ok(bytes) => {
-                            info!(
-                                "Image generated successfully via Cloudflare Workers AI ({} bytes)",
-                                bytes.len()
-                            );
-                            return Some(bytes);
-                        }
-                        Err(e) => {
-                            error!("Failed to decode Cloudflare base64 image: {:?}", e);
-                        }
-                    }
-                } else {
-                    error!("Cloudflare response missing image data: {:?}", json);
-                }
-            }
-            Err(e) => {
-                error!("Failed to parse Cloudflare response: {:?}", e);
-            }
-        },
-        Ok(r) if r.status().as_u16() == 429 => {
-            warn!("Cloudflare Workers AI daily limit reached (429)");
-        }
-        Ok(r) => {
-            let status = r.status();
-            let body = r.text().await.unwrap_or_default();
-            error!("Cloudflare Workers AI error: HTTP {} - {}", status, body);
-        }
-        Err(e) => {
-            error!("Cloudflare Workers AI request failed: {:?}", e);
+    for (model, multipart) in models {
+        match cloudflare_run(http_client, account_id, api_token, model, multipart, prompt).await {
+            CloudflareOutcome::Image(bytes) => return Some(bytes),
+            CloudflareOutcome::QuotaExhausted => return None,
+            CloudflareOutcome::Failed => continue,
         }
     }
 
     None
+}
+
+/// Run one Cloudflare Workers AI image model and decode the base64 result.
+async fn cloudflare_run(
+    http_client: &reqwest::Client,
+    account_id: &str,
+    api_token: &str,
+    model: &str,
+    multipart: bool,
+    prompt: &str,
+) -> CloudflareOutcome {
+    let url = format!("https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{model}");
+    info!("Trying Cloudflare Workers AI ({model})");
+
+    let request = http_client
+        .post(&url)
+        .header("Authorization", format!("Bearer {api_token}"))
+        .timeout(Duration::from_secs(60));
+
+    let request = if multipart {
+        // FLUX.2 models take multipart form data (reqwest sets the content type and boundary)
+        let form = reqwest::multipart::Form::new()
+            .text("prompt", prompt.to_string())
+            .text("width", "1024")
+            .text("height", "1024");
+        request.multipart(form)
+    } else {
+        request.json(&serde_json::json!({ "prompt": prompt, "steps": 4 }))
+    };
+
+    let resp = match request.send().await {
+        Ok(r) => r,
+        Err(e) => {
+            error!("Cloudflare Workers AI request failed ({model}): {:?}", e);
+            return CloudflareOutcome::Failed;
+        }
+    };
+
+    let status = resp.status();
+    if status.is_success() {
+        return match resp.json::<serde_json::Value>().await {
+            Ok(json) => match json["result"]["image"].as_str() {
+                Some(b64_image) => {
+                    match base64::engine::general_purpose::STANDARD.decode(b64_image) {
+                        Ok(bytes) => {
+                            info!(
+                                "Image generated successfully via Cloudflare Workers AI {model} ({} bytes)",
+                                bytes.len()
+                            );
+                            CloudflareOutcome::Image(bytes)
+                        }
+                        Err(e) => {
+                            error!(
+                                "Failed to decode Cloudflare base64 image ({model}): {:?}",
+                                e
+                            );
+                            CloudflareOutcome::Failed
+                        }
+                    }
+                }
+                None => {
+                    error!(
+                        "Cloudflare response missing image data ({model}): {:?}",
+                        json
+                    );
+                    CloudflareOutcome::Failed
+                }
+            },
+            Err(e) => {
+                error!("Failed to parse Cloudflare response ({model}): {:?}", e);
+                CloudflareOutcome::Failed
+            }
+        };
+    }
+
+    let body = resp.text().await.unwrap_or_default();
+    // 4006 is Cloudflare's "daily free allocation exceeded" error code
+    if status.as_u16() == 429 || body.contains("4006") || body.contains("daily free allocation") {
+        warn!("Cloudflare Workers AI daily limit reached ({status})");
+        return CloudflareOutcome::QuotaExhausted;
+    }
+
+    error!(
+        "Cloudflare Workers AI error ({model}): HTTP {} - {}",
+        status, body
+    );
+    CloudflareOutcome::Failed
 }
 
 /// Try generating an image via Together.ai API.
@@ -515,4 +569,38 @@ async fn try_together(
 
     warn!("All Together.ai models failed");
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Live check against the real Cloudflare API. Skipped by default; run with:
+    /// CF_ACCOUNT_ID=... CF_API_TOKEN=... cargo test live_cloudflare -- --ignored
+    #[tokio::test]
+    #[ignore]
+    async fn live_cloudflare_klein_and_schnell() {
+        let id = std::env::var("CF_ACCOUNT_ID").expect("CF_ACCOUNT_ID");
+        let token = std::env::var("CF_API_TOKEN").expect("CF_API_TOKEN");
+        let client = reqwest::Client::new();
+        let prompt =
+            "a neon sign over a rainy diner door that reads OPEN ALL NIGHT, cinematic photo";
+
+        for (model, multipart) in [
+            ("@cf/black-forest-labs/flux-2-klein-4b", true),
+            ("@cf/black-forest-labs/flux-1-schnell", false),
+        ] {
+            match cloudflare_run(&client, &id, &token, model, multipart, prompt).await {
+                CloudflareOutcome::Image(bytes) => {
+                    assert!(bytes.len() > 10_000, "{model}: image too small");
+                    let is_png = bytes.starts_with(&[0x89, b'P', b'N', b'G']);
+                    let is_jpeg = bytes.starts_with(&[0xFF, 0xD8]);
+                    assert!(is_png || is_jpeg, "{model}: not a PNG/JPEG");
+                    println!("{model}: OK ({} bytes)", bytes.len());
+                }
+                CloudflareOutcome::QuotaExhausted => println!("{model}: quota exhausted"),
+                CloudflareOutcome::Failed => println!("{model}: FAILED"),
+            }
+        }
+    }
 }
