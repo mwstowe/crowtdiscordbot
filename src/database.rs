@@ -225,6 +225,9 @@ impl DatabaseManager {
                 }
                 if let Some(show) = &show_name {
                     message.push_str(&format!(" in show '{show}'"));
+                    if entry_type == "quote" {
+                        message.push_str(". Use !shows to see the valid shows");
+                    }
                 }
                 msg.reply(http, message).await?;
             }
@@ -526,24 +529,29 @@ impl DatabaseManager {
                     .await?;
             }
             AddResult::ShowNotFound(show) => {
-                msg.reply(
-                    http,
-                    format!("No show found matching '{show}'. Use !shows to see the valid shows."),
-                )
-                .await?;
+                if let Some(text) =
+                    masterlist::show_problem_message(&show, &masterlist::ShowLookup::NotFound)
+                {
+                    msg.reply(http, text).await?;
+                }
             }
             AddResult::ShowAmbiguous { show, matches } => {
-                let list = matches.join(", ");
-                msg.reply(
-                    http,
-                    format!("'{show}' matches several shows ({list}). Please be more specific."),
-                )
-                .await?;
+                if let Some(text) = masterlist::show_problem_message(
+                    &show,
+                    &masterlist::ShowLookup::Ambiguous(matches),
+                ) {
+                    msg.reply(http, text).await?;
+                }
             }
             AddResult::EpisodeNotFound { show, episode } => {
+                let show_arg = masterlist::command_arg(&show);
                 msg.reply(
                     http,
-                    format!("No episode '{episode}' found for show '{show}'."),
+                    format!(
+                        "No episode '{episode}' found for {show}. See its episode codes with !episodes -show {show_arg}, \
+                         or add it with !episodes -add -show {show_arg} -episode {} [title]",
+                        masterlist::command_arg(&episode)
+                    ),
                 )
                 .await?;
             }

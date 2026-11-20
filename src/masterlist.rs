@@ -39,10 +39,48 @@ const TRUNCATION_NOTE_RESERVE: usize = 40;
 /// How many candidate shows to name when a show reference is ambiguous.
 const MAX_AMBIGUOUS_SHOWN: usize = 8;
 
-const SHOWS_USAGE: &str = "Usage: !shows (list shows) | !shows -add <title> (add a show)";
-const EPISODES_USAGE: &str = "Usage: !episodes -show <show> (list episodes) | \
-!episodes -show <show> -episode <ep> (check an episode) | \
-!episodes -add -show <show> -episode <ep> [title] (add an episode)";
+const SHOWS_USAGE: &str = "Usage:\n\
+!shows - list the shows\n\
+!shows -add <title> - add a show, e.g. !shows -add \"Space Ghost\"\n\
+More help: !help quotes";
+const EPISODES_USAGE: &str = "Usage:\n\
+!episodes -show <show> - list a show's episodes\n\
+!episodes -show <show> -episode <ep> - check whether an episode exists\n\
+!episodes -add -show <show> -episode <ep> [title] - add an episode, e.g. !episodes -add -show MST3K -episode 1001 \"Episode title\"\n\
+More help: !help quotes";
+
+/// The `!help quotes` walkthrough. Kept well under Discord's 2000-character limit.
+pub const QUOTES_HELP: &str = "Adding a quote (it needs a show and an episode that already exist)\n\
+1. Find the show: !shows (shows are short codes like MST3K; the number is how many episodes it has)\n\
+2. Find the episode code: !episodes -show MST3K lists them. To check one: !episodes -show MST3K -episode 0101\n\
+3. Show missing? Check !shows for another spelling first, then: !shows -add \"Show Title\"\n\
+4. Episode missing? !episodes -add -show MST3K -episode 1001 \"Episode title\" (the title is optional)\n\
+5. Add the quote: !quote -add -show MST3K -episode 0101 \"The quote text\"\n\
+\n\
+Good to know\n\
+- Put anything with spaces in \"double quotes\".\n\
+- A show name can be shortened if it only matches one show. If it matches several (MST3K and MST3K60m), I'll list them so you can be more specific.\n\
+- Episode codes are up to 10 characters with no spaces (0101, K00, S01, SP-3). Match the style of the show's existing codes.\n\
+- Emoji and most non-Latin scripts can't be stored.\n\
+- There is no delete command, so double-check before adding.";
+
+/// Is this the topic word in `!help <topic>` that should show [`QUOTES_HELP`]?
+pub fn is_quotes_help_topic(topic: &str) -> bool {
+    matches!(
+        topic.to_lowercase().as_str(),
+        "quotes" | "quote" | "shows" | "show" | "episodes" | "episode"
+    )
+}
+
+/// Format a value for use inside a command we suggest to the user: names with
+/// spaces need double quotes or they would be read as several arguments.
+pub(crate) fn command_arg(value: &str) -> String {
+    if value.chars().any(char::is_whitespace) {
+        format!("\"{value}\"")
+    } else {
+        value.to_string()
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Parsing
@@ -89,10 +127,10 @@ pub fn parse_shows(tokens: &[String]) -> Command {
             let title = tokens[1..].join(" ");
             match validate_show_title(&title) {
                 Ok(title) => Command::AddShow { title },
-                Err(e) => Command::Invalid(format!("{e} {SHOWS_USAGE}")),
+                Err(e) => Command::Invalid(format!("{e}\n{SHOWS_USAGE}")),
             }
         }
-        Some(_) => Command::Invalid(SHOWS_USAGE.to_string()),
+        Some(_) => Command::Invalid(format!("!shows takes no search text.\n{SHOWS_USAGE}")),
     }
 }
 
@@ -113,7 +151,7 @@ pub fn parse_episodes(tokens: &[String]) -> Command {
             }
             "-show" | "-episode" | "-ep" => {
                 let Some(value) = tokens.get(i + 1) else {
-                    return Command::Invalid(format!("{} needs a value. {EPISODES_USAGE}", lower));
+                    return Command::Invalid(format!("{lower} needs a value.\n{EPISODES_USAGE}"));
                 };
                 if lower == "-show" {
                     show = Some(value.clone());
@@ -130,12 +168,21 @@ pub fn parse_episodes(tokens: &[String]) -> Command {
     }
 
     let Some(show) = show else {
-        return Command::Invalid(format!("-show <show> is required. {EPISODES_USAGE}"));
+        // `!episodes mst3k` is the likely slip: say what was probably meant.
+        let hint = if !add && episode.is_none() && !title_parts.is_empty() {
+            format!(
+                " Did you mean !episodes -show {}?",
+                command_arg(&title_parts.join(" "))
+            )
+        } else {
+            String::new()
+        };
+        return Command::Invalid(format!("-show <show> is required.{hint}\n{EPISODES_USAGE}"));
     };
 
     if add {
         let Some(episode) = episode else {
-            return Command::Invalid(format!("-episode <ep> is required. {EPISODES_USAGE}"));
+            return Command::Invalid(format!("-episode <ep> is required.\n{EPISODES_USAGE}"));
         };
         let episode = match validate_episode_code(&episode) {
             Ok(code) => code,
@@ -154,7 +201,7 @@ pub fn parse_episodes(tokens: &[String]) -> Command {
 
     if !title_parts.is_empty() {
         return Command::Invalid(format!(
-            "Unexpected text '{}'. Did you mean to add an episode? {EPISODES_USAGE}",
+            "Unexpected text '{}'. To add an episode, include -add.\n{EPISODES_USAGE}",
             title_parts.join(" ")
         ));
     }
@@ -285,7 +332,10 @@ fn format_show_list(shows: &[(String, i64)]) -> Vec<String> {
         .map(|(title, n)| format!("{title} ({n})"))
         .collect();
     chunk_items(
-        &format!("Shows ({}), with episode counts: ", shows.len()),
+        &format!(
+            "Shows ({}) with episode counts. Use !episodes -show <show> to see a show's episodes:\n",
+            shows.len()
+        ),
         &items,
         ", ",
         MESSAGE_BUDGET,
@@ -294,9 +344,10 @@ fn format_show_list(shows: &[(String, i64)]) -> Vec<String> {
 }
 
 fn format_episode_list(show_title: &str, episodes: &[(String, String)]) -> Vec<String> {
+    let show_arg = command_arg(show_title);
     if episodes.is_empty() {
         return vec![format!(
-            "{show_title} has no episodes yet. Add one with !episodes -add -show {show_title} -episode <ep> [title]."
+            "{show_title} has no episodes yet. Add one with !episodes -add -show {show_arg} -episode <ep> [title]."
         )];
     }
     let items: Vec<String> = episodes
@@ -310,7 +361,11 @@ fn format_episode_list(show_title: &str, episodes: &[(String, String)]) -> Vec<S
         })
         .collect();
     chunk_items(
-        &format!("{show_title}: {} episodes\n", episodes.len()),
+        &format!(
+            "{show_title}: {} episode{} (use a code below in !quote -add -show {show_arg} -episode <code> <quote text>)\n",
+            episodes.len(),
+            if episodes.len() == 1 { "" } else { "s" }
+        ),
         &items,
         "\n",
         MESSAGE_BUDGET,
@@ -395,7 +450,7 @@ pub(crate) fn show_problem_message(query: &str, lookup: &ShowLookup) -> Option<S
     match lookup {
         ShowLookup::Found { .. } => None,
         ShowLookup::NotFound => Some(format!(
-            "No show found matching '{query}'. Use !shows to see the valid shows."
+            "No show found matching '{query}'. Use !shows to see the valid shows, or !shows -add <title> to add it."
         )),
         ShowLookup::Ambiguous(titles) => {
             let shown = titles.len().min(MAX_AMBIGUOUS_SHOWN);
@@ -435,11 +490,15 @@ fn run(conn: &mut PooledConn, command: Command) -> mysql::Result<Vec<String>> {
                 (&title, &title),
             )?;
             if conn.affected_rows() == 0 {
-                Ok(vec![format!("A show named '{title}' already exists.")])
+                Ok(vec![format!(
+                    "A show named '{title}' already exists. See its episodes with !episodes -show {}.",
+                    command_arg(&title)
+                )])
             } else {
                 Ok(vec![format!(
-                    "Added show '{title}' (id {}). Add its episodes with !episodes -add -show {title} -episode <ep> [title].",
-                    conn.last_insert_id()
+                    "Added show '{title}' (id {}). Next, add its episodes: !episodes -add -show {} -episode <ep> [title]",
+                    conn.last_insert_id(),
+                    command_arg(&title)
                 )])
             }
         }
@@ -474,7 +533,12 @@ fn run(conn: &mut PooledConn, command: Command) -> mysql::Result<Vec<String>> {
                 (id, &episode),
             )?;
             if found.is_empty() {
-                return Ok(vec![format!("{title} has no episode '{episode}'.")]);
+                let show_arg = command_arg(&title);
+                return Ok(vec![format!(
+                    "{title} has no episode '{episode}'. See its episode codes with !episodes -show {show_arg}, \
+                     or add it with !episodes -add -show {show_arg} -episode {} [title]",
+                    command_arg(&episode)
+                )]);
             }
             let described: Vec<String> = found
                 .iter()
@@ -501,6 +565,11 @@ fn run(conn: &mut PooledConn, command: Command) -> mysql::Result<Vec<String>> {
             let ShowLookup::Found { id, title } = lookup else {
                 unreachable!("show_problem_message returns None only for Found")
             };
+            let show_arg = command_arg(&title);
+            let quote_hint = format!(
+                "!quote -add -show {show_arg} -episode {} <quote text>",
+                command_arg(&episode)
+            );
             // Atomic, like AddShow: (show_id, show_ep) is not a unique key.
             conn.exec_drop(
                 "INSERT INTO masterlist_episodes (show_id, show_ep, title) \
@@ -509,11 +578,17 @@ fn run(conn: &mut PooledConn, command: Command) -> mysql::Result<Vec<String>> {
                 (id, &episode, &ep_title, id, &episode),
             )?;
             if conn.affected_rows() == 0 {
-                Ok(vec![format!("{title} already has an episode '{episode}'.")])
+                Ok(vec![format!(
+                    "{title} already has an episode '{episode}'. You can add a quote to it with {quote_hint}"
+                )])
             } else if ep_title.is_empty() {
-                Ok(vec![format!("Added {title} episode {episode} (no title).")])
+                Ok(vec![format!(
+                    "Added {title} episode {episode} (no title). Now add a quote with {quote_hint}"
+                )])
             } else {
-                Ok(vec![format!("Added {title} episode {episode}: {ep_title}")])
+                Ok(vec![format!(
+                    "Added {title} episode {episode}: {ep_title}\nNow add a quote with {quote_hint}"
+                )])
             }
         }
     }
@@ -913,9 +988,72 @@ mod tests {
     }
 
     #[test]
+    fn episode_list_header_pluralizes() {
+        let one = format_episode_list("X", &[("1".into(), "t".into())]);
+        assert!(one[0].starts_with("X: 1 episode ("), "{}", one[0]);
+        let two = format_episode_list("X", &[("1".into(), "t".into()), ("2".into(), "u".into())]);
+        assert!(two[0].starts_with("X: 2 episodes ("), "{}", two[0]);
+    }
+
+    #[test]
     fn empty_listings_have_helpful_messages() {
         assert_eq!(format_show_list(&[]).len(), 1);
         assert!(format_episode_list("X", &[])[0].contains("no episodes"));
+    }
+
+    #[test]
+    fn command_arg_quotes_only_when_needed() {
+        assert_eq!(command_arg("MST3K"), "MST3K");
+        assert_eq!(command_arg("Space Ghost"), "\"Space Ghost\"");
+    }
+
+    #[test]
+    fn help_topic_words() {
+        for t in ["quotes", "QUOTE", "shows", "episodes", "Episode"] {
+            assert!(is_quotes_help_topic(t), "{t}");
+        }
+        assert!(!is_quotes_help_topic("imagine"));
+        assert!(!is_quotes_help_topic(""));
+    }
+
+    #[test]
+    fn walkthrough_fits_in_one_discord_message() {
+        assert!(QUOTES_HELP.chars().count() <= 2000);
+    }
+
+    #[test]
+    fn mistakes_get_a_specific_hint() {
+        // Search text where there is none.
+        let Command::Invalid(m) = parse_shows(&toks(&["mst3k"])) else {
+            panic!()
+        };
+        assert!(
+            m.contains("takes no search text") && m.contains("!shows -add"),
+            "{m}"
+        );
+        // Forgot -show; the suggestion must be a command that would work.
+        let Command::Invalid(m) = parse_episodes(&toks(&["mst3k"])) else {
+            panic!()
+        };
+        assert!(m.contains("Did you mean !episodes -show mst3k?"), "{m}");
+        let Command::Invalid(m) = parse_episodes(&toks(&["Space", "Ghost"])) else {
+            panic!()
+        };
+        assert!(m.contains("!episodes -show \"Space Ghost\"?"), "{m}");
+        // No guess when it would be wrong.
+        let Command::Invalid(m) = parse_episodes(&toks(&["-add", "-episode", "1", "T"])) else {
+            panic!()
+        };
+        assert!(!m.contains("Did you mean"), "{m}");
+        // Every error includes usage with an example and points at the walkthrough.
+        for c in [
+            parse_shows(&toks(&["x"])),
+            parse_episodes(&[]),
+            parse_episodes(&toks(&["-show"])),
+        ] {
+            let Command::Invalid(m) = c else { panic!() };
+            assert!(m.contains("Usage:") && m.contains("!help quotes"), "{m}");
+        }
     }
 
     #[test]
@@ -932,7 +1070,7 @@ mod tests {
         );
         assert!(show_problem_message("x", &ShowLookup::NotFound)
             .unwrap()
-            .contains("!shows"));
+            .contains("!shows -add"));
         let amb = show_problem_message("mst", &ShowLookup::Ambiguous(vec!["A".into(), "B".into()]))
             .unwrap();
         assert!(amb.contains("A, B") && amb.contains("more specific"));
@@ -1024,7 +1162,8 @@ mod tests {
         let out = run_cmd(&db.pool, Command::ListShows);
         assert_eq!(
             out,
-            "Shows (4), with episode counts: ATHF (2), MST3K (4), MST3K60m (0), SG (0)"
+            "Shows (4) with episode counts. Use !episodes -show <show> to see a show's episodes:\n\
+             ATHF (2), MST3K (4), MST3K60m (0), SG (0)"
         );
     }
 
@@ -1039,6 +1178,11 @@ mod tests {
             },
         );
         assert!(out.starts_with("Added show 'Space Ghost' (id 5)."), "{out}");
+        // The suggested next step must work for a name with spaces.
+        assert!(
+            out.contains("!episodes -add -show \"Space Ghost\" -episode <ep>"),
+            "{out}"
+        );
         assert_eq!(show_count(&db.pool, "Space Ghost"), 1);
 
         // Duplicate, including a different case, is refused and adds nothing.
@@ -1075,7 +1219,7 @@ mod tests {
         );
         assert_eq!(
             out,
-            "MST3K: 4 episodes\nK00 - The Green Slime\n0101 - The Crawling Eye\n0102 - Robot Monster\nS01"
+            "MST3K: 4 episodes (use a code below in !quote -add -show MST3K -episode <code> <quote text>)\nK00 - The Green Slime\n0101 - The Crawling Eye\n0102 - Robot Monster\nS01"
         );
 
         let check = |show: &str, ep: &str| {
@@ -1093,7 +1237,13 @@ mod tests {
         );
         assert_eq!(check("mst3k", "k00"), "MST3K K00 exists: The Green Slime");
         assert_eq!(check("mst3k", "S01"), "MST3K S01 exists (no title)");
-        assert_eq!(check("mst3k", "9999"), "MST3K has no episode '9999'.");
+        let missing = check("mst3k", "9999");
+        assert!(
+            missing.starts_with("MST3K has no episode '9999'.")
+                && missing.contains("!episodes -show MST3K")
+                && missing.contains("!episodes -add -show MST3K -episode 9999 [title]"),
+            "{missing}"
+        );
         // Pre-existing duplicate rows are all reported.
         assert_eq!(
             check("athf", "321"),
@@ -1137,7 +1287,7 @@ mod tests {
 
         assert_eq!(
             add("mst3k", "1001", "Pilot"),
-            "Added MST3K episode 1001: Pilot"
+            "Added MST3K episode 1001: Pilot\nNow add a quote with !quote -add -show MST3K -episode 1001 <quote text>"
         );
         assert_eq!(episode_count(&db.pool, 1, "1001"), 1);
         // The stored row uses the table defaults for everything else.
@@ -1152,28 +1302,21 @@ mod tests {
         assert_eq!(row, (0, "0".to_string(), 0));
 
         // No title is allowed.
-        assert_eq!(
-            add("MST3K", "1002", ""),
-            "Added MST3K episode 1002 (no title)."
-        );
+        assert!(add("MST3K", "1002", "")
+            .starts_with("Added MST3K episode 1002 (no title). Now add a quote with"));
 
         // Duplicates are refused, case-insensitively, and nothing is inserted.
-        assert_eq!(
-            add("mst3k", "1001", "Other"),
-            "MST3K already has an episode '1001'."
+        let dup = add("mst3k", "1001", "Other");
+        assert!(
+            dup.starts_with("MST3K already has an episode '1001'.") && dup.contains("!quote -add"),
+            "{dup}"
         );
-        assert_eq!(
-            add("mst3k", "k00", "Other"),
-            "MST3K already has an episode 'k00'."
-        );
+        assert!(add("mst3k", "k00", "Other").starts_with("MST3K already has an episode 'k00'."));
         assert_eq!(episode_count(&db.pool, 1, "1001"), 1);
         assert_eq!(episode_count(&db.pool, 1, "K00"), 1);
 
         // The same code under a different show is fine.
-        assert_eq!(
-            add("sg", "1001", "Other show"),
-            "Added SG episode 1001: Other show"
-        );
+        assert!(add("sg", "1001", "Other show").starts_with("Added SG episode 1001: Other show"));
 
         // Unknown / ambiguous show.
         assert!(add("nope", "1", "x").contains("No show found"));
@@ -1189,6 +1332,19 @@ mod tests {
             },
         );
         assert_eq!(out, "MST3K 1001 exists: Pilot");
+
+        // A show whose name has spaces gets hints that can be pasted back in.
+        run_cmd(
+            &db.pool,
+            Command::AddShow {
+                title: "Space Ghost".into(),
+            },
+        );
+        let out = add("space ghost", "101", "Pilot");
+        assert!(
+            out.contains("!quote -add -show \"Space Ghost\" -episode 101 <quote text>"),
+            "{out}"
+        );
     }
 
     #[test]

@@ -77,6 +77,7 @@ A Discord bot that follows specific channels and responds to various triggers in
 - `!quote -show [show]` - Get quote from specific show
 - `!quote -show [show] [term]` - Get a random quote from a specific show containing a term
 - `!quote -add -show [show] -episode [ep] [quote]` - Add a new quote (all three elements required; the show and episode must already exist)
+- `!help quotes` - Step-by-step guide to adding a quote, show, or episode
 - `!shows` - List every show with its episode count
 - `!shows -add [title]` - Add a show (quote the title if you like: `!shows -add "Space Ghost"`)
 - `!episodes -show [show]` - List a show's episodes

@@ -247,6 +247,41 @@ pub struct BotConfig {
     pub initial_posted_urls: std::collections::HashSet<String>,
 }
 
+/// The text for `!help`. Kept in one place so every command is listed once, and
+/// short enough for a single Discord message (2000 characters).
+fn build_help_message(include_imagine: bool) -> String {
+    let mut lines = vec![
+        "Available commands:",
+        "!help - Show help (!help quotes explains how to add quotes, shows & episodes)",
+        "!hello - Say hello",
+        "!buzz - Generate corporate buzzwords",
+        "!fightcrime - Generate a crime fighting duo",
+        "!trump - Generate a Trump insult",
+        "!bandname [name] - Generate music genre for a band",
+        "!lastseen [name] - Find when a user was last active",
+        "!quote [term] - Get a random quote",
+        "!quote -show [show] - Get quote from specific show",
+        "!quote -show [show] [term] - Get quote from a show containing a term",
+        "!quote -dud [user] - Get random message from a user",
+        "!quote -add -show [show] -episode [ep] [quote] - Add a quote (show & episode must exist)",
+        "!shows - List valid shows",
+        "!shows -add [title] - Add a show",
+        "!episodes -show [show] - List a show's episodes",
+        "!episodes -show [show] -episode [ep] - Check whether an episode exists",
+        "!episodes -add -show [show] -episode [ep] [title] - Add an episode",
+        "!slogan [term] - Get a random slogan",
+        "!slogan -add [slogan] - Add a new slogan",
+        "!frinkiac [term] [-s season] [-e episode] - Get a Simpsons screenshot",
+        "!morbotron [term] - Get a Futurama screenshot",
+    ];
+    if include_imagine {
+        lines.push("!imagine [text] - Generate an image");
+    }
+    lines.push("!alive [name] - Check if a celebrity is alive or dead");
+    lines.push("!info - Show bot statistics");
+    lines.join("\n")
+}
+
 impl Bot {
     // Check for missed messages after reconnection
     async fn check_missed_messages(&self, ctx: &Context) {
@@ -341,16 +376,11 @@ impl Bot {
         let mut commands = HashMap::new();
         commands.insert("hello".to_string(), "world!".to_string());
 
-        // Generate a comprehensive help message with all commands
-        let help_message = if !parsed_config.imagine_channels.is_empty() {
-            // Include the imagine command if channels are configured
-            "Available commands:\n!help - Show help\n!hello - Say hello\n!buzz - Generate corporate buzzwords\n!fightcrime - Generate a crime fighting duo\n!trump - Generate a Trump insult\n!bandname [name] - Generate music genre for a band\n!lastseen [name] - Find when a user was last active\n!quote [term] - Get a random quote\n!quote -show [show] - Get quote from specific show\n!quote -show [show] [term] - Get quote from a show containing a term\n!quote -add -show [show] -episode [ep] [quote] - Add a quote (show & episode must exist)\n!shows - List valid shows\n!shows -add [title] - Add a show\n!episodes -show [show] [-episode [ep]] - List a show's episodes or check one\n!episodes -add -show [show] -episode [ep] [title] - Add an episode\n!quote -dud [user] - Get random message from a user\n!slogan [term] - Get a random slogan\n!slogan -add [slogan] - Add a new slogan\n!frinkiac [term] [-s season] [-e episode] - Get a Simpsons screenshot\n!morbotron [term] - Get a Futurama screenshot\n!imagine [text] - Generate an image\n!alive [name] - Check if a celebrity is alive or dead\n!info - Show bot statistics"
-        } else {
-            // Exclude the imagine command if no channels are configured
-            "Available commands:\n!help - Show help\n!hello - Say hello\n!buzz - Generate corporate buzzwords\n!fightcrime - Generate a crime fighting duo\n!trump - Generate a Trump insult\n!bandname [name] - Generate music genre for a band\n!lastseen [name] - Find when a user was last active\n!quote [term] - Get a random quote\n!quote -show [show] - Get quote from specific show\n!quote -show [show] [term] - Get quote from a show containing a term\n!quote -add -show [show] -episode [ep] [quote] - Add a quote (show & episode must exist)\n!shows - List valid shows\n!shows -add [title] - Add a show\n!episodes -show [show] [-episode [ep]] - List a show's episodes or check one\n!episodes -add -show [show] -episode [ep] [title] - Add an episode\n!quote -dud [user] - Get random message from a user\n!slogan [term] - Get a random slogan\n!slogan -add [slogan] - Add a new slogan\n!frinkiac [term] [-s season] [-e episode] - Get a Simpsons screenshot\n!morbotron [term] - Get a Futurama screenshot\n!alive [name] - Check if a celebrity is alive or dead\n!info - Show bot statistics"
-        };
+        // Generate a comprehensive help message with all commands. The imagine
+        // command is only listed when channels are configured for it.
+        let help_message = build_help_message(!parsed_config.imagine_channels.is_empty());
 
-        commands.insert("help".to_string(), help_message.to_string());
+        commands.insert("help".to_string(), help_message);
 
         // Define keyword triggers - empty but we keep the structure for future additions
         let keyword_triggers = Vec::new();
@@ -927,7 +957,7 @@ impl Bot {
 
         if !missing.is_empty() {
             let usage = format!(
-                "Missing required argument(s): {}. Usage: !quote -add -show <show> -episode <ep> <quote text>",
+                "Missing required argument(s): {}.\nUsage: !quote -add -show <show> -episode <ep> <quote text>\nNot sure of the show or episode code? See !shows and !episodes -show <show>. Full walkthrough: !help quotes",
                 missing.join(", ")
             );
             msg.reply(http, usage).await?;
@@ -1466,7 +1496,15 @@ impl Bot {
                         }
                     }
                     "help" => {
-                        if let Some(help_text) = self.commands.get("help") {
+                        let help_text = if args
+                            .first()
+                            .is_some_and(|t| masterlist::is_quotes_help_topic(t))
+                        {
+                            Some(masterlist::QUOTES_HELP)
+                        } else {
+                            self.commands.get("help").map(|s| s.as_str())
+                        };
+                        if let Some(help_text) = help_text {
                             if let Err(e) = msg.reply(&ctx.http, help_text).await {
                                 error!("Error sending help message: {:?}", e);
                             }
@@ -4394,6 +4432,55 @@ mod tests {
             tokens,
             vec!["-add", "-show", "mst3k", "-episode", "101", "hello", "there"]
         );
+    }
+
+    #[test]
+    fn help_fits_in_one_discord_message_and_lists_the_new_commands() {
+        for include_imagine in [false, true] {
+            let help = super::build_help_message(include_imagine);
+            assert!(help.chars().count() <= 2000, "{}", help.chars().count());
+            assert_eq!(help.contains("!imagine"), include_imagine);
+            for command in [
+                "!shows -add",
+                "!episodes -show [show] - List",
+                "!episodes -show [show] -episode [ep]",
+                "!episodes -add",
+                "!help quotes",
+                "!quote -add",
+            ] {
+                assert!(help.contains(command), "help is missing {command}");
+            }
+            assert_eq!(help.matches("!shows - ").count(), 1);
+        }
+    }
+
+    #[test]
+    fn walkthrough_examples_are_real_commands() {
+        use crate::masterlist::{args_text, parse_episodes, parse_shows, Command, QUOTES_HELP};
+        let valid = |c: Command| !matches!(c, Command::Invalid(_));
+        let shows = |s: &str| parse_shows(&super::Bot::tokenize_quote_args(args_text(s)));
+        let episodes = |s: &str| parse_episodes(&super::Bot::tokenize_quote_args(args_text(s)));
+
+        // Every example the walkthrough gives must actually be accepted.
+        for example in ["!shows", "!shows -add \"Show Title\""] {
+            assert!(QUOTES_HELP.contains(example), "walkthrough lost {example}");
+            assert!(valid(shows(example)), "{example}");
+        }
+        for example in [
+            "!episodes -show MST3K",
+            "!episodes -show MST3K -episode 0101",
+            "!episodes -add -show MST3K -episode 1001 \"Episode title\"",
+        ] {
+            assert!(QUOTES_HELP.contains(example), "walkthrough lost {example}");
+            assert!(valid(episodes(example)), "{example}");
+        }
+        assert!(QUOTES_HELP.contains("!quote -add -show MST3K -episode 0101 \"The quote text\""));
+
+        // The examples inside the usage messages are valid too.
+        assert!(valid(shows("!shows -add \"Space Ghost\"")));
+        assert!(valid(episodes(
+            "!episodes -add -show MST3K -episode 1001 \"Episode title\""
+        )));
     }
 
     #[test]
