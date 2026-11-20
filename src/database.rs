@@ -1,3 +1,4 @@
+use crate::masterlist;
 use anyhow::Result;
 use mysql::{prelude::*, OptsBuilder, Pool};
 use rand::RngExt;
@@ -48,6 +49,8 @@ enum AddResult {
     ConnectionFailed(String),
     /// The requested show was not found
     ShowNotFound(String),
+    /// The requested show matched more than one show
+    ShowAmbiguous { show: String, matches: Vec<String> },
     /// The requested episode was not found for the show
     EpisodeNotFound { show: String, episode: String },
     /// The quote was added successfully
@@ -523,8 +526,19 @@ impl DatabaseManager {
                     .await?;
             }
             AddResult::ShowNotFound(show) => {
-                msg.reply(http, format!("No show found matching '{show}'."))
-                    .await?;
+                msg.reply(
+                    http,
+                    format!("No show found matching '{show}'. Use !shows to see the valid shows."),
+                )
+                .await?;
+            }
+            AddResult::ShowAmbiguous { show, matches } => {
+                let list = matches.join(", ");
+                msg.reply(
+                    http,
+                    format!("'{show}' matches several shows ({list}). Please be more specific."),
+                )
+                .await?;
             }
             AddResult::EpisodeNotFound { show, episode } => {
                 msg.reply(
@@ -577,19 +591,13 @@ impl DatabaseManager {
             Err(e) => return AddResult::ConnectionFailed(format!("{:?}", e)),
         };
 
-        // Resolve the show_id (and canonical title) by matching the show title.
-        let show_pattern = format!(
-            "%{}%",
-            show.split_whitespace().collect::<Vec<_>>().join("%")
-        );
-        let show_lookup = conn.exec_first::<(i32, String), _, _>(
-            "SELECT show_id, show_title FROM masterlist_shows WHERE show_title LIKE ? LIMIT 1",
-            (show_pattern,),
-        );
-
-        let (show_id, show_title) = match show_lookup {
-            Ok(Some(row)) => row,
-            Ok(None) => return AddResult::ShowNotFound(show),
+        // Resolve the show: an exact title wins, otherwise it must be unambiguous.
+        let (show_id, show_title) = match masterlist::resolve_show(&mut conn, &show) {
+            Ok(masterlist::ShowLookup::Found { id, title }) => (id, title),
+            Ok(masterlist::ShowLookup::NotFound) => return AddResult::ShowNotFound(show),
+            Ok(masterlist::ShowLookup::Ambiguous(matches)) => {
+                return AddResult::ShowAmbiguous { show, matches }
+            }
             Err(e) => {
                 error!("Failed to look up show: {:?}", e);
                 return AddResult::QueryError(format!("Failed to look up show: {:?}", e));
@@ -664,6 +672,7 @@ impl DatabaseManager {
             }
             // These variants are quote-specific and never produced by add_slogan.
             AddResult::ShowNotFound(_)
+            | AddResult::ShowAmbiguous { .. }
             | AddResult::EpisodeNotFound { .. }
             | AddResult::Added { .. } => {
                 error!("Unexpected AddResult variant from add_slogan");
@@ -699,5 +708,60 @@ impl DatabaseManager {
                 AddResult::QueryError(format!("Failed to insert slogan: {:?}", e))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::masterlist::test_support::fresh_db;
+
+    fn quote_count(pool: &Pool) -> i64 {
+        let mut conn = pool.get_conn().unwrap();
+        conn.query_first("SELECT COUNT(*) FROM masterlist_quotes")
+            .unwrap()
+            .unwrap()
+    }
+
+    #[test]
+    #[ignore = "needs CROW_TEST_MYSQL_URL (scratch database named crow_test*)"]
+    fn db_add_quote_resolves_shows_exactly_and_refuses_ambiguity() {
+        let db = fresh_db();
+        let add = |show: &str, ep: &str| {
+            DatabaseManager::add_quote_blocking(
+                Some(db.pool.clone()),
+                show.to_string(),
+                ep.to_string(),
+                "a quote".to_string(),
+            )
+        };
+
+        // "mst3k" is an exact title; MST3K60m also contains it but must not win or tie.
+        match add("mst3k", "0101") {
+            AddResult::Added {
+                show_title,
+                episode_num,
+                ..
+            } => assert_eq!(
+                (show_title.as_str(), episode_num.as_str()),
+                ("MST3K", "0101")
+            ),
+            _ => panic!("expected the quote to be added to MST3K"),
+        }
+        assert_eq!(quote_count(&db.pool), 1);
+
+        // A partial that matches two shows is refused rather than guessed.
+        match add("mst3", "0101") {
+            AddResult::ShowAmbiguous { matches, .. } => {
+                assert_eq!(matches, vec!["MST3K".to_string(), "MST3K60m".to_string()])
+            }
+            _ => panic!("expected an ambiguous-show result"),
+        }
+        assert!(matches!(add("nope", "1"), AddResult::ShowNotFound(_)));
+        assert!(matches!(
+            add("mst3k", "9999"),
+            AddResult::EpisodeNotFound { .. }
+        ));
+        assert_eq!(quote_count(&db.pool), 1);
     }
 }

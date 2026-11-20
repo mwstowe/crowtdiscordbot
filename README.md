@@ -77,6 +77,11 @@ A Discord bot that follows specific channels and responds to various triggers in
 - `!quote -show [show]` - Get quote from specific show
 - `!quote -show [show] [term]` - Get a random quote from a specific show containing a term
 - `!quote -add -show [show] -episode [ep] [quote]` - Add a new quote (all three elements required; the show and episode must already exist)
+- `!shows` - List every show with its episode count
+- `!shows -add [title]` - Add a show (quote the title if you like: `!shows -add "Space Ghost"`)
+- `!episodes -show [show]` - List a show's episodes
+- `!episodes -show [show] -episode [ep]` - Check whether an episode exists
+- `!episodes -add -show [show] -episode [ep] [title]` - Add an episode (the title is optional; the code is at most 10 characters with no spaces)
 - `!quote -dud [user]` - Get random message from a user (or random user if no username provided)
 - `!slogan [term]` - Get a random slogan
 - `!slogan -add [slogan]` - Add a new slogan
@@ -229,37 +234,67 @@ The bot automatically manages its message history:
 
 ### Quote Database Tables
 
-The quote system uses MySQL and requires three related tables:
+The quote system uses MySQL and requires three related tables. Only the columns
+below are required by the bot; the production tables carry extra columns
+(descriptions, DVD links, etc.) that all have defaults, so they can be left out
+of a fresh install.
 
 1. **masterlist_shows** - Contains information about TV shows
    ```sql
    CREATE TABLE masterlist_shows (
-       show_id INT PRIMARY KEY,
-       show_title VARCHAR(255) NOT NULL
+       show_id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+       show_title VARCHAR(255) NOT NULL DEFAULT ''
    );
    ```
 
 2. **masterlist_episodes** - Contains information about episodes
    ```sql
    CREATE TABLE masterlist_episodes (
-       show_id INT,
-       show_ep VARCHAR(10),
-       title VARCHAR(255) NOT NULL,
-       PRIMARY KEY (show_id, show_ep),
-       FOREIGN KEY (show_id) REFERENCES masterlist_shows(show_id)
+       episode_id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+       show_id INT UNSIGNED NOT NULL DEFAULT 0,
+       sort TINYINT NOT NULL DEFAULT 0,
+       show_ep VARCHAR(10) NOT NULL DEFAULT '',
+       title VARCHAR(255) NOT NULL DEFAULT '',
+       KEY (show_id, show_ep)
    );
    ```
+   `sort` groups episodes into sections (for example MST3K keeps its `K` experiment
+   episodes, regular episodes, `S` shorts, and `M`/`T` extras in separate groups) and
+   is the first key episode lists are ordered by.
 
 3. **masterlist_quotes** - Contains the actual quotes
    ```sql
    CREATE TABLE masterlist_quotes (
-       quote_id INT PRIMARY KEY AUTO_INCREMENT,
-       show_id INT,
-       show_ep VARCHAR(10),
-       quote TEXT NOT NULL,
-       FOREIGN KEY (show_id, show_ep) REFERENCES masterlist_episodes(show_id, show_ep)
+       quote_id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+       show_id INT UNSIGNED NOT NULL DEFAULT 0,
+       show_ep VARCHAR(10) NOT NULL DEFAULT '',
+       quote TEXT NOT NULL
    );
    ```
+
+Notes:
+- Nothing enforces uniqueness of `(show_id, show_ep)` or of `show_title`, so the bot
+  checks for duplicates itself when adding shows and episodes (in a single atomic
+  statement, so simultaneous adds can't create duplicates).
+- Show titles are short codes in practice (`MST3K`, `SG`). A show is found by exact
+  title (case-insensitive) first, then by words that appear in order in the title. If
+  more than one show matches (`MST3K` also appears in `MST3K60m`), the bot asks for a
+  more specific name rather than guessing.
+- The production tables use the `latin1` character set, so emoji and most non-Latin
+  scripts can't be stored; the bot reports this instead of altering the text.
+- Anyone who can run bot commands can add shows, episodes, and quotes.
+
+#### Running the database tests
+
+The tests that exercise the SQL are ignored by default. To run them, point
+`CROW_TEST_MYSQL_URL` at a scratch database whose name starts with `crow_test`. They
+drop and recreate the `masterlist_*` tables, and refuse to run against any other
+database name:
+
+```bash
+CROW_TEST_MYSQL_URL=mysql://root@127.0.0.1:3306/crow_test \
+    cargo test db_ -- --ignored --test-threads=1
+```
 
 ### Slogan Database Table
 

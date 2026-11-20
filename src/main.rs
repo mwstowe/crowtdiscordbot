@@ -33,6 +33,7 @@ mod giphy;
 mod http_retry;
 mod image_generation;
 mod lastseen;
+mod masterlist;
 mod media_utils;
 mod morbotron;
 mod multi_response_generator;
@@ -343,10 +344,10 @@ impl Bot {
         // Generate a comprehensive help message with all commands
         let help_message = if !parsed_config.imagine_channels.is_empty() {
             // Include the imagine command if channels are configured
-            "Available commands:\n!help - Show help\n!hello - Say hello\n!buzz - Generate corporate buzzwords\n!fightcrime - Generate a crime fighting duo\n!trump - Generate a Trump insult\n!bandname [name] - Generate music genre for a band\n!lastseen [name] - Find when a user was last active\n!quote [term] - Get a random quote\n!quote -show [show] - Get quote from specific show\n!quote -show [show] [term] - Get quote from a show containing a term\n!quote -add -show [show] -episode [ep] [quote] - Add a quote (show & episode must exist)\n!quote -dud [user] - Get random message from a user\n!slogan [term] - Get a random slogan\n!slogan -add [slogan] - Add a new slogan\n!frinkiac [term] [-s season] [-e episode] - Get a Simpsons screenshot\n!morbotron [term] - Get a Futurama screenshot\n!imagine [text] - Generate an image\n!alive [name] - Check if a celebrity is alive or dead\n!info - Show bot statistics"
+            "Available commands:\n!help - Show help\n!hello - Say hello\n!buzz - Generate corporate buzzwords\n!fightcrime - Generate a crime fighting duo\n!trump - Generate a Trump insult\n!bandname [name] - Generate music genre for a band\n!lastseen [name] - Find when a user was last active\n!quote [term] - Get a random quote\n!quote -show [show] - Get quote from specific show\n!quote -show [show] [term] - Get quote from a show containing a term\n!quote -add -show [show] -episode [ep] [quote] - Add a quote (show & episode must exist)\n!shows - List valid shows\n!shows -add [title] - Add a show\n!episodes -show [show] [-episode [ep]] - List a show's episodes or check one\n!episodes -add -show [show] -episode [ep] [title] - Add an episode\n!quote -dud [user] - Get random message from a user\n!slogan [term] - Get a random slogan\n!slogan -add [slogan] - Add a new slogan\n!frinkiac [term] [-s season] [-e episode] - Get a Simpsons screenshot\n!morbotron [term] - Get a Futurama screenshot\n!imagine [text] - Generate an image\n!alive [name] - Check if a celebrity is alive or dead\n!info - Show bot statistics"
         } else {
             // Exclude the imagine command if no channels are configured
-            "Available commands:\n!help - Show help\n!hello - Say hello\n!buzz - Generate corporate buzzwords\n!fightcrime - Generate a crime fighting duo\n!trump - Generate a Trump insult\n!bandname [name] - Generate music genre for a band\n!lastseen [name] - Find when a user was last active\n!quote [term] - Get a random quote\n!quote -show [show] - Get quote from specific show\n!quote -show [show] [term] - Get quote from a show containing a term\n!quote -add -show [show] -episode [ep] [quote] - Add a quote (show & episode must exist)\n!quote -dud [user] - Get random message from a user\n!slogan [term] - Get a random slogan\n!slogan -add [slogan] - Add a new slogan\n!frinkiac [term] [-s season] [-e episode] - Get a Simpsons screenshot\n!morbotron [term] - Get a Futurama screenshot\n!alive [name] - Check if a celebrity is alive or dead\n!info - Show bot statistics"
+            "Available commands:\n!help - Show help\n!hello - Say hello\n!buzz - Generate corporate buzzwords\n!fightcrime - Generate a crime fighting duo\n!trump - Generate a Trump insult\n!bandname [name] - Generate music genre for a band\n!lastseen [name] - Find when a user was last active\n!quote [term] - Get a random quote\n!quote -show [show] - Get quote from specific show\n!quote -show [show] [term] - Get quote from a show containing a term\n!quote -add -show [show] -episode [ep] [quote] - Add a quote (show & episode must exist)\n!shows - List valid shows\n!shows -add [title] - Add a show\n!episodes -show [show] [-episode [ep]] - List a show's episodes or check one\n!episodes -add -show [show] -episode [ep] [title] - Add an episode\n!quote -dud [user] - Get random message from a user\n!slogan [term] - Get a random slogan\n!slogan -add [slogan] - Add a new slogan\n!frinkiac [term] [-s season] [-e episode] - Get a Simpsons screenshot\n!morbotron [term] - Get a Futurama screenshot\n!alive [name] - Check if a celebrity is alive or dead\n!info - Show bot statistics"
         };
 
         commands.insert("help".to_string(), help_message.to_string());
@@ -1507,6 +1508,19 @@ impl Bot {
                                     error!("Error sending error message: {:?}", e);
                                 }
                             }
+                        }
+                    }
+                    "shows" | "episodes" => {
+                        let tokens = Self::tokenize_quote_args(masterlist::args_text(&msg.content));
+                        let parsed = if command == "shows" {
+                            masterlist::parse_shows(&tokens)
+                        } else {
+                            masterlist::parse_episodes(&tokens)
+                        };
+                        if let Err(e) =
+                            masterlist::handle(&self.db_manager, &ctx.http, msg, parsed).await
+                        {
+                            error!("Error handling {} command: {:?}", command, e);
                         }
                     }
                     "quote" => {
@@ -4379,6 +4393,51 @@ mod tests {
         assert_eq!(
             tokens,
             vec!["-add", "-show", "mst3k", "-episode", "101", "hello", "there"]
+        );
+    }
+
+    #[test]
+    fn shows_and_episodes_commands_parse_from_raw_message_text() {
+        use crate::masterlist::{args_text, parse_episodes, parse_shows, Command};
+        let parse_e =
+            |content: &str| parse_episodes(&super::Bot::tokenize_quote_args(args_text(content)));
+        let parse_s =
+            |content: &str| parse_shows(&super::Bot::tokenize_quote_args(args_text(content)));
+
+        assert_eq!(parse_s("!shows"), Command::ListShows);
+        assert_eq!(
+            parse_s("!shows -add \"Space Ghost Coast to Coast\""),
+            Command::AddShow {
+                title: "Space Ghost Coast to Coast".into()
+            }
+        );
+        // Unquoted words after -add are joined into the title.
+        assert_eq!(
+            parse_s("!shows -add Space Ghost"),
+            Command::AddShow {
+                title: "Space Ghost".into()
+            }
+        );
+        assert_eq!(
+            parse_e("!episodes -show \"Space Ghost\" -episode 101"),
+            Command::CheckEpisode {
+                show: "Space Ghost".into(),
+                episode: "101".into()
+            }
+        );
+        assert_eq!(
+            parse_e("!episodes -add -show mst3k -episode 1001 The \"Big\" Pilot"),
+            Command::AddEpisode {
+                show: "mst3k".into(),
+                episode: "1001".into(),
+                title: "The Big Pilot".into()
+            }
+        );
+        assert_eq!(
+            parse_e("!Episodes -SHOW mst3k"),
+            Command::ListEpisodes {
+                show: "mst3k".into()
+            }
         );
     }
 
