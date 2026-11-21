@@ -30,6 +30,9 @@ pub async fn handle_news_interjection(
         return Ok(false);
     }
 
+    // Names of the people in the conversation, to escape if the comment echoes one.
+    let mut context_names: Vec<String> = Vec::new();
+
     // Get recent conversation context (needed both for filtering and the prompt)
     let context_text = if let Some(db) = message_db {
         match db_utils::get_recent_messages_with_reply_context(
@@ -40,6 +43,11 @@ pub async fn handle_news_interjection(
         .await
         {
             Ok(messages) => {
+                context_names = crate::display_name::names_of(
+                    messages
+                        .iter()
+                        .map(|(author, display, ..)| (author.as_str(), display.as_str())),
+                );
                 let mut chronological = messages;
                 chronological.reverse();
                 chronological
@@ -137,6 +145,7 @@ pub async fn handle_news_interjection(
 
             // Parse the response
             if let Some((headline, comment)) = parse_selection(trimmed, &available_headlines) {
+                let comment = crate::display_name::escape_names_in_text(&comment, &context_names);
                 let final_message = format!("{} {}", comment, headline.url);
 
                 if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {

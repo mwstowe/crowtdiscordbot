@@ -519,7 +519,19 @@ async fn handle_fact_interjection_common(
                     {
                         Ok(true) => {
                             info!("Fact search result validated: {}", url);
-                            let final_response = format!("{} Source: {}", display_response, url);
+                            // Escape only the text we wrote, never the source link.
+                            let names =
+                                crate::display_name::names_of(context_messages.iter().map(
+                                    |(author, display, ..)| (author.as_str(), display.as_str()),
+                                ));
+                            let final_response = format!(
+                                "{} Source: {}",
+                                crate::display_name::escape_names_in_text(
+                                    &display_response,
+                                    &names
+                                ),
+                                url
+                            );
                             send_fact_response(http, channel_id, &final_response).await;
                             if let Some(db) = message_db {
                                 if let Err(e) =

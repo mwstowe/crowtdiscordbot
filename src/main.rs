@@ -1206,6 +1206,36 @@ async fn recent_context_text(
     lines.join("\n")
 }
 
+/// Names of the people in the recent conversation, for escaping markdown in
+/// text the model writes (it echoes names like "shining_teh_" as-is, and
+/// Discord would render the underscores as italics). Empty if unavailable.
+async fn recent_context_names(
+    db: &Option<Arc<Connection>>,
+    channel_id: ChannelId,
+    limit: usize,
+) -> Vec<String> {
+    let Some(db) = db else {
+        return Vec::new();
+    };
+    match db_utils::get_recent_messages_with_reply_context(
+        db.clone(),
+        limit,
+        Some(&channel_id.to_string()),
+    )
+    .await
+    {
+        Ok(messages) => display_name::names_of(
+            messages
+                .iter()
+                .map(|(author, display, ..)| (author.as_str(), display.as_str())),
+        ),
+        Err(e) => {
+            error!("Error retrieving names for escaping: {:?}", e);
+            Vec::new()
+        }
+    }
+}
+
 /// Prompt asking the model to rate a spontaneous comment. When conversation
 /// context is available the rating is judged against it: a quip that only
 /// works as a standalone one-liner, or that refers to something not in the
@@ -2229,6 +2259,13 @@ impl Bot {
                     Vec::new()
                 };
 
+                // Names to escape in whatever the model writes back.
+                let context_names = display_name::names_of(
+                    recent_messages
+                        .iter()
+                        .map(|(author, display, ..)| (author.as_str(), display.as_str())),
+                );
+
                 // Format messages for context
                 let context = if !recent_messages.is_empty() {
                     let mut formatted_messages = Vec::new();
@@ -2323,6 +2360,8 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                             if let Some((text, gif_url)) =
                                 giphy_client.try_resolve_embedded_gif(&response).await
                             {
+                                let text =
+                                    display_name::escape_names_in_text(&text, &context_names);
                                 if !text.is_empty() {
                                     apply_realistic_delay(&text, ctx, msg.channel_id).await;
                                     if let Err(e) = msg.channel_id.say(&ctx.http, &text).await {
@@ -2342,6 +2381,10 @@ Keep it extremely brief and natural, as if you're just briefly pondering the con
                                 return Ok(());
                             }
                         }
+
+                        // The model may echo a name; make sure Discord renders it literally.
+                        let response =
+                            display_name::escape_names_in_text(&response, &context_names);
 
                         // Start typing indicator
                         if let Err(e) = msg.channel_id.broadcast_typing(&ctx.http).await {
@@ -4302,6 +4345,22 @@ Be creative but realistic with your article title and URL."#)
                                 }
                             } else {
                                 true // No Gemini client, send anyway
+                            };
+
+                            // Whatever the model wrote is escaped here, at the one place
+                            // spontaneous text is sent, so no interjection type can skip it
+                            // (a name like "shining_teh_" would otherwise render as italics).
+                            // Fact interjections (type 4) send, and escape, themselves.
+                            let message = if should_send {
+                                let names = recent_context_names(
+                                    &message_db_clone,
+                                    *channel_id,
+                                    parsed_config.gemini_context_messages,
+                                )
+                                .await;
+                                display_name::escape_names_in_text(&message, &names)
+                            } else {
+                                message
                             };
 
                             if !should_send {
