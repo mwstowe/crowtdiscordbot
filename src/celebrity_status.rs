@@ -545,6 +545,62 @@ async fn search_actor(name: &str, client: &Client) -> Result<Option<String>> {
     Ok(Some(actor_info))
 }
 
+/// Words in a query that need not appear in the matching page title.
+const NAME_FILLER_WORDS: &[&str] = &[
+    "the",
+    "sir",
+    "dame",
+    "dr",
+    "mr",
+    "mrs",
+    "ms",
+    "miss",
+    "lord",
+    "lady",
+    "prof",
+    "professor",
+];
+
+/// Lowercase a string and fold common accented Latin letters to ASCII, so that
+/// "Beyonce" matches "Beyoncé".
+fn fold_accents(s: &str) -> String {
+    s.to_lowercase()
+        .chars()
+        .map(|c| match c {
+            'à' | 'á' | 'â' | 'ã' | 'ä' | 'å' | 'ā' => 'a',
+            'ç' | 'ć' | 'č' => 'c',
+            'è' | 'é' | 'ê' | 'ë' | 'ē' | 'ė' | 'ę' => 'e',
+            'ì' | 'í' | 'î' | 'ï' | 'ī' => 'i',
+            'ñ' | 'ń' => 'n',
+            'ò' | 'ó' | 'ô' | 'õ' | 'ö' | 'ø' | 'ō' => 'o',
+            'š' | 'ś' => 's',
+            'ù' | 'ú' | 'û' | 'ü' | 'ū' => 'u',
+            'ý' | 'ÿ' => 'y',
+            'ž' | 'ź' | 'ż' => 'z',
+            other => other,
+        })
+        .collect()
+}
+
+fn name_words(s: &str) -> Vec<String> {
+    fold_accents(s)
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .map(String::from)
+        .collect()
+}
+
+/// True if every significant word of `query` appears as a whole word in `title`
+/// (e.g. "Andy Taylor" matches "Andy Taylor (guitarist)" but not "Andy Weir").
+fn title_matches_query(title: &str, query: &str) -> bool {
+    let title_words = name_words(title);
+    let required: Vec<String> = name_words(query)
+        .into_iter()
+        .filter(|w| !NAME_FILLER_WORDS.contains(&w.as_str()))
+        .collect();
+    !required.is_empty() && required.iter().all(|w| title_words.contains(w))
+}
+
 async fn search_celebrity(name: &str) -> Result<Option<(String, Option<String>)>> {
     const MAX_RETRIES: usize = 5;
     const INITIAL_DELAY_MS: u64 = 1000; // 1 second
@@ -687,7 +743,9 @@ async fn search_celebrity_attempt(
                 || title.contains("(character)")
                 || title.contains("(film)");
 
-            if has_bio_indicator && !looks_fictional {
+            // The page title must actually resemble the requested name, otherwise a
+            // search for "Andy Taylor" can land on "Andy Weir" via a bio-sounding snippet.
+            if has_bio_indicator && !looks_fictional && title_matches_query(title, name) {
                 info!("Found biographical result: {}", title);
                 best_title = Some(title);
                 break;
@@ -695,17 +753,21 @@ async fn search_celebrity_attempt(
         }
     }
 
-    // Fall back to first result if no biographical match found
+    // Fall back to the first result whose title matches the query. If none match,
+    // report "not found" rather than answering about the wrong person.
     let page_title = match best_title {
         Some(title) => title,
         None => match search_results
-            .first()
-            .and_then(|r| r.get("title"))
-            .and_then(|t| t.as_str())
+            .iter()
+            .filter_map(|r| r.get("title").and_then(|t| t.as_str()))
+            .find(|title| title_matches_query(title, name))
         {
             Some(title) => title,
             None => {
-                info!("No search results found for: {}", name);
+                info!(
+                    "No search result title matches '{}'; refusing to guess",
+                    name
+                );
                 return Ok(None);
             }
         },
@@ -2190,5 +2252,36 @@ mod tests {
     fn missing_instance_of_is_empty() {
         let claims: serde_json::Value = serde_json::json!({ "P569": [] });
         assert!(extract_instance_of_ids(&claims).is_empty());
+    }
+
+    #[test]
+    fn title_must_contain_every_query_word() {
+        // The reported bug: "Andy Taylor" resolved to Andy Weir.
+        assert!(!title_matches_query("Andy Weir", "Andy Taylor"));
+        assert!(title_matches_query(
+            "Andy Taylor (guitarist)",
+            "Andy Taylor"
+        ));
+        assert!(title_matches_query("Andy Taylor", "andy taylor"));
+        // A typo'd first name must not silently become a different person.
+        assert!(!title_matches_query("Taylor Swift", "Any Taylor"));
+    }
+
+    #[test]
+    fn honorifics_and_accents_do_not_block_a_match() {
+        assert!(title_matches_query(
+            "Patrick Stewart",
+            "Sir Patrick Stewart"
+        ));
+        assert!(title_matches_query("Beyoncé", "Beyonce"));
+        assert!(title_matches_query("Anya Taylor-Joy", "Anya Taylor Joy"));
+        assert!(title_matches_query("Robert Downey Jr.", "Robert Downey Jr"));
+        assert!(title_matches_query("Conan O'Brien", "conan o'brien"));
+    }
+
+    #[test]
+    fn filler_only_query_matches_nothing() {
+        assert!(!title_matches_query("The Rock", "the"));
+        assert!(!title_matches_query("Anything", ""));
     }
 }
