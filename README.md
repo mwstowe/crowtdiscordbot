@@ -281,8 +281,11 @@ Notes:
   title (case-insensitive) first, then by words that appear in order in the title. If
   more than one show matches (`MST3K` also appears in `MST3K60m`), the bot asks for a
   more specific name rather than guessing.
-- The production tables use the `latin1` character set, so emoji and most non-Latin
-  scripts can't be stored; the bot reports this instead of altering the text.
+- The tables use `utf8mb4` / `utf8mb4_unicode_ci`, so emoji and any script can be
+  stored. Comparisons ignore case and accents (`cafe` finds `Café`). They were
+  converted from `latin1` by `migrations/2026-11-utf8mb4.sql`, which also repaired
+  text that had been stored double-encoded; `migrations/2026-11-utf8mb4-rollback.sql`
+  undoes it while the backup tables exist.
 - Anyone who can run bot commands can add shows, episodes, and quotes.
 
 #### Running the database tests

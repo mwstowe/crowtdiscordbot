@@ -61,7 +61,6 @@ Good to know\n\
 - Put anything with spaces in \"double quotes\".\n\
 - A show name can be shortened if it only matches one show. If it matches several (MST3K and MST3K60m), I'll list them so you can be more specific.\n\
 - Episode codes are up to 10 characters with no spaces (0101, K00, S01, SP-3). Match the style of the show's existing codes.\n\
-- Emoji and most non-Latin scripts can't be stored.\n\
 - There is no delete command, so double-check before adding.";
 
 /// Is this the topic word in `!help <topic>` that should show [`QUOTES_HELP`]?
@@ -599,9 +598,11 @@ const ER_TRUNCATED_WRONG_VALUE_FOR_FIELD: u16 = 1366;
 /// MySQL error 1267: comparing text to a column whose charset can't represent it.
 const ER_CANT_AGGREGATE_2COLLATIONS: u16 = 1267;
 
-/// The masterlist tables are `latin1`, so emoji and most non-Western text are
-/// rejected (the server runs in strict mode, so nothing is silently altered).
-/// A store fails with 1366 and a comparison with 1267; both mean the same to the user.
+/// The masterlist tables are utf8mb4 (see migrations/2026-11-utf8mb4.sql), so
+/// any valid text fits. These errors only appear if the columns can't hold the
+/// text, e.g. a server whose tables were not converted. The server runs in strict
+/// mode, so nothing is silently altered: a store fails with 1366 and a comparison
+/// with 1267, and both mean the same to the user.
 fn describe_db_error(e: &mysql::Error) -> String {
     match e {
         mysql::Error::MySqlError(me)
@@ -610,9 +611,7 @@ fn describe_db_error(e: &mysql::Error) -> String {
                 ER_TRUNCATED_WRONG_VALUE_FOR_FIELD | ER_CANT_AGGREGATE_2COLLATIONS
             ) =>
         {
-            "That text has characters the database can't handle (it uses a Western-European \
-             character set, so emoji and many non-Latin scripts aren't supported)."
-                .to_string()
+            "That text has characters the quote database can't store.".to_string()
         }
         _ => "The quote database returned an error.".to_string(),
     }
@@ -706,7 +705,7 @@ pub(crate) mod test_support {
         _guard: MutexGuard<'static, ()>,
     }
 
-    /// The production table definitions (MyISAM, latin1, no unique key on
+    /// The production table definitions (MyISAM, utf8mb4 since migrations/2026-11-utf8mb4.sql, no unique key on
     /// `(show_id, show_ep)`), seeded with a few rows.
     pub fn fresh_db() -> TestDb {
         let guard = DB_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -735,7 +734,7 @@ pub(crate) mod test_support {
                 show_shorts tinyint(1) DEFAULT NULL,
                 active tinyint(1) DEFAULT NULL,
                 PRIMARY KEY (show_id)
-            ) ENGINE=MyISAM DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci",
+            ) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
             "CREATE TABLE masterlist_episodes (
                 episode_id int(8) NOT NULL AUTO_INCREMENT,
                 show_id int(4) unsigned NOT NULL DEFAULT 0,
@@ -751,7 +750,7 @@ pub(crate) mod test_support {
                 list_in_ap tinyint(3) unsigned NOT NULL DEFAULT 0,
                 PRIMARY KEY (episode_id),
                 KEY masterlist_episodes_show_id_show_ep (show_id, show_ep)
-            ) ENGINE=MyISAM DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci",
+            ) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
             "CREATE TABLE masterlist_quotes (
                 quote_id int(10) unsigned NOT NULL AUTO_INCREMENT,
                 show_id int(4) unsigned NOT NULL DEFAULT 0,
@@ -761,7 +760,7 @@ pub(crate) mod test_support {
                 quote text NOT NULL,
                 ap_quote_id int(10) unsigned DEFAULT NULL,
                 PRIMARY KEY (quote_id)
-            ) ENGINE=MyISAM DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci",
+            ) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
             // MST3K is a prefix of MST3K60m, like production.
             "INSERT INTO masterlist_shows (show_id, show_title) VALUES
                 (1, 'MST3K'), (2, 'MST3K60m'), (3, 'SG'), (4, 'ATHF')",
@@ -1349,43 +1348,59 @@ mod tests {
 
     #[test]
     #[ignore = "needs CROW_TEST_MYSQL_URL (scratch database named crow_test*)"]
-    fn db_unstorable_characters_are_reported_not_mangled() {
+    fn db_emoji_and_non_latin_text_round_trip() {
         let db = fresh_db();
-        let out = run_cmd(
-            &db.pool,
-            Command::AddShow {
-                title: "Smile \u{1F600}".into(),
-            },
-        );
-        assert!(out.contains("can't handle"), "{out}");
-        assert_eq!(show_count(&db.pool, "Smile ?"), 0);
+        // Read the exact bytes back: a lossy store would turn the emoji into "?".
+        let stored_title = |pool: &Pool, like: &str| -> Option<String> {
+            let mut conn = pool.get_conn().unwrap();
+            conn.exec_first(
+                "SELECT show_title FROM masterlist_shows WHERE show_title LIKE ? LIMIT 1",
+                (like,),
+            )
+            .unwrap()
+        };
+
+        for title in [
+            "Smile \u{1F600}",
+            "\u{65E5}\u{672C}\u{8A9E}",
+            "Caf\u{E9} \u{2019}n\u{2019} Co",
+        ] {
+            let out = run_cmd(
+                &db.pool,
+                Command::AddShow {
+                    title: title.into(),
+                },
+            );
+            assert!(out.starts_with("Added show"), "{title}: {out}");
+            assert_eq!(stored_title(&db.pool, title).as_deref(), Some(title));
+        }
+
         let out = run_cmd(
             &db.pool,
             Command::AddEpisode {
                 show: "sg".into(),
                 episode: "1".into(),
-                title: "\u{1F600}".into(),
+                title: "Moon \u{1F315} landing".into(),
             },
         );
-        assert!(out.contains("can't handle"), "{out}");
-        assert_eq!(episode_count(&db.pool, 3, "1"), 0);
-        // Looking up by such text is explained too, rather than a vague failure.
+        assert!(out.starts_with("Added SG episode 1"), "{out}");
+        let mut conn = db.pool.get_conn().unwrap();
+        let title: Option<String> = conn
+            .exec_first(
+                "SELECT title FROM masterlist_episodes WHERE show_id = 3 AND show_ep = '1'",
+                (),
+            )
+            .unwrap();
+        assert_eq!(title.as_deref(), Some("Moon \u{1F315} landing"));
+
+        // Looking up a show by emoji is an ordinary miss, not a database error.
         let out = run_cmd(
             &db.pool,
             Command::ListEpisodes {
-                show: "\u{1F600}".into(),
+                show: "\u{1F600}\u{1F600}".into(),
             },
         );
-        assert!(out.contains("can't handle"), "{out}");
-
-        // Characters latin1 (cp1252) can hold are accepted as-is.
-        let out = run_cmd(
-            &db.pool,
-            Command::AddShow {
-                title: "Café \u{2019}n\u{2019} Co".into(),
-            },
-        );
-        assert!(out.starts_with("Added show"), "{out}");
+        assert!(!out.contains("can't handle"), "{out}");
     }
 
     #[test]
