@@ -41,6 +41,7 @@ mod news_feed;
 mod news_interjection;
 mod news_verification;
 mod prompt_templates;
+mod quote_edit;
 mod rate_limiter;
 mod response_timing;
 mod text_formatting;
@@ -252,7 +253,7 @@ pub struct BotConfig {
 fn build_help_message(include_imagine: bool) -> String {
     let mut lines = vec![
         "Available commands:",
-        "!help - Show help (!help quotes explains how to add quotes, shows & episodes)",
+        "!help - Show help (!help quotes explains adding and fixing quotes, shows & episodes)",
         "!hello - Say hello",
         "!buzz - Generate corporate buzzwords",
         "!fightcrime - Generate a crime fighting duo",
@@ -264,6 +265,10 @@ fn build_help_message(include_imagine: bool) -> String {
         "!quote -show [show] [term] - Get quote from a show containing a term",
         "!quote -dud [user] - Get random message from a user",
         "!quote -add -show [show] -episode [ep] [quote] - Add a quote (show & episode must exist)",
+        "!quote -id [term] - Get a random quote with its number; !quote -id [number] gets that quote",
+        "!quote -edit [number] [text] [-show show] [-episode ep] - Edit a quote's text or episode",
+        "!quote -undo [number] - Undo a quote's latest edit",
+        "!quote -history [number] - List a quote's recent edits",
         "!shows - List valid shows",
         "!shows -add [title] - Add a show",
         "!episodes -show [show] - List a show's episodes",
@@ -791,7 +796,7 @@ impl Bot {
         }
 
         self.db_manager
-            .query_random_entry(http, msg, search_term, None, "slogan")
+            .query_random_entry(http, msg, search_term, None, "slogan", false)
             .await
     }
 
@@ -845,10 +850,30 @@ impl Bot {
         // Parse arguments
         let mut search_term = None;
         let mut show_name = None;
+        let mut show_ids = false;
 
         let mut i = 0;
         while i < args.len() {
-            if args[i] == "-show" && i + 1 < args.len() {
+            if args[i] == "-id" {
+                // A number right after -id is a quote number; otherwise -id only
+                // adds numbers to the output.
+                if let Some(id) = args
+                    .get(i + 1)
+                    .and_then(|a| quote_edit::parse_quote_number(a))
+                {
+                    let command = if args.len() == 2 {
+                        quote_edit::Command::Show { id }
+                    } else {
+                        quote_edit::Command::Invalid(format!(
+                            "A quote number can't be combined with a search or -show. Try !quote -id {id}"
+                        ))
+                    };
+                    return quote_edit::handle(&self.db_manager, None, http, msg, None, command)
+                        .await;
+                }
+                show_ids = true;
+                i += 1;
+            } else if args[i] == "-show" && i + 1 < args.len() {
                 // Treat only the first word after -show as the show name.
                 // Any subsequent non-flag words fall through to the search term,
                 // so `!quote -show mst3k clown` filters by show "mst3k" AND term "clown".
@@ -886,7 +911,7 @@ impl Bot {
 
         // Pass both search term and show name to the database manager
         self.db_manager
-            .query_random_entry(http, msg, search_term, show_name, "quote")
+            .query_random_entry(http, msg, search_term, show_name, "quote", show_ids)
             .await
     }
 
@@ -1592,7 +1617,34 @@ impl Bot {
                         }
                     }
                     "quote" => {
-                        if args.contains(&"-dud") {
+                        if quote_edit::mentions_action(args) {
+                            let tokens =
+                                Self::tokenize_quote_args(masterlist::args_text(&msg.content));
+                            let command = quote_edit::parse_edit_command(&tokens);
+                            let editor = quote_edit::Editor {
+                                id: msg.author.id.to_string(),
+                                name: get_best_display_name(ctx, msg).await,
+                            };
+                            if let Err(e) = quote_edit::handle(
+                                &self.db_manager,
+                                self.message_db.clone(),
+                                &ctx.http,
+                                msg,
+                                Some(editor),
+                                command,
+                            )
+                            .await
+                            {
+                                error!("Error handling quote edit command: {:?}", e);
+                                if let Err(e) = msg
+                                    .channel_id
+                                    .say(&ctx.http, "Error editing the quote")
+                                    .await
+                                {
+                                    error!("Error sending error message: {:?}", e);
+                                }
+                            }
+                        } else if args.contains(&"-dud") {
                             let username_index =
                                 args.iter().position(|&r| r == "-dud").unwrap() + 1;
                             let username = if username_index < args.len() {
@@ -3671,6 +3723,10 @@ Keep it brief and natural, as if you're just another participant in the conversa
         if let Err(e) = db_utils::initialize_fact_topics_table(db).await {
             error!("Failed to initialize fact_topics table: {:?}", e);
         }
+        // The quote edit log; without it !quote -edit and -undo are refused.
+        if let Err(e) = quote_edit::initialize_log_table(db).await {
+            error!("Failed to initialize quote_edits table: {:?}", e);
+        }
         // Clean up entries older than 30 days
         match db_utils::cleanup_old_posted_news(db, 30).await {
             Ok(count) if count > 0 => info!("Cleaned up {} old posted news entries", count),
@@ -4534,6 +4590,35 @@ mod tests {
             assert!(valid(episodes(example)), "{example}");
         }
         assert!(QUOTES_HELP.contains("!quote -add -show MST3K -episode 0101 \"The quote text\""));
+
+        // The quote-fixing examples parse as the command they describe.
+        use crate::quote_edit::{parse_edit_command, Command as Edit};
+        let edit = |s: &str| parse_edit_command(&super::Bot::tokenize_quote_args(args_text(s)));
+        for (example, expected) in [
+            (
+                "!quote -edit 1234 \"The corrected text\"",
+                Edit::Edit {
+                    id: 1234,
+                    text: Some("The corrected text".into()),
+                    show: None,
+                    episode: None,
+                },
+            ),
+            (
+                "!quote -edit 1234 -show MST3K -episode 0102",
+                Edit::Edit {
+                    id: 1234,
+                    text: None,
+                    show: Some("MST3K".into()),
+                    episode: Some("0102".into()),
+                },
+            ),
+            ("!quote -undo 1234", Edit::Undo { id: 1234 }),
+            ("!quote -history 1234", Edit::History { id: 1234 }),
+        ] {
+            assert!(QUOTES_HELP.contains(example), "walkthrough lost {example}");
+            assert_eq!(edit(example), expected, "{example}");
+        }
 
         // The examples inside the usage messages are valid too.
         assert!(valid(shows("!shows -add \"Space Ghost\"")));

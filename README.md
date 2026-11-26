@@ -77,7 +77,12 @@ A Discord bot that follows specific channels and responds to various triggers in
 - `!quote -show [show]` - Get quote from specific show
 - `!quote -show [show] [term]` - Get a random quote from a specific show containing a term
 - `!quote -add -show [show] -episode [ep] [quote]` - Add a new quote (all three elements required; the show and episode must already exist)
-- `!help quotes` - Step-by-step guide to adding a quote, show, or episode
+- `!quote -id [term]` - Get a random quote labelled with its number, e.g. `(Quote #1234, 5 of 300)`. Combines with `-show`. Without `-id`, numbers aren't shown.
+- `!quote -id [number]` - Get one quote by its number (`1234` or `#1234`)
+- `!quote -edit [number] [text] [-show show] [-episode ep]` - Change a quote's text, move it to another episode, or both. The reply shows the old and new text.
+- `!quote -undo [number]` - Undo the most recent edit of a quote; run it again to undo the edit before that
+- `!quote -history [number]` - List a quote's five most recent edits and undos, with who made them and when
+- `!help quotes` - Step-by-step guide to adding and fixing a quote, show, or episode
 - `!shows` - List every show with its episode count
 - `!shows -add [title]` - Add a show (quote the title if you like: `!shows -add "Space Ghost"`)
 - `!episodes -show [show]` - List a show's episodes
@@ -233,6 +238,10 @@ The bot automatically manages its message history:
 4. The trim interval can be configured with `DB_TRIM_INTERVAL_SECS` (defaults to 3600 seconds / 1 hour)
 5. Existing databases are automatically migrated to the enhanced schema
 
+The same SQLite file also holds the quote edit log (`quote_edits`, see
+[Editing quotes](#editing-quotes)), the bot's rate-limit counters and the topics of
+recent fact interjections.
+
 ### Quote Database Tables
 
 The quote system uses MySQL and requires three related tables. Only the columns
@@ -286,7 +295,29 @@ Notes:
   converted from `latin1` by `migrations/2026-11-utf8mb4.sql`, which also repaired
   text that had been stored double-encoded; `migrations/2026-11-utf8mb4-rollback.sql`
   undoes it while the backup tables exist.
-- Anyone who can run bot commands can add shows, episodes, and quotes.
+- Anyone who can run bot commands can add shows, episodes, and quotes, and can
+  edit or undo edits to quotes. There is no delete command.
+
+#### Editing quotes
+
+`!quote -edit` changes a quote in place (same number). A new show or episode must
+already exist, the same as for `-add`. A text-only edit leaves the episode alone,
+so old quotes whose episode was never listed can still be fixed. The quote's
+`time` column keeps its original value.
+
+Every edit and undo is recorded in the bot's SQLite database, in the `quote_edits`
+table, with the old and new text and episode, who made it and when. That record is
+what makes `!quote -undo` and `!quote -history` possible:
+
+- The record is written before the quote is changed, and removed if the change
+  doesn't happen. If it can't be written, the edit is refused, because it could
+  never be undone. Without the SQLite database the edit commands are unavailable.
+- An edit or undo only goes through if the quote still holds exactly what the bot
+  read (compared byte for byte, since the column collation ignores case and
+  accents). If someone changed it in the meantime, the bot says so and changes
+  nothing. In particular, undo never overwrites a later change made outside the bot.
+- Undo restores the most recent edit that hasn't been undone. Each undo is itself
+  recorded, so an unwanted undo can be fixed with another edit.
 
 #### Running the database tests
 

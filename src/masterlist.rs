@@ -57,6 +57,13 @@ pub const QUOTES_HELP: &str = "Adding a quote (it needs a show and an episode th
 4. Episode missing? !episodes -add -show MST3K -episode 1001 \"Episode title\" (the title is optional)\n\
 5. Add the quote: !quote -add -show MST3K -episode 0101 \"The quote text\"\n\
 \n\
+Fixing a quote\n\
+1. Find its number: !quote -id <search> shows numbers. !quote -id 1234 shows one quote.\n\
+2. Fix the text: !quote -edit 1234 \"The corrected text\"\n\
+3. Or move it: !quote -edit 1234 -show MST3K -episode 0102\n\
+4. Made a mistake? !quote -undo 1234 reverses the latest edit (run it again to go back further).\n\
+5. !quote -history 1234 lists recent edits and who made them.\n\
+\n\
 Good to know\n\
 - Put anything with spaces in \"double quotes\".\n\
 - A show name can be shortened if it only matches one show. If it matches several (MST3K and MST3K60m), I'll list them so you can be more specific.\n\
@@ -67,7 +74,15 @@ Good to know\n\
 pub fn is_quotes_help_topic(topic: &str) -> bool {
     matches!(
         topic.to_lowercase().as_str(),
-        "quotes" | "quote" | "shows" | "show" | "episodes" | "episode"
+        "quotes"
+            | "quote"
+            | "shows"
+            | "show"
+            | "episodes"
+            | "episode"
+            | "edit"
+            | "undo"
+            | "history"
     )
 }
 
@@ -603,7 +618,7 @@ const ER_CANT_AGGREGATE_2COLLATIONS: u16 = 1267;
 /// text, e.g. a server whose tables were not converted. The server runs in strict
 /// mode, so nothing is silently altered: a store fails with 1366 and a comparison
 /// with 1267, and both mean the same to the user.
-fn describe_db_error(e: &mysql::Error) -> String {
+pub(crate) fn describe_db_error(e: &mysql::Error) -> String {
     match e {
         mysql::Error::MySqlError(me)
             if matches!(
@@ -1008,7 +1023,9 @@ mod tests {
 
     #[test]
     fn help_topic_words() {
-        for t in ["quotes", "QUOTE", "shows", "episodes", "Episode"] {
+        for t in [
+            "quotes", "QUOTE", "shows", "episodes", "Episode", "edit", "Undo", "history",
+        ] {
             assert!(is_quotes_help_topic(t), "{t}");
         }
         assert!(!is_quotes_help_topic("imagine"));

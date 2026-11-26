@@ -24,6 +24,7 @@ enum QueryResult {
     },
     /// A quote was found
     Quote {
+        quote_id: u64,
         quote_text: String,
         show_title: String,
         episode_num: String,
@@ -167,6 +168,7 @@ impl DatabaseManager {
 
     /// Execute the blocking MySQL query on a dedicated thread, then send the
     /// result back to the async context for Discord message delivery.
+    /// `show_ids` labels a quote with its number (`!quote -id`).
     pub async fn query_random_entry(
         &self,
         http: &Http,
@@ -174,6 +176,7 @@ impl DatabaseManager {
         search_term: Option<String>,
         show_name: Option<String>,
         entry_type: &str,
+        show_ids: bool,
     ) -> Result<()> {
         let entry_type_owned = entry_type.to_string();
         let pool = self.pool.clone();
@@ -232,6 +235,7 @@ impl DatabaseManager {
                 msg.reply(http, message).await?;
             }
             QueryResult::Quote {
+                quote_id,
                 quote_text,
                 show_title,
                 episode_num,
@@ -241,10 +245,15 @@ impl DatabaseManager {
             } => {
                 let clean_quote = html_escape::decode_html_entities(&quote_text);
                 let quote_num = quote_index + 1;
+                let label = if show_ids {
+                    format!("Quote #{quote_id}, {quote_num} of {total}")
+                } else {
+                    format!("Quote {quote_num} of {total}")
+                };
                 msg.reply(
                     http,
                     format!(
-                        "(Quote {quote_num} of {total}) {clean_quote} -- {show_title} {episode_num}: {episode_title}"
+                        "({label}) {clean_quote} -- {show_title} {episode_num}: {episode_title}"
                     ),
                 )
                 .await?;
@@ -394,26 +403,32 @@ impl DatabaseManager {
             random_index, total_entries
         );
 
-        let select_query = "SELECT quote, show_title, masterlist_episodes.show_ep, title \
+        // Order by id so the offset picks a well-defined row; without ORDER BY the
+        // server may return rows in any order.
+        let select_query = "SELECT masterlist_quotes.quote_id, quote, show_title, masterlist_episodes.show_ep, title \
                            FROM masterlist_quotes, masterlist_episodes, masterlist_shows \
                            WHERE masterlist_episodes.show_id = masterlist_shows.show_id \
                            AND masterlist_quotes.show_id = masterlist_shows.show_id \
                            AND masterlist_quotes.show_ep = masterlist_episodes.show_ep \
                            AND quote LIKE ? AND show_title LIKE ? \
+                           ORDER BY masterlist_quotes.quote_id, masterlist_episodes.episode_id \
                            LIMIT ?, 1";
 
-        match conn.exec_first::<(String, String, String, String), _, _>(
+        match conn.exec_first::<(u64, String, String, String, String), _, _>(
             select_query,
             (where_clause, show_clause, random_index),
         ) {
-            Ok(Some((quote_text, show_title, episode_num, episode_title))) => QueryResult::Quote {
-                quote_text,
-                show_title,
-                episode_num,
-                episode_title,
-                quote_index: random_index,
-                total: total_entries,
-            },
+            Ok(Some((quote_id, quote_text, show_title, episode_num, episode_title))) => {
+                QueryResult::Quote {
+                    quote_id,
+                    quote_text,
+                    show_title,
+                    episode_num,
+                    episode_title,
+                    quote_index: random_index,
+                    total: total_entries,
+                }
+            }
             Ok(None) => {
                 error!(
                     "Query returned no results despite count being {}",
@@ -771,5 +786,42 @@ mod tests {
             AddResult::EpisodeNotFound { .. }
         ));
         assert_eq!(quote_count(&db.pool), 1);
+    }
+
+    #[test]
+    #[ignore = "needs CROW_TEST_MYSQL_URL (scratch database named crow_test*)"]
+    fn db_random_quote_reports_its_number() {
+        let db = fresh_db();
+        let mut conn = db.pool.get_conn().unwrap();
+        for text in ["alpha clown", "beta", "gamma clown"] {
+            conn.exec_drop(
+                "INSERT INTO masterlist_quotes (show_id, show_ep, quote) VALUES (1, '0101', ?)",
+                (text,),
+            )
+            .unwrap();
+        }
+        let gamma: u64 = conn
+            .query_first("SELECT quote_id FROM masterlist_quotes WHERE quote = 'gamma clown'")
+            .unwrap()
+            .unwrap();
+        // Only one quote matches, so the random pick is determined.
+        match DatabaseManager::query_quote(
+            &mut conn,
+            "%gamma%".into(),
+            "%".into(),
+            Some("gamma".into()),
+            None,
+        ) {
+            QueryResult::Quote {
+                quote_id,
+                quote_text,
+                total,
+                ..
+            } => assert_eq!(
+                (quote_id, quote_text.as_str(), total),
+                (gamma, "gamma clown", 1)
+            ),
+            _ => panic!("expected a quote"),
+        }
     }
 }
